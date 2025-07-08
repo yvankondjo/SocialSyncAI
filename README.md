@@ -1,1 +1,1 @@
-# SocialSync-AI
+# SocialSyncAI

@@ -1,0 +1,27 @@
+# Dépendances locales à exclure du build
+node_modules
+
+# Répertoires de build Next.js / Vite / etc.
+.next
+dist
+build
+
+# Fichiers de configuration inutiles
+.env*
+.vscode
+.idea
+
+# Contrôle de version
+.git 
+
+# Fichiers temporaires
+*.log
+.DS_Store
+
+# Autres fichiers inutiles
+.vscode
+.gitignore
+.env.example
+.env.local
+.env.development.local
+.env.test.local

@@ -1,0 +1,19 @@
+# FastAPI
+fastapi
+uvicorn[standard]
+
+# Database (Postgres)
+psycopg2-binary
+
+# Celery (Task Queue)
+celery
+redis
+
+# Supabase
+supabase
+
+# Vector Database Support
+pgvector
+
+# For .env file management
+python-dotenv 

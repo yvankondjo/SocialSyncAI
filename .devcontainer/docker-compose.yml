@@ -1,0 +1,45 @@
+version: "3.9"
+
+services:
+  # conteneur VS Code – full-stack
+  dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspace:cached
+    command: sleep infinity
+    ports:
+      - "8000:8000"         # FastAPI (lancé depuis VS Code)
+      - "3000:3000"         # Next.js (lancé depuis VS Code)
+    depends_on:
+      - redis
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    volumes:
+      - ..:/workspace:cached
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8001:8000"         # exécution autonome si besoin
+    depends_on:
+      - redis
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    volumes:
+      - ..:/workspace:cached
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"

@@ -1,19 +1,29 @@
-# FastAPI
+# FastAPI et dépendances principales
 fastapi
 uvicorn[standard]
+python-multipart
 
-# Database (Postgres)
+# Base de données
+sqlalchemy
+asyncpg
+alembic
 psycopg2-binary
 
-# Celery (Task Queue)
-celery
-redis
+# Analytics et HTTP
+httpx
+apscheduler
 
-# Supabase
-supabase
+# Authentification et sécurité
+passlib[bcrypt]
+python-decouple
+python-dotenv
+python-jose[cryptography]
 
-# Vector Database Support
-pgvector
 
-# For .env file management
-python-dotenv 
+sentry-sdk
+structlog
+
+
+pytest
+pytest-asyncio
+pydantic

@@ -187,7 +187,25 @@ CREATE POLICY "Users can manage their content" ON content FOR ALL USING (
     )
 ); 
 
--- Même chose pour ai_insights (ajouter user_id, migrer, drop org_id) 
+-- RLS policies for analytics table
+CREATE POLICY "Users can view their analytics" ON analytics FOR SELECT USING (
+    auth.uid() IN (
+        SELECT sa.user_id FROM social_accounts sa 
+        JOIN content c ON c.social_account_id = sa.id 
+        WHERE c.id = content_id
+    )
+);
+CREATE POLICY "Users can manage their analytics" ON analytics FOR ALL USING (
+    auth.uid() IN (
+        SELECT sa.user_id FROM social_accounts sa 
+        JOIN content c ON c.social_account_id = sa.id 
+        WHERE c.id = content_id
+    )
+);
+
+-- RLS policies for ai_insights table
+CREATE POLICY "Users can view their ai_insights" ON ai_insights FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can manage their ai_insights" ON ai_insights FOR ALL USING (auth.uid() = user_id);
 
 -- Trigger to auto-set published_at when status devient 'published'
 CREATE OR REPLACE FUNCTION set_published_at()

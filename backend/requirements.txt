@@ -7,17 +7,20 @@ python-multipart==0.0.6
 sqlalchemy==2.0.23
 asyncpg==0.29.0
 alembic==1.12.1
+psycopg2-binary==2.9.9
 
 # Analytics et HTTP
 httpx==0.25.2
 apscheduler==3.10.4
 
 # Authentification et sécurité
-python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-decouple==3.8
+python-dotenv
+python-jose[cryptography]
 
 # Logging et monitoring
+sentry-sdk==1.45.0
 structlog==23.2.0
 
 # Développement

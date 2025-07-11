@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db
+from app.db.session import get_db
 from app.services.analytics_service import analytics_service
-from app.auth import get_current_user
-from app.models import User
-from typing import Dict
+from app.core.security import get_current_user
+from typing import Dict, Any
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -12,9 +11,10 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 async def sync_content_analytics(
     content_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Synchronise les analytics d'un contenu spécifique"""
+    # L'ID utilisateur est dans `current_user['sub']`, nous pouvons le passer au service si nécessaire
     result = await analytics_service.sync_content_analytics(db, content_id)
     
     if "error" in result:
@@ -28,11 +28,11 @@ async def sync_user_analytics(
     days: int = 7,
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Synchronise tous les analytics d'un utilisateur (tâche en arrière-plan)"""
     # Vérifier que l'utilisateur peut accéder à ces données
-    if str(current_user.id) != user_id and current_user.role != 'admin':
+    if current_user['sub'] != user_id and current_user.get('role') != 'admin':
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Lancer la sync en arrière-plan
@@ -50,7 +50,7 @@ async def get_analytics_history(
     content_id: str,
     days: int = 30,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Récupère l'historique des analytics d'un contenu"""
     from datetime import datetime, timedelta
@@ -63,7 +63,7 @@ async def get_analytics_history(
         select(AnalyticsHistory)
         .where(
             AnalyticsHistory.content_id == content_id,
-            AnalyticsHistory.user_id == str(current_user.id),
+            AnalyticsHistory.user_id == current_user['sub'],
             AnalyticsHistory.recorded_at >= cutoff_date
         )
         .order_by(AnalyticsHistory.recorded_at.desc())
@@ -96,10 +96,10 @@ async def get_analytics_trends(
     user_id: str,
     days: int = 30,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Récupère les tendances analytics d'un utilisateur"""
-    if str(current_user.id) != user_id and current_user.role != 'admin':
+    if current_user['sub'] != user_id and current_user.get('role') != 'admin':
         raise HTTPException(status_code=403, detail="Access denied")
     
     from datetime import datetime, timedelta

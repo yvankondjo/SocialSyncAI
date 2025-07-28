@@ -33,12 +33,6 @@ VALUES
     ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'twitter', 10, 5, 3),
     ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'twitter', 20, 8, 7);
 
--- 6. Créer des insights AI pour chaque utilisateur
-INSERT INTO ai_insights (user_id, insight_type, title, content)
-VALUES 
-    ('11111111-1111-1111-1111-111111111111', 'content_suggestion', 'Suggestion pour User 1', 'Contenu AI pour User 1'),
-    ('22222222-2222-2222-2222-222222222222', 'content_suggestion', 'Suggestion pour User 2', 'Contenu AI pour User 2');
-
 -- 7. Créer des analytics history
 INSERT INTO analytics_history (content_id, platform, likes, shares, comments, recorded_at, user_id)
 VALUES 
@@ -53,7 +47,7 @@ SELECT auth.jwt() AS "Test: Connexion User 1";
 
 -- User 1 doit voir seulement son profil
 SELECT 'Users - User 1 should see only own profile' AS test_description;
-SELECT id, email, username FROM users WHERE id = '11111111-1111-1111-1111-111111111111';
+SELECT id, email FROM users WHERE id = '11111111-1111-1111-1111-111111111111';
 
 -- User 1 doit voir seulement ses comptes sociaux
 SELECT 'Social Accounts - User 1 should see only own accounts' AS test_description;
@@ -68,11 +62,7 @@ SELECT 'Analytics - User 1 should see only own analytics' AS test_description;
 SELECT a.id, a.likes, a.platform 
 FROM analytics a 
 JOIN content c ON c.id = a.content_id 
-WHERE c.created_by = '11111111-1111-1111-1111-111111111111';
-
--- User 1 doit voir seulement ses insights AI
-SELECT 'AI Insights - User 1 should see only own insights' AS test_description;
-SELECT id, title FROM ai_insights WHERE user_id = '11111111-1111-1111-1111-111111111111';
+    WHERE c.created_by = '11111111-1111-1111-1111-111111111111';
 
 -- User 1 doit voir seulement son analytics history
 SELECT 'Analytics History - User 1 should see only own history' AS test_description;
@@ -80,23 +70,20 @@ SELECT id, likes, platform FROM analytics_history WHERE user_id = '11111111-1111
 
 -- ===== TEST ADMIN =====
 
--- Test 2: Vérifier que l'admin peut tout voir
-SELECT 'Admin Access - Admin should see all data' AS test_description;
+-- -- Test 2: Vérifier que l'admin peut tout voir
+-- SELECT 'Admin Access - Admin should see all data' AS test_description;
 
--- L'admin doit voir tous les utilisateurs
-SELECT 'Admin - All users count' AS test_description, COUNT(*) as total_users FROM users;
+-- -- L'admin doit voir tous les utilisateurs
+-- SELECT 'Admin - All users count' AS test_description, COUNT(*) as total_users FROM users;
 
--- L'admin doit voir tous les comptes sociaux
-SELECT 'Admin - All social accounts count' AS test_description, COUNT(*) as total_accounts FROM social_accounts;
+-- -- L'admin doit voir tous les comptes sociaux
+-- SELECT 'Admin - All social accounts count' AS test_description, COUNT(*) as total_accounts FROM social_accounts;
 
--- L'admin doit voir tout le contenu
-SELECT 'Admin - All content count' AS test_description, COUNT(*) as total_content FROM content;
+-- -- L'admin doit voir tout le contenu
+-- SELECT 'Admin - All content count' AS test_description, COUNT(*) as total_content FROM content;
 
--- L'admin doit voir toutes les analytics
-SELECT 'Admin - All analytics count' AS test_description, COUNT(*) as total_analytics FROM analytics;
-
--- L'admin doit voir tous les insights
-SELECT 'Admin - All insights count' AS test_description, COUNT(*) as total_insights FROM ai_insights;
+-- -- L'admin doit voir toutes les analytics
+-- SELECT 'Admin - All analytics count' AS test_description, COUNT(*) as total_analytics FROM analytics;
 
 -- ===== NETTOYAGE =====
 

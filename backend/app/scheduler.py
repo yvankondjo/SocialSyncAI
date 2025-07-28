@@ -3,9 +3,9 @@ import logging
 from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from app.database import get_db
-from app.services.analytics_service import analytics_service
-from app.models import User, SocialAccount
+from .db.session import get_db
+from .services.analytics_service import analytics_service
+from .schemas import User, SocialAccount
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class AnalyticsScheduler:
             async with get_db() as db:
                 # Récupérer tous les utilisateurs actifs
                 result = await db.execute(
-                    select(User).where(User.is_active == True)
+                    select(User).where(User.is_active)
                 )
                 users = result.scalars().all()
                 
@@ -76,7 +76,7 @@ class AnalyticsScheduler:
             
             async with get_db() as db:
                 result = await db.execute(
-                    select(User).where(User.is_active == True)
+                    select(User).where(User.is_active)
                 )
                 users = result.scalars().all()
                 
@@ -98,7 +98,7 @@ class AnalyticsScheduler:
             logger.info("Starting analytics history cleanup")
             
             async with get_db() as db:
-                from app.models import AnalyticsHistory
+                from .schemas import AnalyticsHistory
                 
                 cutoff_date = datetime.utcnow() - timedelta(days=180)  # 6 mois
                 

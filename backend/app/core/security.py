@@ -1,28 +1,29 @@
-import os
-from fastapi import HTTPException, Security
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
-from dotenv import load_dotenv
+from app.core.config import get_settings, Settings
 
-load_dotenv()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="ignore")
 
-security = HTTPBearer()
-
-SECRET_KEY = os.getenv("SUPABASE_JWT_SECRET","")
-if not SECRET_KEY:
-    raise ValueError("No SUPABASE_JWT_SECRET set for JWT authentication")
-
-ALGORITHM = "HS256"
-
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
-    token = credentials.credentials
+def get_current_user_id(
+    token: str = Depends(oauth2_scheme), 
+    settings: Settings = Depends(get_settings)
+) -> str:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        # Vous pouvez ajouter plus de validation ici (par ex. 'aud', 'iss')
-        return payload
-    except JWTError as e:
-        raise HTTPException(
-            status_code=401,
-            detail=f"Invalid authentication credentials: {e}",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) 
+        payload = jwt.decode(
+            token,
+            settings.SUPABASE_JWT_SECRET,
+            algorithms=[settings.SUPABASE_JWT_ALGORITHM],
+            audience="authenticated",
+        )
+        user_id: str | None = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+        return user_id
+    except JWTError:
+        raise credentials_exception

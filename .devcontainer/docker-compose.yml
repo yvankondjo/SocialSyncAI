@@ -20,7 +20,7 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
     volumes:
-      - ..:/workspace:cached
+      - ../backend:/app
     environment:
       - PYTHONUNBUFFERED=1
     ports:
@@ -33,7 +33,8 @@ services:
       context: ../frontend
       dockerfile: Dockerfile
     volumes:
-      - ..:/workspace:cached
+      - ../frontend:/app
+      - /app/node_modules
     ports:
       - "3001:3000"
     depends_on:

@@ -4,7 +4,7 @@
   "service": "dev",
   "workspaceFolder": "/workspace",
 
-  "forwardPorts": [3000, 3001, 8000, 8001, 6380, 54321, 54322, 54323, 55321, 55322, 55323],
+  "forwardPorts": [3000, 3001, 8000, 8001, 6380],
 
   "customizations": {
     "vscode": {

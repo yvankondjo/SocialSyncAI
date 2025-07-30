@@ -20,7 +20,7 @@ class ContentUpdate(BaseModel):
     scheduled_at: Optional[datetime] = None
 
 class Content(ContentBase):
-    id: UUID
+    id: str
     social_account_id: UUID
     created_by: UUID
     created_at: datetime
@@ -29,4 +29,4 @@ class Content(ContentBase):
     scheduled_at: Optional[datetime] = None
 
     class Config:
-        orm_mode = True 
+        from_attributes = True 

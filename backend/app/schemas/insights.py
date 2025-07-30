@@ -25,7 +25,7 @@ class Analytics(AnalyticsCreate):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class AnalyticsHistory(AnalyticsBase):
     id: UUID
@@ -34,4 +34,4 @@ class AnalyticsHistory(AnalyticsBase):
     user_id: UUID
 
     class Config:
-        orm_mode = True 
+        from_attributes = True 

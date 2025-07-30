@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 # from app.scheduler import start_scheduler, stop_scheduler
-# from app.routers import analytics, social_accounts, content, ai_insights
+from app.routers import analytics, social_accounts, content
 import logging
 
 # Configuration du logging
@@ -26,12 +26,10 @@ app = FastAPI(
     # lifespan=lifespan
 )
 
-# # Inclusion des routes
-# app.include_router(analytics.router, prefix="/api/v1")
-# app.include_router(social_accounts.router, prefix="/api/v1")
-# app.include_router(content.router, prefix="/api/v1")
-# app.include_router(ai_insights.router, prefix="/api/v1")
-
+# Inclusion des routes
+app.include_router(analytics.router, prefix="/api")
+app.include_router(social_accounts.router, prefix="/api")
+app.include_router(content.router, prefix="/api")
 
 @app.get("/")
 async def root():

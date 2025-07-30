@@ -1,0 +1,131 @@
+Guide Pratique : Utiliser l'API Instagram Graph pour la Gestion de Contenu
+=====================================================================
+
+Ce guide résume les étapes nécessaires pour utiliser l'API Instagram Graph afin de publier du contenu et de gérer les interactions. Il est basé sur la documentation officielle et des guides techniques.
+
+---
+### Étape 1 : Prérequis (Configuration Côté Instagram/Facebook)
+---
+
+Avant toute chose, votre environnement sur le portail Facebook Developers doit être correctement configuré.
+
+1.  **Compte Instagram Professionnel** : Le compte Instagram que vous souhaitez gérer doit être un compte "Professionnel" (soit "Business", soit "Créateur"). Un compte personnel ne fonctionnera pas.
+
+2.  **Liaison à une Page Facebook** : Ce compte Instagram professionnel doit être lié à une Page Facebook.
+
+3.  **Application Facebook de type "Business"** : Dans le tableau de bord des développeurs, votre application doit être de type "Business".
+
+4.  **Produit "Instagram Graph API"** : Vous devez avoir ajouté le produit "Instagram Graph API" à votre application. C'est ici que vous configurerez les permissions et les URLs de redirection.
+
+5.  **Permissions (Scopes)** : Votre application doit demander les bonnes permissions. Pour publier du contenu et gérer les messages/commentaires, vous aurez besoin au minimum de :
+    *   `instagram_business_basic`
+    *   `instagram_business_content_publish`
+    *   `instagram_business_manage_comments`
+    *   `instagram_business_manage_messages`
+    *   `pages_show_list` (souvent requis en dépendance)
+    *   `pages_read_engagement` (souvent requis en dépendance)
+
+---
+### Étape 2 : Flux d'Authentification (Ce que notre code fait)
+---
+
+Le but est d'obtenir un **Access Token** de longue durée pour un utilisateur.
+
+1.  **Génération de l'URL d'autorisation** : Notre endpoint `GET /api/social-accounts/connect/instagram` génère une URL de connexion avec les `scopes` business listés ci-dessus.
+
+2.  **Consentement de l'utilisateur** : L'utilisateur est redirigé vers cette URL, se connecte et autorise les permissions demandées.
+
+3.  **Récupération du code** : Instagram redirige l'utilisateur vers notre URL de callback (`.../callback?code=...`) avec un code d'autorisation temporaire.
+
+4.  **Échange du code contre un Token** : Notre endpoint `GET /callback` utilise ce code pour faire un appel `POST` à `https://api.instagram.com/oauth/access_token`.
+    *   Cet appel, s'il réussit, retourne un **Access Token de courte durée**.
+
+5.  **Obtention d'un Token de longue durée** : Il faut immédiatement échanger ce token de courte durée contre un token de longue durée (valable 60 jours) en faisant un appel `GET` à `https://graph.instagram.com/access_token`. C'est ce token que nous devons stocker de manière sécurisée.
+
+---
+### Étape 3 : Obtenir l'ID du Compte Instagram Business (ÉTAPE CRUCIALE ET NOUVELLE)
+---
+
+Pour publier du contenu, l'API n'utilise pas l'ID de l'utilisateur, mais l'**ID du Compte Instagram Business** qui est lié à la page Facebook autorisée.
+
+*   **Action** : Une fois que vous avez l'access token de longue durée, vous devez faire un appel supplémentaire pour obtenir cet ID.
+
+*   **Exemple d'appel API** :
+    ```bash
+    curl -i -X GET "https://graph.facebook.com/v21.0/me/accounts?fields=instagram_business_account{id,username}&access_token=VOTRE_TOKEN_LONGUE_DUREE"
+    ```
+
+*   **Réponse attendue** : Vous recevrez une liste des pages Facebook auxquelles l'utilisateur a donné accès, avec l'ID du compte Instagram Business associé.
+    ```json
+    {
+      "data": [
+        {
+          "instagram_business_account": {
+            "id": "17841405822333333",  // <-- CET ID EST CELUI QU'IL FAUT UTILISER !
+            "username": "test_account"
+          },
+          "id": "1020..." // ID de la Page Facebook
+        }
+      ]
+    }
+    ```
+
+*   **Conséquence** : Cet ID (`178...`) doit être stocké dans notre base de données (dans la colonne `account_id` de la table `social_accounts`).
+
+---
+### Étape 4 : Publier une Photo (Processus en 2 étapes)
+---
+
+La publication de contenu n'est pas directe. Elle se fait en deux appels API distincts.
+
+**4.1 : Créer un "Conteneur Média"**
+
+D'abord, vous envoyez l'image (via une URL publique) à Instagram pour qu'il la prépare.
+
+*   **Endpoint** : `POST /{id-instagram-business}/media`
+*   **Exemple d'appel API** :
+    ```bash
+    curl -i -X POST \
+     "https://graph.facebook.com/v21.0/17841405822333333/media" \
+     -F "image_url=https://www.example.com/votre_image.jpg" \
+     -F "caption=Ma première publication via l'API ! #test" \
+     -F "access_token=VOTRE_TOKEN_LONGUE_DUREE"
+    ```
+*   **Réponse** : Instagram vous retourne un ID de création (par ex: `creation_id`).
+    ```json
+    { "id": "179creation_id..." }
+    ```
+
+**4.2 : Publier le Conteneur**
+
+Ensuite, vous utilisez l'ID de création pour effectivement publier le contenu.
+
+*   **Endpoint** : `POST /{id-instagram-business}/media_publish`
+*   **Exemple d'appel API** :
+    ```bash
+    curl -i -X POST \
+     "https://graph.facebook.com/v21.0/17841405822333333/media_publish" \
+     -F "creation_id=179creation_id..." \
+     -F "access_token=VOTRE_TOKEN_LONGUE_DUREE"
+    ```
+*   **Réponse** : Si tout va bien, la publication est maintenant en ligne !
+
+---
+### Étape 5 : Gérer les Messages et Commentaires
+---
+
+Le principe est le même. Une fois que vous avez l'access token et les bonnes permissions, vous pouvez utiliser d'autres endpoints de l'API Graph pour :
+
+*   **Lire les commentaires** sur un média : `GET /{id-media}/comments`
+*   **Poster un commentaire** : `POST /{id-media}/comments?message=...`
+*   **Lire les conversations** : `GET /{id-compte-pro}/conversations`
+*   **Envoyer un message** : `POST /{id-conversation}/messages?message=...`
+
+---
+### Résumé des Points Clés
+---
+
+-   **Business Uniquement** : Cette méthode ne fonctionne que pour les comptes Instagram Professionnels.
+-   **ID Spécifique** : Il est impératif d'obtenir et d'utiliser l'ID `instagram_business_account`.
+-   **Publication en 2 temps** : Créer un conteneur, puis le publier.
+-   **App Review** : Pour utiliser ces permissions sur de vrais utilisateurs (en dehors des testeurs), votre application devra passer la "App Review" de Meta, un processus de validation strict. 

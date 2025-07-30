@@ -9,7 +9,9 @@ cffi==1.17.1
 click==8.2.1
 cryptography==45.0.5
 deprecation==2.1.0
+dnspython==2.7.0
 ecdsa==0.19.1
+email_validator==2.2.0
 fastapi==0.104.1
 gotrue==2.12.3
 greenlet==3.2.3

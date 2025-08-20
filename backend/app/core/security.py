@@ -9,6 +9,12 @@ def get_current_user_id(
     token: str = Depends(oauth2_scheme), 
     settings: Settings = Depends(get_settings)
 ) -> str:
+    if not settings.SUPABASE_JWT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="La clé secrète JWT n'est pas configurée sur le serveur."
+        )
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -25,5 +31,7 @@ def get_current_user_id(
         if user_id is None:
             raise credentials_exception
         return user_id
-    except JWTError:
+    except jwt.ExpiredSignatureError:
+        raise credentials_exception
+    except JWTError as e:
         raise credentials_exception

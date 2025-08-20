@@ -44,6 +44,8 @@ class AnalyticsScheduler:
             name="Cleanup Old Analytics",
             replace_existing=True
         )
+        
+
     
     async def sync_all_users_analytics(self):
         """Synchronise les analytics de tous les utilisateurs actifs (7 derniers jours)"""

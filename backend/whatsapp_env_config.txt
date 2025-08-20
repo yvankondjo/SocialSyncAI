@@ -1,0 +1,13 @@
+# Configuration WhatsApp Business API
+# Ajoutez ces variables à votre fichier .env
+
+WHATSAPP_ACCESS_TOKEN=EAAI565Fri...
+WHATSAPP_PHONE_NUMBER_ID=683178638221369
+WHATSAPP_VERIFY_TOKEN=your_webhook_verify_token_here
+WHATSAPP_WEBHOOK_SECRET=your_webhook_secret_here
+
+# Notes de configuration :
+# - WHATSAPP_ACCESS_TOKEN : Token permanent de votre app WhatsApp Business
+# - WHATSAPP_PHONE_NUMBER_ID : ID du numéro de téléphone configuré
+# - WHATSAPP_VERIFY_TOKEN : Token personnalisé pour vérifier les webhooks (vous le choisissez)
+# - WHATSAPP_WEBHOOK_SECRET : Secret pour signer les webhooks (optionnel en développement)

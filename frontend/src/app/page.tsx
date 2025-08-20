@@ -43,7 +43,7 @@ export default function Home() {
           socialLayout="vertical"
           redirectTo={`${
             typeof window !== "undefined" ? window.location.origin : ""
-          }/dashboard`}
+          }/auth/callback`}
         />
       </div>
     </div>

@@ -8,9 +8,7 @@ router = APIRouter()
 @router.post("/", response_model=User)
 async def create_user(user: UserCreate, db=Depends(get_db)):
     try:
-        # Note: In a real app, password should be hashed before saving.
-        # Supabase Auth handles this automatically if you use its auth functions.
-        # Here we are inserting directly, so password handling is simplified.
+        # TODO: Add password hashing
         result = db.table("users").insert({
             "email": user.email,
             "full_name": user.full_name,
@@ -46,7 +44,7 @@ async def list_users(limit: int = 10, offset: int = 0, db=Depends(get_db)):
 @router.put("/{user_id}", response_model=User)
 async def update_user(user_id: str, user_update: UserUpdate, db=Depends(get_db)):
     try:
-        update_data = {k: v for k, v in user_update.dict(exclude_unset=True).items()}
+        update_data = {k: v for k, v in user_update.model_dump(exclude_unset=True).items()}
         if 'role' in update_data and update_data['role']:
             update_data['role'] = update_data['role'].value
 

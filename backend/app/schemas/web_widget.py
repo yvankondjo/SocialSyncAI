@@ -27,7 +27,7 @@ class AIProvider(str, Enum):
 class WidgetSettings(BaseModel):
     # Apparence
     theme: ThemeType = ThemeType.LIGHT
-    primary_color: str = Field("#007bff", regex=r"^#[0-9A-Fa-f]{6}$")
+    primary_color: str = Field("#007bff", pattern=r"^#[0-9A-Fa-f]{6}$")
     position: PositionType = PositionType.BOTTOM_RIGHT
     widget_size: WidgetSize = WidgetSize.MEDIUM
     
@@ -134,14 +134,14 @@ class ConversationHistory(BaseModel):
 
 # Schémas pour les analytics
 class AnalyticsRequest(BaseModel):
-    date_range: str = Field("7d", regex=r"^(1d|7d|30d|90d)$")
+    date_range: str = Field("7d", pattern=r"^(1d|7d|30d|90d)$")
 
 class DomainValidationRequest(BaseModel):
     widget_id: str
     domain: str
 
 class WidgetStatusUpdate(BaseModel):
-    status: str = Field(..., regex=r"^(active|inactive|suspended)$")
+    status: str = Field(..., pattern=r"^(active|inactive|suspended)$")
 
 # Schémas pour l'administration
 class WidgetListItem(BaseModel):

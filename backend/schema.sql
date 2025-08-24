@@ -127,31 +127,12 @@ CREATE INDEX idx_analytics_recorded_at ON analytics(recorded_at);
 -- CREATE INDEX idx_ai_insights_user_id ON ai_insights(user_id);
 -- CREATE INDEX idx_ai_insights_type ON ai_insights(insight_type);
 
--- Indexes for inbox tables
-CREATE INDEX idx_conversations_social_account ON conversations(social_account_id);
-CREATE INDEX idx_conversations_status ON conversations(status);
-CREATE INDEX idx_conversations_priority ON conversations(priority);
-CREATE INDEX idx_conversations_assigned_to ON conversations(assigned_to);
-CREATE INDEX idx_conversations_last_message ON conversations(last_message_at);
-CREATE INDEX idx_conversations_customer ON conversations(customer_identifier);
 
-CREATE INDEX idx_conversation_messages_conversation ON conversation_messages(conversation_id);
-CREATE INDEX idx_conversation_messages_direction ON conversation_messages(direction);
-CREATE INDEX idx_conversation_messages_created_at ON conversation_messages(created_at);
-CREATE INDEX idx_conversation_messages_status ON conversation_messages(status);
-CREATE INDEX idx_conversation_messages_agent ON conversation_messages(agent_id);
 
-CREATE INDEX idx_web_widgets_user_id ON web_widgets(user_id);
-CREATE INDEX idx_web_widgets_widget_key ON web_widgets(widget_key);
-CREATE INDEX idx_web_widgets_active ON web_widgets(is_active);
 
-CREATE INDEX idx_response_templates_user_id ON response_templates(user_id);
-CREATE INDEX idx_response_templates_active ON response_templates(is_active);
-CREATE INDEX idx_response_templates_platforms ON response_templates USING GIN(platforms);
-
-CREATE INDEX idx_automation_rules_user_id ON automation_rules(user_id);
-CREATE INDEX idx_automation_rules_active ON automation_rules(is_active);
-CREATE INDEX idx_automation_rules_platforms ON automation_rules USING GIN(platforms);
+-- CREATE INDEX idx_automation_rules_user_id ON automation_rules(user_id);
+-- CREATE INDEX idx_automation_rules_active ON automation_rules(is_active);
+-- CREATE INDEX idx_automation_rules_platforms ON automation_rules USING GIN(platforms);
 
 -- Analytics history table (time-series)
 CREATE TABLE analytics_history (
@@ -235,34 +216,22 @@ CREATE TABLE web_widgets (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Table pour les templates de réponses automatiques
-CREATE TABLE response_templates (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    content TEXT NOT NULL,
-    platforms social_platform[], -- Plateformes compatibles
-    trigger_keywords TEXT[], -- Mots-clés déclencheurs
-    is_active BOOLEAN DEFAULT true,
-    usage_count INTEGER DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
 
--- Table pour les règles d'automatisation
-CREATE TABLE automation_rules (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    trigger_conditions JSONB NOT NULL, -- Conditions de déclenchement
-    actions JSONB NOT NULL, -- Actions à exécuter
-    platforms social_platform[], -- Plateformes concernées
-    is_active BOOLEAN DEFAULT true,
-    execution_count INTEGER DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+
+-- -- Table pour les règles d'automatisation
+-- CREATE TABLE automation_rules (
+--     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+--     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+--     name VARCHAR(255) NOT NULL,
+--     description TEXT,
+--     trigger_conditions JSONB NOT NULL, -- Conditions de déclenchement
+--     actions JSONB NOT NULL, -- Actions à exécuter
+--     platforms social_platform[], -- Plateformes concernées
+--     is_active BOOLEAN DEFAULT true,
+--     execution_count INTEGER DEFAULT 0,
+--     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+--     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+-- );
 
 -- Enable RLS
 ALTER TABLE analytics_history ENABLE ROW LEVEL SECURITY;
@@ -326,8 +295,7 @@ CREATE TRIGGER update_analytics_updated_at BEFORE UPDATE ON analytics FOR EACH R
 CREATE TRIGGER update_conversations_updated_at BEFORE UPDATE ON conversations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_conversation_messages_updated_at BEFORE UPDATE ON conversation_messages FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_web_widgets_updated_at BEFORE UPDATE ON web_widgets FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_response_templates_updated_at BEFORE UPDATE ON response_templates FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_automation_rules_updated_at BEFORE UPDATE ON automation_rules FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- CREATE TRIGGER update_automation_rules_updated_at BEFORE UPDATE ON automation_rules FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 
 
@@ -356,8 +324,7 @@ ALTER TABLE analytics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversation_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE web_widgets ENABLE ROW LEVEL SECURITY;
-ALTER TABLE response_templates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE automation_rules ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE automation_rules ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE ai_insights ENABLE ROW LEVEL SECURITY;
 
 -- RLS policies for inbox tables
@@ -378,9 +345,8 @@ CREATE POLICY "Users manage their messages" ON conversation_messages FOR ALL USI
 
 CREATE POLICY "Users manage their widgets" ON web_widgets FOR ALL USING (auth.uid() = user_id);
 
-CREATE POLICY "Users manage their templates" ON response_templates FOR ALL USING (auth.uid() = user_id);
 
-CREATE POLICY "Users manage their automation rules" ON automation_rules FOR ALL USING (auth.uid() = user_id);
+-- CREATE POLICY "Users manage their automation rules" ON automation_rules FOR ALL USING (auth.uid() = user_id);
 
 -- Trigger function to update conversation last_message_at
 CREATE OR REPLACE FUNCTION update_conversation_last_message()
@@ -419,3 +385,5 @@ BEGIN
 END;
 $$ language 'plpgsql' SECURITY DEFINER;
 
+
+-- INSERT INTO social_accounts(platform,account_id,username,display_name,access_token,user_id) values('whatsapp','683178638221369','15556542910','yvank','EAAI565Fri54BPNZBtlUZCfb0RqYDOctrzhcPTk3Sz62ZAntDoQSGZAqbFhh5FUJvxe2rVNZC1Y6n67rivd7o2b9ZBUbZBseeYrUJ2LW60DYiBAr1IypSO6Hf5SiLhZCaXijLnEvdNBDDZCzjSMBfHCTFtOYxbdXrpqQSzauZA6yX7xE6a644hmZAr3rBoyZBquNTtK8CRDNZCi48D2bkBjJ4R7GkUzCVTdsCVCTTMFhYH','b46a7229-2c29-4a88-ada1-c21a59f4eda1')

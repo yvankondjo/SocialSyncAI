@@ -28,7 +28,8 @@ class WhatsAppService:
         if not self.phone_number_id:
             raise RuntimeError("WHATSAPP_PHONE_NUMBER_ID manquant")
             
-        self.api_url = "https://graph.facebook.com/v21.0"
+        # Utilisation de l'API Graph v23.0 - cohérent avec les webhooks Meta
+        self.api_url = "https://graph.facebook.com/v23.0"
         
         self.client = httpx.AsyncClient(
             base_url=self.api_url,
@@ -225,3 +226,11 @@ async def get_whatsapp_service(access_token: Optional[str] = None, phone_number_
         _whatsapp_service = WhatsAppService()
         
     return _whatsapp_service
+
+if __name__ == "__main__":
+    async def main():
+        service = await get_whatsapp_service()
+        print(await service.validate_credentials())
+        print(await service.get_business_profile())
+
+    asyncio.run(main())

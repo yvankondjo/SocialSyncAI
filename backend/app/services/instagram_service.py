@@ -19,7 +19,8 @@ class InstagramService:
         if not self.page_id:
             raise RuntimeError("INSTAGRAM_PAGE_ID manquant")
             
-        self.api_url = "https://graph.instagram.com/v21.0"
+        # Utilisation de l'API Graph v23.0 - cohérent avec les webhooks Meta
+        self.api_url = "https://graph.instagram.com/v23.0"
         
         self.client = httpx.AsyncClient(
             base_url=self.api_url,

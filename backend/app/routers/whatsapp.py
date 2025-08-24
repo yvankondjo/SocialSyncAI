@@ -5,6 +5,8 @@ import logging
 import hmac
 import hashlib
 import os
+from datetime import datetime, timezone
+from app.core.security import get_current_user_id
 
 from app.schemas.whatsapp import (
     TextMessageRequest, TemplateMessageRequest, MediaMessageRequest,
@@ -13,6 +15,11 @@ from app.schemas.whatsapp import (
     WhatsAppCredentials, WebhookPayload, WebhookIncomingMessage, WebhookMessageStatus
 )
 from app.services.whatsapp_service import get_whatsapp_service, WhatsAppService
+from app.services.response_manager import (
+    get_user_credentials_by_user_id,
+    get_user_by_phone_number_id,
+    process_webhook_change_for_user,
+)
 
 router = APIRouter(prefix="/whatsapp", tags=["WhatsApp"])
 logger = logging.getLogger(__name__)
@@ -34,14 +41,29 @@ async def validate_whatsapp_credentials(credentials: WhatsAppCredentials):
         )
 
 @router.post("/send-text", response_model=WhatsAppMessageResponse)
-async def send_text_message(request: TextMessageRequest):
+async def send_text_message(
+    request: TextMessageRequest,
+    current_user_id: str = Depends(get_current_user_id)
+):
     """
     Envoyer un message texte WhatsApp
     
-    Utilise les credentials de la requête ou ceux par défaut de l'environnement
+    Utilise les credentials de l'utilisateur connecté depuis la BDD
     """
     try:
-        service = await get_whatsapp_service(request.access_token, request.phone_number_id)
+        user_credentials = await get_user_credentials_by_user_id(current_user_id)
+        
+        if not user_credentials:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Aucun compte WhatsApp configuré pour cet utilisateur"
+            )
+        
+        # Utiliser les credentials de l'utilisateur connecté
+        service = await get_whatsapp_service(
+            user_credentials["access_token"], 
+            user_credentials["phone_number_id"]
+        )
         
         result = await service.send_text_message(
             to=request.to,
@@ -66,14 +88,30 @@ async def send_text_message(request: TextMessageRequest):
         )
 
 @router.post("/send-template", response_model=WhatsAppMessageResponse)
-async def send_template_message(request: TemplateMessageRequest):
+async def send_template_message(
+    request: TemplateMessageRequest,
+    current_user_id: str = Depends(get_current_user_id)
+):
     """
     Envoyer un template WhatsApp approuvé
     
-    Les templates sont plus fiables en mode développement
+    Utilise les credentials de l'utilisateur connecté
     """
     try:
-        service = await get_whatsapp_service(request.access_token, request.phone_number_id)
+        # Récupérer les credentials de l'utilisateur connecté
+        user_credentials = await get_user_credentials_by_user_id(current_user_id)
+        
+        if not user_credentials:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Aucun compte WhatsApp configuré pour cet utilisateur"
+            )
+        
+        # Utiliser les credentials de l'utilisateur connecté
+        service = await get_whatsapp_service(
+            user_credentials["access_token"], 
+            user_credentials["phone_number_id"]
+        )
         
         result = await service.send_template_message(
             to=request.to,
@@ -200,65 +238,6 @@ async def get_business_profile(
             detail=f"Erreur récupération profil: {str(e)}"
         )
 
-@router.get("/health")
-async def whatsapp_health_check():
-    """
-    Vérifier la santé du service WhatsApp
-    """
-    try:
-        service = await get_whatsapp_service()
-        validation = await service.validate_credentials()
-        
-        return {
-            "service": "whatsapp",
-            "status": "healthy" if validation["valid"] else "unhealthy",
-            "details": validation
-        }
-        
-    except Exception as e:
-        logger.error(f"Erreur health check WhatsApp: {e}")
-        return {
-            "service": "whatsapp",
-            "status": "unhealthy",
-            "error": str(e)
-        }
-
-# Routes utilitaires
-@router.get("/templates")
-async def list_available_templates():
-    """
-    Lister les templates WhatsApp disponibles
-    """
-    return {
-        "templates": [
-            {
-                "name": "hello_world",
-                "language_codes": ["en_US", "fr_FR", "es_ES"],
-                "description": "Template de base Meta pour tests"
-            }
-        ],
-        "note": "En développement, seuls les templates approuvés par Meta sont disponibles"
-    }
-
-@router.get("/phone-formats")
-async def get_phone_format_help():
-    """
-    Aide sur les formats de numéros de téléphone
-    """
-    return {
-        "format": "Numéro international sans le +",
-        "examples": {
-            "france": "33612345678",
-            "usa": "1234567890",
-            "uk": "44712345678"
-        },
-        "rules": [
-            "Pas de + au début",
-            "Pas d'espaces ou de caractères spéciaux",
-            "Entre 8 et 15 chiffres",
-            "Inclure le code pays"
-        ]
-    }
 
 # ==================== WEBHOOKS ====================
 
@@ -330,9 +309,9 @@ async def webhook_handler(request: Request):
         webhook_data = await request.json()
         logger.info(f"Webhook reçu: {webhook_data}")
         
-        # Traiter chaque entrée du webhook
+        # Traiter chaque entrée du webhook avec routage par utilisateur
         for entry in webhook_data.get("entry", []):
-            await process_webhook_entry(entry)
+            await process_webhook_entry_with_user_routing(entry)
         
         # Répondre rapidement à WhatsApp (obligatoire)
         return {"status": "ok"}
@@ -342,122 +321,37 @@ async def webhook_handler(request: Request):
         # Toujours répondre 200 à WhatsApp pour éviter les retries
         return {"status": "error", "message": str(e)}
 
-async def process_webhook_entry(entry: dict):
+
+@router.post("/webhook-test")
+async def test_webhook_locally(payload: dict):
     """
-    Traiter une entrée de webhook
+    Tester le traitement des webhooks en local
     """
-    entry_id = entry.get("id")
+    try:
+        logger.info("Test webhook local")
+        for entry in payload.get("entry", []):
+            await process_webhook_entry_with_user_routing(entry)
+        return {"status": "success", "message": "Webhook testé avec succès"}
+    except Exception as e:
+        logger.error(f"Erreur test webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def process_webhook_entry_with_user_routing(entry: dict):
+    """Traiter une entrée de webhook WhatsApp avec routage utilisateur"""
+    phone_number_id = entry.get("changes")[0].get("value").get("metadata").get("phone_number_id") 
     changes = entry.get("changes", [])
     
+    user_info = await get_user_by_phone_number_id(phone_number_id)
+    
+    if not user_info:
+        logger.warning(f"Aucun utilisateur trouvé pour phone_number_id: {phone_number_id}")
+        return
+    
+    logger.info(f"Webhook routé vers l'utilisateur {user_info['user_id']} (phone: {phone_number_id})")
+    
+    
     for change in changes:
-        field = change.get("field")
-        value = change.get("value", {})
-        
-        if field == "messages":
-            # Messages entrants ou statuts de livraison
-            await handle_messages_webhook(value)
-        else:
-            logger.info(f"Type de webhook non géré: {field}")
-
-async def handle_messages_webhook(value: dict):
-    """
-    Gérer les webhooks de messages
-    """
-    # Messages entrants
-    messages = value.get("messages", [])
-    for message in messages:
-        await process_incoming_message(message)
-    
-    # Statuts de livraison
-    statuses = value.get("statuses", [])
-    for status in statuses:
-        await process_message_status(status)
-
-async def process_incoming_message(message: dict):
-    """
-    Traiter un message entrant
-    """
-    message_id = message.get("id")
-    from_number = message.get("from")
-    timestamp = message.get("timestamp")
-    message_type = message.get("type")
-    
-    logger.info(f"Message entrant de {from_number}: {message_type} (ID: {message_id})")
-    
-    # Traitement selon le type de message
-    if message_type == "text":
-        text_content = message.get("text", {}).get("body", "")
-        logger.info(f"Contenu texte: {text_content}")
-        
-        # Ici vous pouvez ajouter votre logique métier :
-        # - Sauvegarder en BDD
-        # - Déclencher une réponse automatique
-        # - Notifier un utilisateur
-        await handle_incoming_text_message(from_number, text_content, message_id)
-        
-    elif message_type in ["image", "video", "audio", "document"]:
-        media_info = message.get(message_type, {})
-        logger.info(f"Média reçu: {media_info}")
-        await handle_incoming_media_message(from_number, message_type, media_info, message_id)
-    
-    else:
-        logger.info(f"Type de message non géré: {message_type}")
-
-async def process_message_status(status: dict):
-    """
-    Traiter un statut de livraison
-    """
-    message_id = status.get("id")
-    recipient_id = status.get("recipient_id")
-    status_value = status.get("status")
-    timestamp = status.get("timestamp")
-    
-    logger.info(f"Statut message {message_id}: {status_value} pour {recipient_id}")
-    
-    # Ici vous pouvez mettre à jour votre BDD avec le statut
-    await update_message_status_in_db(message_id, status_value, timestamp)
-
-# Fonctions de logique métier à implémenter selon vos besoins
-async def handle_incoming_text_message(from_number: str, text: str, message_id: str):
-    """
-    Logique métier pour les messages texte entrants
-    """
-    # Exemple : réponse automatique simple
-    if text.lower() in ["hello", "salut", "bonjour"]:
-        try:
-            service = await get_whatsapp_service()
-            await service.send_text_message(
-                to=from_number,
-                text="Bonjour ! Merci pour votre message. Un agent vous répondra bientôt.",
-                skip_validation=True
-            )
-            logger.info(f"Réponse automatique envoyée à {from_number}")
-        except Exception as e:
-            logger.error(f"Erreur réponse automatique: {e}")
-    
-    # TODO: Ajouter à votre logique de CRM/tickets
-    logger.info(f"Message à traiter: {from_number} -> {text}")
-
-async def handle_incoming_media_message(from_number: str, media_type: str, media_info: dict, message_id: str):
-    """
-    Logique métier pour les messages média entrants
-    """
-    media_id = media_info.get("id")
-    caption = media_info.get("caption", "")
-    
-    logger.info(f"Média {media_type} reçu de {from_number}: ID={media_id}, Caption={caption}")
-    
-    # TODO: Télécharger et sauvegarder le média
-    # TODO: Ajouter à votre système de tickets/CRM
-
-async def update_message_status_in_db(message_id: str, status: str, timestamp: str):
-    """
-    Mettre à jour le statut d'un message dans votre BDD
-    """
-    # TODO: Implémenter selon votre schéma de BDD
-    logger.info(f"À mettre à jour en BDD: Message {message_id} -> {status} à {timestamp}")
-
-# ==================== ENDPOINTS WEBHOOK UTILITAIRES ====================
+        await process_webhook_change_for_user(change, user_info)
 
 @router.get("/webhook-info")
 async def get_webhook_info():
@@ -483,17 +377,3 @@ async def get_webhook_info():
             "4. Tester avec l'endpoint de vérification"
         ]
     }
-
-@router.post("/webhook-test")
-async def test_webhook_locally(payload: dict):
-    """
-    Tester le traitement des webhooks en local
-    """
-    try:
-        logger.info("Test webhook local")
-        for entry in payload.get("entry", []):
-            await process_webhook_entry(entry)
-        return {"status": "success", "message": "Webhook testé avec succès"}
-    except Exception as e:
-        logger.error(f"Erreur test webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))

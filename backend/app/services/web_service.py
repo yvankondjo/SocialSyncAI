@@ -139,28 +139,28 @@ class WebWidgetService:
 
     def _generate_setup_instructions(self, widget_id: str) -> Dict[str, Any]:
         """Générer les instructions d'installation"""
-        
+
         return {
             "step_1": {
                 "title": "Copier le code embed",
-                "description": "Copiez le code JavaScript fourni"
+                "description": "Copiez le code JavaScript fourni",
             },
             "step_2": {
                 "title": "Coller dans votre site",
-                "description": "Collez le code juste avant la balise </body> de votre site web"
+                "description": "Collez le code juste avant la balise </body> de votre site web",
             },
             "step_3": {
                 "title": "Personnaliser (optionnel)",
-                "description": "Vous pouvez personnaliser l'apparence et le comportement dans votre dashboard"
+                "description": "Vous pouvez personnaliser l'apparence et le comportement dans votre dashboard",
             },
             "platforms": {
                 "wordpress": {
                     "method": "Plugin ou Code Custom",
                     "instructions": [
                         "Aller dans Apparence > Éditeur de thème",
-                        "Modifier le fichier footer.php", 
-                        "Coller le code avant </body>"
-                    ]
+                        "Modifier le fichier footer.php",
+                        "Coller le code avant </body>",
+                    ],
                 },
                 "shopify": {
                     "method": "Liquid Template",
@@ -168,34 +168,34 @@ class WebWidgetService:
                         "Aller dans Boutique en ligne > Thèmes",
                         "Actions > Modifier le code",
                         "Ouvrir layout/theme.liquid",
-                        "Coller le code avant </body>"
-                    ]
+                        "Coller le code avant </body>",
+                    ],
                 },
                 "react": {
-                    "method": "Component Integration", 
+                    "method": "Component Integration",
                     "instructions": [
                         "Créer un composant ChatWidget.jsx",
                         "Utiliser useEffect pour charger le script",
-                        "Importer dans votre App.js"
-                    ]
+                        "Importer dans votre App.js",
+                    ],
                 },
                 "html": {
                     "method": "Direct Integration",
                     "instructions": [
                         "Ouvrir votre fichier HTML",
                         "Coller le code avant </body>",
-                        "Sauvegarder et publier"
-                    ]
-                }
+                        "Sauvegarder et publier",
+                    ],
+                },
             },
             "verification": {
                 "steps": [
                     "Recharger votre page web",
                     "Vérifier qu'un bouton de chat apparaît",
                     "Tester l'envoi d'un message",
-                    "Vérifier la réponse de l'IA"
-                ]
-            }
+                    "Vérifier la réponse de l'IA",
+                ],
+            },
         }
 
     async def generate_widget_preview(self, widget_config: Dict[str, Any]) -> str:

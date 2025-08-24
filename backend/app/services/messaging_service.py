@@ -5,19 +5,14 @@ from fastapi import HTTPException
 
 from .whatsapp_service import get_whatsapp_service
 from .instagram_service import get_instagram_service  
-from .web_service import get_web_service
+from .web_service import get_web_widget_service
 
 logger = logging.getLogger(__name__)
 
 class Platform(str, Enum):
     WHATSAPP = "whatsapp"
     INSTAGRAM = "instagram"
-    EMAIL = "email"
-    SMS = "sms"
-    PUSH = "push"
-    SLACK = "slack"
-    DISCORD = "discord"
-    WEBHOOK = "webhook"
+    WEB_CHAT = "web_chat"
 
 class MessageType(str, Enum):
     TEXT = "text"
@@ -27,7 +22,7 @@ class MessageType(str, Enum):
     STORY = "story"
 
 class UnifiedMessagingService:
-    """Service unifié pour l'envoi de messages sur toutes les plateformes"""
+    """Service unifié pour l'envoi de messages WhatsApp, Instagram et chat web intégrable"""
     
     def __init__(self):
         self.platform_services = {}
@@ -39,12 +34,12 @@ class UnifiedMessagingService:
                           content: str,
                           **kwargs) -> Dict[str, Any]:
         """
-        Méthode unifiée pour envoyer des messages sur toutes les plateformes
+        Méthode unifiée pour envoyer des messages sur WhatsApp, Instagram et le chat web
         
         Args:
-            platform: Plateforme cible (whatsapp, instagram, email, etc.)
-            message_type: Type de message (text, media, template, etc.)
-            recipient: Destinataire (numéro, email, ID, etc.)
+            platform: Plateforme cible (whatsapp, instagram, web_chat)
+            message_type: Type de message (text, media, template, post, story)
+            recipient: Destinataire (numéro, ID, conversation_id)
             content: Contenu du message
             **kwargs: Arguments spécifiques à la plateforme
         """
@@ -57,23 +52,8 @@ class UnifiedMessagingService:
             elif platform == Platform.INSTAGRAM:
                 return await self._send_instagram_message(message_type, recipient, content, **kwargs)
             
-            elif platform == Platform.EMAIL:
-                return await self._send_email_message(recipient, content, **kwargs)
-            
-            elif platform == Platform.SMS:
-                return await self._send_sms_message(recipient, content, **kwargs)
-            
-            elif platform == Platform.PUSH:
-                return await self._send_push_notification(recipient, content, **kwargs)
-            
-            elif platform == Platform.SLACK:
-                return await self._send_slack_message(recipient, content, **kwargs)
-            
-            elif platform == Platform.DISCORD:
-                return await self._send_discord_message(recipient, content, **kwargs)
-            
-            elif platform == Platform.WEBHOOK:
-                return await self._send_webhook_notification(recipient, content, **kwargs)
+            elif platform == Platform.WEB_CHAT:
+                return await self._send_web_chat_message(recipient, content, **kwargs)
             
             else:
                 raise HTTPException(status_code=400, detail=f"Plateforme non supportée: {platform}")
@@ -199,7 +179,7 @@ class UnifiedMessagingService:
             
         elif message_type == MessageType.MEDIA:
             media_type = kwargs.get("media_type", "image")
-            media_url = kwargs.get("media_url") or content  # content peut être l'URL
+            media_url = kwargs.get("media_url") or content
             caption = kwargs.get("caption", "")
             result = await service.send_media_message(recipient, media_type, media_url, caption)
             return {"success": True, "platform": "whatsapp", "result": result}
@@ -228,59 +208,22 @@ class UnifiedMessagingService:
         else:
             raise HTTPException(status_code=400, detail=f"Type de message Instagram non supporté: {message_type}")
 
-    async def _send_email_message(self, recipient: str, content: str, **kwargs) -> Dict[str, Any]:
-        service = await get_web_service()
-        subject = kwargs.get("subject", "Notification SocialSync")
-        is_html = kwargs.get("is_html", False)
-        attachments = kwargs.get("attachments", [])
+    async def _send_web_chat_message(self, recipient: str, content: str, **kwargs) -> Dict[str, Any]:
+        """Envoyer un message via le chat web intégrable"""
+        service = await get_web_widget_service()
         
-        result = await service.send_email(recipient, subject, content, is_html, attachments)
-        return {"success": True, "platform": "email", "result": result}
-
-    async def _send_sms_message(self, recipient: str, content: str, **kwargs) -> Dict[str, Any]:
-        service = await get_web_service()
-        result = await service.send_sms_twilio(recipient, content)
-        return {"success": True, "platform": "sms", "result": result}
-
-    async def _send_push_notification(self, recipient: str, content: str, **kwargs) -> Dict[str, Any]:
-        service = await get_web_service()
-        title = kwargs.get("title", "SocialSync")
-        provider = kwargs.get("provider", "firebase")  # firebase ou onesignal
+        widget_id = kwargs.get("widget_id")
+        conversation_id = recipient  # recipient est l'ID de conversation
+        user_info = kwargs.get("user_info", {})
         
-        if provider == "firebase":
-            device_tokens = [recipient] if isinstance(recipient, str) else recipient
-            result = await service.send_push_notification_firebase(device_tokens, title, content, kwargs.get("data"))
-        else:  # onesignal
-            player_ids = [recipient] if isinstance(recipient, str) else recipient
-            result = await service.send_push_notification_onesignal(player_ids, title, content, kwargs.get("url"))
-            
-        return {"success": True, "platform": "push", "result": result}
-
-    async def _send_slack_message(self, recipient: str, content: str, **kwargs) -> Dict[str, Any]:
-        service = await get_web_service()
-        webhook_url = recipient  # Pour Slack, recipient est l'URL du webhook
-        channel = kwargs.get("channel")
-        username = kwargs.get("username", "SocialSync")
+        result = await service.process_chat_message(
+            widget_id=widget_id,
+            message=content,
+            conversation_id=conversation_id,
+            user_info=user_info
+        )
         
-        result = await service.send_slack_message(webhook_url, content, channel, username)
-        return {"success": True, "platform": "slack", "result": result}
-
-    async def _send_discord_message(self, recipient: str, content: str, **kwargs) -> Dict[str, Any]:
-        service = await get_web_service()
-        webhook_url = recipient  # Pour Discord, recipient est l'URL du webhook
-        username = kwargs.get("username", "SocialSync")
-        
-        result = await service.send_discord_message(webhook_url, content, username)
-        return {"success": True, "platform": "discord", "result": result}
-
-    async def _send_webhook_notification(self, recipient: str, content: str, **kwargs) -> Dict[str, Any]:
-        service = await get_web_service()
-        webhook_url = recipient
-        payload = kwargs.get("payload", {"message": content})
-        headers = kwargs.get("headers", {})
-        
-        result = await service.send_webhook_notification(webhook_url, payload, headers)
-        return {"success": True, "platform": "webhook", "result": result}
+        return {"success": True, "platform": "web_chat", "result": result}
 
     async def get_platform_capabilities(self, platform: Platform) -> Dict[str, Any]:
         """Récupérer les capacités d'une plateforme"""
@@ -299,47 +242,13 @@ class UnifiedMessagingService:
                 "supports_markup": False,
                 "requires_credentials": True
             },
-            Platform.EMAIL: {
-                "message_types": ["text"],
-                "media_types": ["attachments"],
-                "max_text_length": None,
-                "supports_markup": True,
-                "requires_credentials": True
-            },
-            Platform.SMS: {
+            Platform.WEB_CHAT: {
                 "message_types": ["text"],
                 "media_types": [],
-                "max_text_length": 160,
-                "supports_markup": False,
-                "requires_credentials": True
-            },
-            Platform.PUSH: {
-                "message_types": ["text"],
-                "media_types": [],
-                "max_text_length": 256,
-                "supports_markup": False,
-                "requires_credentials": True
-            },
-            Platform.SLACK: {
-                "message_types": ["text"],
-                "media_types": ["attachments"],
-                "max_text_length": 4000,
-                "supports_markup": True,
-                "requires_credentials": False
-            },
-            Platform.DISCORD: {
-                "message_types": ["text"],
-                "media_types": ["embeds"],
                 "max_text_length": 2000,
                 "supports_markup": True,
-                "requires_credentials": False
-            },
-            Platform.WEBHOOK: {
-                "message_types": ["text"],
-                "media_types": [],
-                "max_text_length": None,
-                "supports_markup": True,
-                "requires_credentials": False
+                "requires_credentials": False,
+                "supports_ai_responses": True
             }
         }
         

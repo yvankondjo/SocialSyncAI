@@ -12,20 +12,21 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# @asynccontextmanager
-# async def lifespan(app: FastAPI):
-#     """Gestion du cycle de vie de l'application"""
-#     # Démarrage
-#     await start_scheduler()
-#     yield
-#     # Arrêt
-#     await stop_scheduler()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Gestion du cycle de vie de l'application"""
+    # Démarrage
+    from app.services.batch_scanner import batch_scanner
+    await batch_scanner.start()
+    yield
+    # Arrêt
+    await batch_scanner.stop()
 
 app = FastAPI(
     title="SocialSyncAI API",
     description="API pour la gestion et synchronisation de contenus sur les réseaux sociaux avec IA",
     version="1.0.0",
-    # lifespan=lifespan
+    lifespan=lifespan
 )
 
 # Configuration CORS
@@ -47,7 +48,8 @@ app.include_router(messaging.router, prefix="/api")
 app.include_router(web_widget.router, prefix="/api")
 
 # Servir les fichiers statiques du widget
-app.mount("/static", StaticFiles(directory="backend/static"), name="static")
+# TODO: Décommenter quand on implémentera le widget web intégrable
+# app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def root():
@@ -55,4 +57,27 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "socialsyncai-api"} 
+    return {"status": "healthy", "service": "socialsyncai-api"}
+
+@app.get("/api/versions")
+async def api_versions():
+    """Vérifier les versions des APIs externes utilisées"""
+    return {
+        "whatsapp": {
+            "graph_api_version": "v23.0",
+            "base_url": "https://graph.facebook.com/v23.0",
+            "webhook_compatible": True,
+            "notes": "Cohérent avec les webhooks Meta"
+        },
+        "instagram": {
+            "graph_api_version": "v23.0", 
+            "base_url": "https://graph.instagram.com/v23.0",
+            "webhook_compatible": True,
+            "notes": "Cohérent avec les webhooks Meta"
+        },
+        "api_info": {
+            "socialsync_version": "1.0.0",
+            "last_updated": "2024-12-19",
+            "compatibility": "Toutes les APIs utilisent la même version v23.0 pour la cohérence"
+        }
+    } 

@@ -1,5 +1,7 @@
 # Configuration WhatsApp Business API
 
+**🔄 Version API :** Graph API **v23.0** (cohérent avec les webhooks Meta)
+
 ## Prérequis
 
 1. **Application Meta for Developers** configurée
@@ -17,8 +19,18 @@ WHATSAPP_PHONE_NUMBER_ID=683178638221369
 
 # Pour les webhooks
 WHATSAPP_VERIFY_TOKEN=mon_token_verification_unique
-WHATSAPP_WEBHOOK_SECRET=mon_secret_webhook_securise
+META_APP_SECRET=votre_app_secret_meta
 ```
+
+### 📋 Comment récupérer votre META_APP_SECRET :
+
+1. **Aller dans [Meta for Developers](https://developers.facebook.com/apps/)**
+2. **Sélectionner votre application**
+3. **Menu de gauche** → **Paramètres** → **Général**
+4. **Section "App Secret"** → Cliquer sur **"Afficher"**
+5. **Copier la valeur** dans votre `.env` comme `META_APP_SECRET`
+
+⚠️ **Important :** Ce n'est plus un "Webhook Secret" séparé, mais l'App Secret de votre application Meta qui est utilisé pour signer les webhooks WhatsApp.
 
 ## 2. Test de l'API (sans webhooks)
 

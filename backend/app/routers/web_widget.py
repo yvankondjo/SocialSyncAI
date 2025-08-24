@@ -94,7 +94,7 @@ async def update_widget(widget_id: str, request: UpdateWidgetRequest):
         )
 
 @router.get("/analytics/{widget_id}", response_model=WidgetAnalytics)
-async def get_widget_analytics(widget_id: str, date_range: str = Query("7d", regex="^(1d|7d|30d|90d)$")):
+async def get_widget_analytics(widget_id: str, date_range: str = Query("7d", pattern="^(1d|7d|30d|90d)$")):
     """
     📊 Récupérer les analytics d'un widget
     """

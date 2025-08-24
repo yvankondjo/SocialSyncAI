@@ -1,4 +1,4 @@
-export type Channel = 'instagram' | 'whatsapp' | 'reddit';
+export type Channel = 'instagram' | 'whatsapp';
 
 export interface Participant {
   id: string;
@@ -22,4 +22,10 @@ export interface Message {
   text: string;
   createdAt: string;
   attachments?: string[];
+}
+
+export interface ConversationsQueryParams {
+  channel?: Channel | 'all';
+  status?: 'open' | 'closed' | 'all';
+  search?: string;
 }

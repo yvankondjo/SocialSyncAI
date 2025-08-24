@@ -1,4 +1,5 @@
 "use client";
+export const dynamic = 'force-dynamic';
 
 import { createClient } from "@/lib/supabase/client";
 import { Auth } from "@supabase/auth-ui-react";
@@ -7,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 export default function Home() {
+  
   const supabase = createClient();
   const router = useRouter();
 

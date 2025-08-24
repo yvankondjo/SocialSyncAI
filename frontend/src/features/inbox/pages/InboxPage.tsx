@@ -35,14 +35,6 @@ function makeConversations(): Conversation[] {
       lastMessageSnippet: 'Votre ticket #A4B2 a été mis à jour.',
       unreadCount: 0,
     },
-     {
-      id: 'c3',
-      participants: [{ id: 'u3', displayName: 'r/reactjs Mod' }],
-      channel: 'reddit',
-      lastMessageAt: new Date(Date.now() - 86400000).toISOString(),
-      lastMessageSnippet: 'Votre post a été approuvé.',
-      unreadCount: 1,
-    },
   ];
 }
 

@@ -4,15 +4,7 @@ import { ClientTime } from './ClientTime';
 
 const channelLabel: Record<Channel, string> = {
   instagram: 'Instagram',
-  tiktok: 'TikTok',
-  twitter: 'X',
-  facebook: 'Facebook',
-  youtube: 'YouTube',
-  reddit: 'Reddit',
   whatsapp: 'WhatsApp',
-  discord: 'Discord',
-  email: 'Email',
-  linkedin: 'LinkedIn',
 };
 
 function getChannelIconPath(channel: Channel): string {

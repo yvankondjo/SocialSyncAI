@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+backend/migrations/
 
 # Distribution / packaging
 .Python
@@ -190,6 +191,7 @@ cython_debug/
 
 # Ruff stuff:
 .ruff_cache/
+backend/delete_doc.py
 
 # PyPI configuration file
 .pypirc

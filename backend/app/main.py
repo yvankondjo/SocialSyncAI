@@ -3,7 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 # from app.scheduler import start_scheduler, stop_scheduler
-from app.routers import analytics, social_accounts, content, whatsapp, instagram, messaging, web_widget
+from app.routers import( analytics, social_accounts, content, whatsapp, instagram, 
+messaging, web_widget, conversations, automation, process, 
+knowledge_documents, faq_qa, ai_settings)
 import logging
 
 # Configuration du logging
@@ -32,7 +34,14 @@ app = FastAPI(
 # Configuration CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,8 +54,13 @@ app.include_router(content.router, prefix="/api")
 app.include_router(whatsapp.router, prefix="/api")
 app.include_router(instagram.router, prefix="/api")
 app.include_router(messaging.router, prefix="/api")
+app.include_router(conversations.router, prefix="/api")
+app.include_router(automation.router, prefix="/api")
 app.include_router(web_widget.router, prefix="/api")
-
+app.include_router(process.router, prefix="/api")
+app.include_router(knowledge_documents.router, prefix="/api")
+app.include_router(faq_qa.router, prefix="/api")
+app.include_router(ai_settings.router, prefix="/api")
 # Servir les fichiers statiques du widget
 # TODO: Décommenter quand on implémentera le widget web intégrable
 # app.mount("/static", StaticFiles(directory="static"), name="static")

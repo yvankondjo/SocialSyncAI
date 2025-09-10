@@ -1,20 +1,31 @@
 FROM node:20-alpine
 
-# On définit le répertoire de travail standard pour l'application
 WORKDIR /app
 
-# On copie d'abord les fichiers de dépendances pour mettre en cache cette étape
-COPY package*.json ./
-RUN npm install --legacy-peer-deps --ignore-scripts
+# Installer les dépendances système nécessaires
+RUN apk add --no-cache libc6-compat
 
-# Ensuite, on copie le reste du code.
-# Cette couche ne sera reconstruite que si vos fichiers de code source changent.
+# Copier les fichiers de package pour le cache
+COPY package*.json ./
+
+# Nettoyer le cache et installer les dépendances
+# Utiliser npm ci si package-lock.json existe et est valide, sinon npm install
+RUN if [ -f package-lock.json ] && [ -s package-lock.json ]; then \
+        npm ci --legacy-peer-deps --no-audit --no-fund; \
+    else \
+        npm install --legacy-peer-deps --no-audit --no-fund; \
+    fi
+
+# Copier le code source
 COPY . .
 
-# Variables d'environnement pour le build
-ARG SUPABASE_URL
-ARG SUPABASE_KEY
-RUN echo "SUPABASE_URL=$SUPABASE_URL" >> .env.local
-RUN echo "SUPABASE_KEY=$SUPABASE_KEY" >> .env.local
+# Variables d'environnement
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV WATCHPACK_POLLING=true
 
-CMD ["npm", "run", "dev"]
+# Exposer le port
+EXPOSE 3000
+
+# Commande de développement avec hot reload
+CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0"]

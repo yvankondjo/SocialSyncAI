@@ -1,26 +1,73 @@
-from sqlalchemy.ext.asyncio import AsyncSession
+from supabase import Client
 from uuid import UUID
+from typing import List
 from app.schemas.content import ContentCreate, ContentUpdate
 
 class ContentService:
-    async def get_content_by_id(self, db: AsyncSession, content_id: UUID):
-        # TODO: Implémenter la logique pour récupérer un contenu
-        return {"id": content_id, "title": "Fake Content"}
+    async def get_content_by_id(self, db: Client, content_id: UUID):
+        """Récupère un contenu par son ID"""
+        try:
+            response = db.table("content").select("*").eq("id", str(content_id)).single().execute()
+            return response.data
+        except Exception as e:
+            raise Exception(f"Erreur lors de la récupération du contenu: {e}")
 
-    async def get_all_content_for_user(self, db: AsyncSession, user_id: UUID):
-        # TODO: Implémenter la logique pour récupérer tous les contenus d'un utilisateur
-        return [{"id": "fake_id", "title": "Fake Content"}]
+    async def get_all_content_for_user(self, db: Client, user_id: UUID) -> List[dict]:
+        """Récupère tous les contenus d'un utilisateur"""
+        try:
+            # Récupérer les contenus via les comptes sociaux de l'utilisateur
+            response = db.table("content").select(
+                """
+                *,
+                social_accounts:social_account_id (
+                    platform, username
+                )
+                """
+            ).eq("created_by", str(user_id)).order("created_at", desc=True).execute()  # RLS complète cette sécurité
 
-    async def create_content(self, db: AsyncSession, content: ContentCreate, user_id: UUID):
-        # TODO: Implémenter la logique pour créer un contenu
-        return {"id": "new_fake_id", **content.dict()}
+            return response.data or []
+        except Exception as e:
+            raise Exception(f"Erreur lors de la récupération des contenus: {e}")
 
-    async def update_content(self, db: AsyncSession, content_id: UUID, content: ContentUpdate):
-        # TODO: Implémenter la logique pour mettre à jour un contenu
-        return {"id": content_id, "title": "Updated Fake Content"}
+    async def create_content(self, db: Client, content: ContentCreate, user_id: UUID):
+        """Crée un nouveau contenu"""
+        try:
+            content_data = content.dict()
+            content_data["created_by"] = str(user_id)
 
-    async def delete_content(self, db: AsyncSession, content_id: UUID):
-        # TODO: Implémenter la logique pour supprimer un contenu
-        return {"status": "deleted"}
+            response = db.table("content").insert(content_data).execute()
 
-content_service = ContentService() 
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("Échec de la création du contenu")
+        except Exception as e:
+            raise Exception(f"Erreur lors de la création du contenu: {e}")
+
+    async def update_content(self, db: Client, content_id: UUID, content: ContentUpdate):
+        """Met à jour un contenu existant"""
+        try:
+            update_data = content.dict(exclude_unset=True)
+
+            response = db.table("content").update(update_data).eq("id", str(content_id)).execute()
+
+            if response.data:
+                return response.data[0]
+            else:
+                raise Exception("Contenu non trouvé")
+        except Exception as e:
+            raise Exception(f"Erreur lors de la mise à jour du contenu: {e}")
+
+    async def delete_content(self, db: Client, content_id: UUID):
+        """Supprime un contenu"""
+        try:
+            response = db.table("content").delete().eq("id", str(content_id)).execute()
+
+            if not response.data:
+                raise Exception("Contenu non trouvé")
+
+            return {"status": "deleted", "id": str(content_id)}
+        except Exception as e:
+            raise Exception(f"Erreur lors de la suppression du contenu: {e}")
+
+content_service = ContentService()

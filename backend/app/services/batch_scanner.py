@@ -11,6 +11,7 @@ from app.services.response_manager import (
     send_response,
     save_response_to_db,
 )
+from app.services.automation_service import AutomationService
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,37 @@ class BatchScanner:
             if not user_credentials:
                 logger.error(f"Credentials non trouvés pour {platform}:{account_id}")
                 return
+            
+            # 3.5. Vérifier les règles d'automation avant d'envoyer
+            conversation_id = batch_result.get("conversation_id")
+            user_id = user_credentials.get("user_id")
+            
+            if conversation_id and user_id:
+                from app.db.session import get_db
+                automation_service = AutomationService(get_db())
+                
+                # Récupérer le contenu du dernier message pour la vérification
+                last_message_content = ""
+                if messages:
+                    last_message_content = messages[-1].get("message_data", {}).get("content", "")
+                
+                automation_check = await automation_service.should_auto_reply(
+                    conversation_id=conversation_id,
+                    message_content=last_message_content,
+                    user_id=user_id
+                )
+                
+                if not automation_check["should_reply"]:
+                    logger.info(
+                        f"Auto-réponse bloquée pour {platform}:{account_id}:{contact_id} - "
+                        f"Raison: {automation_check['reason']}"
+                    )
+                    return
+                else:
+                    logger.info(
+                        f"Auto-réponse autorisée pour {platform}:{account_id}:{contact_id} - "
+                        f"Règles matchées: {automation_check['matched_rules']}"
+                    )
             
             # 4. Envoyer la réponse via l'API appropriée
             response_sent = await send_response(platform, user_credentials, contact_id, response_content)

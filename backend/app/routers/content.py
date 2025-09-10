@@ -1,18 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import List, Dict, Any
 from uuid import UUID
+from supabase import Client
 from app.core.security import get_current_user_id
 from app.services.content_service import content_service
 from app.schemas.content import Content, ContentCreate, ContentUpdate
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.session import get_db
+from app.db.session import get_authenticated_db
 
 router = APIRouter(prefix="/content", tags=["content"])
 
 @router.post("/", response_model=Content)
 async def create_new_content(
     content: ContentCreate,
-    db: AsyncSession = Depends(get_db),
+    request: Request,
+    db: Client = Depends(get_authenticated_db),
     current_user_id: str = Depends(get_current_user_id)
 ):
     user_id = UUID(current_user_id)
@@ -20,7 +21,8 @@ async def create_new_content(
 
 @router.get("/", response_model=List[Content])
 async def read_user_content(
-    db: AsyncSession = Depends(get_db),
+    request: Request,
+    db: Client = Depends(get_authenticated_db),
     current_user_id: str = Depends(get_current_user_id)
 ):
     user_id = UUID(current_user_id)
@@ -29,7 +31,8 @@ async def read_user_content(
 @router.get("/{content_id}", response_model=Content)
 async def read_content_by_id(
     content_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    request: Request,
+    db: Client = Depends(get_authenticated_db),
     current_user_id: str = Depends(get_current_user_id)
 ):
     # TODO: Ajouter une vérification que l'utilisateur a le droit de voir ce contenu
@@ -39,7 +42,8 @@ async def read_content_by_id(
 async def update_existing_content(
     content_id: UUID,
     content: ContentUpdate,
-    db: AsyncSession = Depends(get_db),
+    request: Request,
+    db: Client = Depends(get_authenticated_db),
     current_user_id: str = Depends(get_current_user_id)
 ):
     # TODO: Ajouter une vérification que l'utilisateur a le droit de modifier ce contenu
@@ -48,9 +52,10 @@ async def update_existing_content(
 @router.delete("/{content_id}", status_code=204)
 async def delete_existing_content(
     content_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    request: Request,
+    db: Client = Depends(get_authenticated_db),
     current_user_id: str = Depends(get_current_user_id)
 ):
     # TODO: Ajouter une vérification que l'utilisateur a le droit de supprimer ce contenu
     await content_service.delete_content(db=db, content_id=content_id)
-    return 
+    return

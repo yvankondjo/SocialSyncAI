@@ -1,0 +1,91 @@
+import os, asyncio
+from typing import List, Dict
+from app.workers.celery_app import celery
+from app.services.ingest_helpers import (
+    detect_language, split_text, parse_bytes_by_ext,
+    add_context_to_chunks, embed_texts
+)
+from app.db.session import get_authenticated_db
+
+
+
+
+@celery.task(bind=True, name="app.workers.ingest.process_document")
+def process_document_task(self, document_id: str):
+    db = get_authenticated_db()
+
+    doc = db.table("knowledge_documents").select(
+        "id,title,bucket_id,object_name"
+    ).eq("id", document_id).single().execute().data
+    if not doc:
+        raise RuntimeError("Document introuvable")
+
+    bucket_id = doc["bucket_id"]
+    object_name    = doc["object_name"]
+
+    # status -> processing
+    db.table("knowledge_documents").update({"status":"processing"}).eq("id", document_id).execute()
+
+    try:
+        # 2) download
+        data = db.storage.from_(bucket_id).download(object_name)
+
+        # 3) parse
+        content = parse_bytes_by_ext(data, os.path.splitext(object_name)[1].lower())
+
+        # 4) langue
+        lang_code, tsconfig = detect_language(content)
+        db.table("knowledge_documents").update({"lang_code":lang_code,"tsconfig":tsconfig}).eq("id", document_id).execute()
+
+        # 5) chunk
+        chunks = split_text(content, 1024, 128)
+
+
+        # run async depuis tâche sync
+        chunks_ctx = asyncio.run(add_context_to_chunks(chunks, document_text=content, concurrency=8))
+
+        # 7) préparer rows + embeddins
+        rows: List[Dict] = []
+
+        for idx, (txt, start, end) in enumerate(chunks_ctx):
+            rows.append({
+                "document_id": document_id,
+                "chunk_index": idx,
+                "content": txt,
+                "start_char": start,
+                "end_char": end,
+                "token_count": len(txt.split()),
+                "metadata": {},
+            })
+
+
+        
+        if rows:
+            db.table("knowledge_chunks").delete().eq("document_id", document_id).execute()
+
+            B = 100
+            nb_rows = len(rows)
+            for batch_start in range(0, nb_rows, B):
+                batch_end = min(batch_start + B, nb_rows)
+                batch_rows = rows[batch_start:batch_end]
+                batch_contents = [r["content"] for r in batch_rows]
+
+                embs = embed_texts(batch_contents)
+
+                for i, e in enumerate(embs):
+                    batch_rows[i]["embedding"] = e
+
+                db.table("knowledge_chunks").insert(batch_rows).execute()
+        
+        # 9) status -> indexed
+        db.table("knowledge_documents").update({
+            "status":"indexed",
+            "last_ingested_at":"now()",
+        }).eq("id", document_id).execute()
+
+    except Exception as e:
+        print(f"❌ Erreur lors du traitement du document {document_id}: {e}")
+        db.table("knowledge_documents").update({
+            "status":"failed"
+        }).eq("id", document_id).execute()
+        raise

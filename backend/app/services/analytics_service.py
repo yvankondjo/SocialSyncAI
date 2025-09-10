@@ -63,7 +63,7 @@ class AnalyticsService:
         try:
             # Récupérer tous les contenus publiés récemment
             cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-            result = db.table("content").select("*").eq("social_account_id", user_id).eq("status", "published").gte("published_at", cutoff_date).execute()
+            result = db.table("content").select("*").eq("social_account_id", user_id).eq("status", "published").gte("published_at", cutoff_date).execute()  # TODO: vérifier si user_id devrait être social_account_id
             contents = result.data
             
             results = []

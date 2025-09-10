@@ -16,7 +16,7 @@ async def get_user_credentials_by_user_id(user_id: str) -> Optional[Dict[str, An
         db = get_db()
         res = db.table("social_accounts").select(
             "id, account_id, access_token, display_name, username, expires_at"
-        ).eq("user_id", user_id).eq("platform", "whatsapp").order("created_at", desc=True).limit(1).execute()
+        ).eq("platform", "whatsapp").order("created_at", desc=True).limit(1).execute()
 
         rows = res.data or []
         if rows:

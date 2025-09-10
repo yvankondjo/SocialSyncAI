@@ -1,5 +1,6 @@
 from supabase import create_client, Client
 from app.core.config import get_settings
+from fastapi import Request, HTTPException
 
 # A single client instance is created and shared across the application.
 settings = get_settings()
@@ -7,6 +8,29 @@ supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVIC
 
 def get_db() -> Client:
     """
-    Dependency function that provides a Supabase client instance.
+    Dependency function that provides a Supabase client instance with service role.
+    USE WITH CAUTION - This bypasses RLS security!
     """
-    return supabase 
+    return supabase
+
+def get_authenticated_db(request: Request) -> Client:
+    """
+    Dependency function that provides a Supabase client with user JWT.
+    RLS will automatically filter data based on auth.uid().
+    This is the SECURE way to access user data.
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Token d'authentification requis"
+        )
+
+    token = auth_header.split(" ")[1]
+
+    # Create client with user token instead of service role key
+    # This enables RLS (Row Level Security) filtering
+    user_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+    user_client.auth.set_session(access_token=token, refresh_token="")
+
+    return user_client 

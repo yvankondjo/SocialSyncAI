@@ -6,7 +6,7 @@ Simplifié - pas de tâche automatique
 import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any
-from app.db.session import get_db
+from app.db.session import get_authenticated_db
 from app.services.social_auth_service import social_auth_service
 import logging
 
@@ -19,7 +19,7 @@ class TokenRefreshService:
     async def check_expired_tokens(self, user_id: str):
         """Vérifie si un utilisateur a des tokens expirés et retourne la liste."""
         try:
-            db = next(get_db())
+            db = next(get_authenticated_db())
             
             # Récupérer les comptes expirés pour cet utilisateur
             now = datetime.now(timezone.utc)
@@ -88,7 +88,7 @@ class TokenRefreshService:
     async def refresh_specific_token(self, account_id: str) -> bool:
         """Rafraîchit le token d'un compte spécifique à la demande."""
         try:
-            db = next(get_db())
+            db = next(get_authenticated_db())
             
             response = db.table("social_accounts").select("*").eq("id", account_id).execute()
             

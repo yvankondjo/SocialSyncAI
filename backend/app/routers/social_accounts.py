@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from supabase import Client
 from jose import jwt, JWTError
@@ -6,7 +6,7 @@ from app.services.social_auth_service import social_auth_service
 from app.schemas.social_account import AuthURL, SocialAccount
 from app.core.security import get_current_user_id
 from app.core.config import get_settings, Settings
-from app.db.session import get_db
+from app.db.session import get_authenticated_db
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -74,7 +74,7 @@ async def handle_oauth_callback(
     platform: str, 
     code: str = Query(...),
     state: str = Query(...),
-    db: Client = Depends(get_db),
+    db: Client = Depends(get_authenticated_db),
     settings: Settings = Depends(get_settings)
 ):
     if platform not in PLATFORMS:
@@ -130,10 +130,38 @@ async def handle_oauth_callback(
 
 
 @router.get("/", response_model=list[SocialAccount])
-async def get_social_accounts(db: Client = Depends(get_db), user_id: str = Depends(get_current_user_id)):
+async def get_social_accounts(
+    request: Request,
+    db: Client = Depends(get_authenticated_db)
+):
     try:
-        response = db.table("social_accounts").select("*").eq("user_id", user_id).execute()
+        # RLS applique automatiquement le filtre user_id = auth.uid()
+        response = db.table("social_accounts").select("*").execute()
         return response.data
     except Exception as e:
         print(f"Error getting social accounts: {e}")
         raise HTTPException(status_code=500, detail="Could not get social accounts.")
+
+
+@router.delete("/{account_id}")
+async def delete_social_account(
+    account_id: str,
+    request: Request,
+    db: Client = Depends(get_authenticated_db)
+):
+    try:
+        # Vérifier que le compte appartient à l'utilisateur avant de le supprimer
+        existing = db.table("social_accounts").select("*").eq("id", account_id).execute()
+
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="Social account not found")
+
+        # RLS assure que seul le propriétaire peut supprimer son compte
+        db.table("social_accounts").delete().eq("id", account_id).execute()
+
+        return {"message": "Social account deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting social account: {e}")
+        raise HTTPException(status_code=500, detail="Could not delete social account.")

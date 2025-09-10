@@ -385,5 +385,51 @@ BEGIN
 END;
 $$ language 'plpgsql' SECURITY DEFINER;
 
+-- Migration pour ajouter les contrôles d'automatisation
+-- Date: 2025-01-20
+
+-- 1. Ajouter la colonne automation_disabled à la table conversations
+ALTER TABLE conversations 
+ADD COLUMN automation_disabled BOOLEAN DEFAULT false;
+
+-- 2. Créer la table pour les règles de mots-clés
+CREATE TABLE automation_keyword_rules (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scope_type VARCHAR(20) NOT NULL CHECK (scope_type IN ('user', 'account', 'conversation')),
+    scope_id UUID, -- social_account_id ou conversation_id selon scope_type
+    match_type VARCHAR(20) NOT NULL DEFAULT 'contains' CHECK (match_type IN ('contains', 'regex')),
+    keywords TEXT[] NOT NULL, -- Liste des mots-clés à rechercher
+    is_enabled BOOLEAN DEFAULT true,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    -- Contraintes de validation
+    CONSTRAINT valid_scope_id CHECK (
+        (scope_type = 'user' AND scope_id IS NULL) OR
+        (scope_type IN ('account', 'conversation') AND scope_id IS NOT NULL)
+    )
+);
+
+-- 3. Index pour les performances
+CREATE INDEX idx_automation_keyword_rules_user_id ON automation_keyword_rules(user_id);
+CREATE INDEX idx_automation_keyword_rules_scope ON automation_keyword_rules(scope_type, scope_id);
+CREATE INDEX idx_automation_keyword_rules_enabled ON automation_keyword_rules(is_enabled);
+
+-- 4. RLS pour la sécurité
+ALTER TABLE automation_keyword_rules ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users manage their keyword rules" ON automation_keyword_rules 
+FOR ALL USING (auth.uid() = user_id);
+
+-- 5. Trigger pour updated_at
+CREATE TRIGGER update_automation_keyword_rules_updated_at 
+BEFORE UPDATE ON automation_keyword_rules 
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- 6. Ajouter un index sur automation_disabled pour les performances
+CREATE INDEX idx_conversations_automation_disabled ON conversations(automation_disabled) 
+WHERE automation_disabled = true;
 
 -- INSERT INTO social_accounts(platform,account_id,username,display_name,access_token,user_id) values('whatsapp','683178638221369','15556542910','yvank','EAAI565Fri54BPNZBtlUZCfb0RqYDOctrzhcPTk3Sz62ZAntDoQSGZAqbFhh5FUJvxe2rVNZC1Y6n67rivd7o2b9ZBUbZBseeYrUJ2LW60DYiBAr1IypSO6Hf5SiLhZCaXijLnEvdNBDDZCzjSMBfHCTFtOYxbdXrpqQSzauZA6yX7xE6a644hmZAr3rBoyZBquNTtK8CRDNZCi48D2bkBjJ4R7GkUzCVTdsCVCTTMFhYH','b46a7229-2c29-4a88-ada1-c21a59f4eda1')

@@ -33,4 +33,19 @@ class TokenData(BaseModel):
     user_id: int
     
 class AuthURL(BaseModel):
-    authorization_url: HttpUrl 
+    authorization_url: HttpUrl
+
+
+class SocialAccountWithStatus(SocialAccount):
+    status: Optional[str] = None
+    authorization_url: Optional[HttpUrl] = None
+
+
+class AddAccountRequest(BaseModel):
+    platform: str
+
+
+class AddAccountResponse(BaseModel):
+    platform: str
+    status: str
+    authorization_url: Optional[HttpUrl] = None

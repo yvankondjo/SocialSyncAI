@@ -312,9 +312,12 @@ class SocialAuthService:
                 print(f"An unexpected error occurred: {e}")
                 raise HTTPException(status_code=500, detail="An unexpected error occurred during Reddit token refresh.")
 
-    def get_linkedin_auth_url(self) -> str:
-        # TODO: Implémenter la logique pour construire l'URL d'auth LinkedIn
-        return "https://www.linkedin.com/oauth/v2/authorization?..."
+    def get_linkedin_auth_url(self, state: str | None = None) -> str:
+        # Stub d'URL d'auth LinkedIn
+        base = "https://www.linkedin.com/oauth/v2/authorization"
+        if state:
+            return f"{base}?state={state}"
+        return base
 
     def handle_linkedin_callback(self, code: str) -> dict:
         # TODO: Implémenter l'échange du code contre un token
@@ -385,17 +388,23 @@ class SocialAuthService:
                 print(f"An unexpected error occurred: {e}")
                 raise HTTPException(status_code=500, detail="An unexpected error occurred during Twitter authentication.")
 
-    def get_tiktok_auth_url(self) -> str:
+    def get_tiktok_auth_url(self, state: str | None = None) -> str:
         # TODO: Implémenter la logique pour construire l'URL d'auth TikTok
-        return "https://www.tiktok.com/v2/auth/authorize?..."
+        base = "https://www.tiktok.com/v2/auth/authorize"
+        if state:
+            return f"{base}?state={state}"
+        return base
 
     def handle_tiktok_callback(self, code: str) -> dict:
         # TODO: Implémenter l'échange du code contre un token
         return {"access_token": "fake_tiktok_token"}
 
-    def get_whatsapp_auth_url(self) -> str:
+    def get_whatsapp_auth_url(self, state: str | None = None) -> str:
         # TODO: Implémenter la logique pour l'auth WhatsApp via Meta
-        return "https://www.facebook.com/v18.0/dialog/oauth?..."
+        base = "https://www.facebook.com/v18.0/dialog/oauth"
+        if state:
+            return f"{base}?state={state}"
+        return base
 
     def handle_whatsapp_callback(self, code: str) -> dict:
         # TODO: Implémenter l'échange du code contre un token

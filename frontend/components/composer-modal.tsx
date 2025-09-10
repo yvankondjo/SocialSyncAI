@@ -66,11 +66,11 @@ type Post = {
 interface ComposerModalProps {
   isOpen: boolean
   onClose: () => void
-  post?: Post
+  post?: any
   scheduledAt?: Date
-  onSaveDraft: (post: Post) => void
-  onSchedule: (post: Post, datetime: Date) => void
-  onPublishNow: (post: Post) => void
+  onSaveDraft: (post: any) => void
+  onSchedule: (post: any, datetime: Date) => void
+  onPublishNow: (post: any) => void
 }
 
 const mockChannels: Channel[] = [
@@ -255,6 +255,15 @@ export function ComposerModal({
     const [hours, minutes] = scheduledTime.split(":").map(Number)
     const scheduleDateTime = new Date(scheduledDate)
     scheduleDateTime.setHours(hours, minutes, 0, 0)
+
+    if (scheduleDateTime.getTime() <= Date.now()) {
+      toast({
+        title: "Invalid time",
+        description: "Scheduling in the past is not allowed (Europe/Paris).",
+        variant: "destructive",
+      })
+      return
+    }
 
     const schedulePost: Post = {
       id: post?.id || Date.now().toString(),
@@ -523,7 +532,7 @@ export function ComposerModal({
                       <Input
                         type="time"
                         value={scheduledTime}
-                        onChange={(e) => setScheduledTime(e.target.value)}
+                        onChange={(e: any) => setScheduledTime(e.target.value)}
                         className="w-32"
                       />
                     </div>
@@ -549,7 +558,7 @@ export function ComposerModal({
                       placeholder="Select or create tags..."
                       menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
                       styles={{
-                        menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                        menuPortal: (base: any) => ({ ...base, zIndex: 9999 }),
                       }}
                     />
                   </div>
@@ -695,7 +704,7 @@ export function ComposerModal({
                     ref={textareaRef}
                     placeholder="What's on your mind?"
                     value={content}
-                    onChange={(e) => setContent(e.target.value)}
+                    onChange={(e: any) => setContent(e.target.value)}
                     className="min-h-32 resize-none"
                   />
                 </div>

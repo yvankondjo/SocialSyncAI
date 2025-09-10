@@ -14,6 +14,8 @@ import dayGridPlugin from "@fullcalendar/daygrid"
 import timeGridPlugin from "@fullcalendar/timegrid"
 import interactionPlugin from "@fullcalendar/interaction"
 import type { EventInput, DateSelectArg, EventDropArg, EventClickArg } from "@fullcalendar/core"
+import { AddChannelDialog } from "@/components/add-channel-dialog"
+import { apiFetch } from "@/lib/api"
 
 // Mock data types
 type Channel = {
@@ -101,18 +103,19 @@ const statusColors = {
 }
 
 export function CalendarPage() {
-  const [selectedChannels, setSelectedChannels] = useState<string[]>([])
+  const [selectedChannels, setSelectedChannels] = useState<any>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [viewMode, setViewMode] = useState<"dayGridMonth" | "timeGridWeek" | "timeGridDay">("timeGridWeek")
+  const [viewMode, setViewMode] = useState<any>("timeGridWeek")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [composerOpen, setComposerOpen] = useState(false)
-  const [editingPost, setEditingPost] = useState<Post | undefined>()
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>()
-  const [posts, setPosts] = useState<Post[]>(mockPosts)
-  const calendarRef = useRef<FullCalendar>(null)
+  const [editingPost, setEditingPost] = useState<any | undefined>(undefined)
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined)
+  const [posts, setPosts] = useState<any[]>(mockPosts)
+  const calendarRef: any = useRef(null)
+  const [addOpen, setAddOpen] = useState(false)
 
-  const calendarEvents: EventInput[] = posts.map((post) => ({
+  const calendarEvents: any[] = posts.map((post: any) => ({
     id: post.id,
     title: post.title || post.content.substring(0, 30) + "...",
     start: post.scheduledAt,
@@ -133,14 +136,14 @@ export function CalendarPage() {
     },
   }))
 
-  const handleDateSelect = (selectInfo: DateSelectArg) => {
+  const handleDateSelect = (selectInfo: any) => {
     setSelectedDate(selectInfo.start)
     setEditingPost(undefined)
     setComposerOpen(true)
     selectInfo.view.calendar.unselect()
   }
 
-  const handleEventDrop = (dropInfo: EventDropArg) => {
+  const handleEventDrop = (dropInfo: any) => {
     const postId = dropInfo.event.id
     const newDate = dropInfo.event.start
 
@@ -152,13 +155,13 @@ export function CalendarPage() {
     }
   }
 
-  const handleEventClick = (clickInfo: EventClickArg) => {
-    const post = clickInfo.event.extendedProps.post as Post
+  const handleEventClick = (clickInfo: any) => {
+    const post = clickInfo.event.extendedProps.post as any
     setEditingPost(post)
     setComposerOpen(true)
   }
 
-  const handleViewChange = (view: "dayGridMonth" | "timeGridWeek" | "timeGridDay") => {
+  const handleViewChange = (view: any) => {
     setViewMode(view)
     if (calendarRef.current) {
       calendarRef.current.getApi().changeView(view)
@@ -209,22 +212,39 @@ export function CalendarPage() {
     })
   }
 
-  const handleSchedule = (post: Post, datetime: Date) => {
-    console.log("[v0] composer_schedule", post, datetime)
-    const scheduledPost = { ...post, scheduledAt: datetime, status: "scheduled" as const }
-    setPosts((prevPosts) => {
-      const existingIndex = prevPosts.findIndex((p) => p.id === post.id)
-      if (existingIndex >= 0) {
-        const newPosts = [...prevPosts]
-        newPosts[existingIndex] = scheduledPost
-        return newPosts
-      } else {
-        return [...prevPosts, { ...scheduledPost, id: Date.now().toString() }]
+  const handleSchedule = (post: any, datetime: Date) => {
+    const paris = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris" })
+    console.log("[v0] composer_schedule", post, datetime, paris.format(datetime))
+    ;(async () => {
+      try {
+        const body: any = {
+          content: post.content,
+          platforms: post.channels
+            .map((c: any) => (c.network === "x" ? "twitter" : c.network))
+            .filter((n: any) => ["instagram", "reddit"].includes(n)),
+          scheduled_at: datetime.toISOString(),
+          timezone: "Europe/Paris",
+          media_url: post.assets[0]?.url,
+        }
+        await apiFetch("/api/scheduler/schedule", { method: "POST", body: JSON.stringify(body) })
+        const scheduledPost = { ...post, scheduledAt: datetime, status: "scheduled" as const }
+        setPosts((prevPosts) => {
+          const existingIndex = prevPosts.findIndex((p) => p.id === post.id)
+          if (existingIndex >= 0) {
+            const newPosts = [...prevPosts]
+            newPosts[existingIndex] = scheduledPost
+            return newPosts
+          } else {
+            return [...prevPosts, { ...scheduledPost, id: Date.now().toString() }]
+          }
+        })
+      } catch (e) {
+        console.error("schedule failed", e)
       }
-    })
+    })()
   }
 
-  const handlePublishNow = (post: Post) => {
+  const handlePublishNow = (post: any) => {
     console.log("[v0] composer_post_now", post)
     const publishedPost = { ...post, status: "sent" as const, scheduledAt: new Date() }
     setPosts((prevPosts) => {
@@ -245,7 +265,7 @@ export function CalendarPage() {
       <div className="hidden lg:flex w-80 bg-white border-r border-gray-200 flex-col shadow-sm">
         <div className="p-6 border-b border-gray-200">
           <div className="flex gap-3 mb-4">
-            <Button className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90">
+            <Button className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => setAddOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />
               Add Channel
             </Button>
@@ -260,7 +280,7 @@ export function CalendarPage() {
             <Input
               placeholder="Search channels..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e: any) => setSearchQuery(e.target.value)}
               className="pl-10"
             />
           </div>
@@ -360,7 +380,7 @@ export function CalendarPage() {
                   <Calendar
                     mode="single"
                     selected={currentDate}
-                    onSelect={(date) => {
+                    onSelect={(date: any) => {
                       if (date && calendarRef.current) {
                         setCurrentDate(date)
                         calendarRef.current.getApi().gotoDate(date)
@@ -448,6 +468,9 @@ export function CalendarPage() {
         onSchedule={handleSchedule}
         onPublishNow={handlePublishNow}
       />
+
+      {/* Add Channel Dialog */}
+      <AddChannelDialog open={addOpen} onOpenChange={setAddOpen} />
     </div>
   )
 }

@@ -2,11 +2,12 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { logos } from "@/lib/logos"
+import { apiFetch } from "@/lib/api"
 import {
   Plus,
   RefreshCw,
@@ -15,19 +16,30 @@ import {
   CheckCircle,
   Clock,
 } from "lucide-react"
+import { AddChannelDialog } from "@/components/add-channel-dialog"
 
-interface SocialAccount {
+type ApiAccount = {
   id: string
   platform: string
   username: string
-  status: "connected" | "error" | "re-auth"
+  profile_url?: string | null
+  status?: string | null
+  authorization_url?: string | null
+  updated_at?: string
+}
+
+type UiAccount = {
+  id: string
+  platform: string
+  username: string
+  status: "connected" | "error" | "re-auth" | "pending_setup"
   lastSync: string
   logo: string
   bgColor: string
   textColor: string
 }
 
-const socialAccounts: SocialAccount[] = [
+const mockAccounts: UiAccount[] = [
   {
     id: "instagram",
     platform: "Instagram",
@@ -52,7 +64,7 @@ const socialAccounts: SocialAccount[] = [
     id: "linkedin",
     platform: "LinkedIn",
     username: "@alexander-shop",
-    status: "connected",
+    status: "pending_setup",
     lastSync: "3 hours ago",
     logo: logos.linkedin,
     bgColor: "bg-blue-100",
@@ -88,6 +100,8 @@ const getStatusIcon = (status: string) => {
       return <AlertCircle className="w-4 h-4 text-red-600" />
     case "re-auth":
       return <Clock className="w-4 h-4 text-orange-600" />
+    case "pending_setup":
+      return <Clock className="w-4 h-4 text-blue-600" />
     default:
       return null
   }
@@ -113,17 +127,56 @@ const getStatusBadge = (status: string) => {
           Re-auth
         </Badge>
       )
+    case "pending_setup":
+      return (
+        <Badge variant="secondary" className="bg-blue-100 text-blue-800 border-blue-200">
+          Setup pending
+        </Badge>
+      )
     default:
       return null
   }
 }
 
 export default function SocialAccountsPage() {
-  const [accounts, setAccounts] = useState(socialAccounts)
+  const [accounts, setAccounts] = useState<UiAccount[]>(mockAccounts)
+  const [addOpen, setAddOpen] = useState(false)
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const data = await apiFetch("/api/social-accounts/") as ApiAccount[]
+        const mapped: UiAccount[] = data.map((acc) => {
+          const platform = acc.platform.toLowerCase()
+          const branding = getBranding(platform)
+          const status = (acc.status as UiAccount["status"]) || (platform === "linkedin" ? "pending_setup" : "connected")
+          return {
+            id: acc.id,
+            platform: capitalize(platform),
+            username: acc.username,
+            status,
+            lastSync: new Date(acc.updated_at || Date.now()).toLocaleString(),
+            logo: branding.logo,
+            bgColor: branding.bg,
+            textColor: "text-gray-900",
+          }
+        })
+        if (mapped.length > 0) setAccounts(mapped)
+      } catch (e) {
+        console.warn("/social-accounts load failed, using mock", e)
+      }
+    })()
+  }, [])
+
+  const availablePlatforms = useMemo(() => [
+    { id: "instagram", name: "Instagram", icon: logos.instagram },
+    { id: "whatsapp", name: "WhatsApp", icon: logos.whatsapp },
+    { id: "reddit", name: "Reddit", icon: "/logos/reddit.svg" },
+    { id: "linkedin", name: "LinkedIn", icon: logos.linkedin },
+  ], [])
 
   const handleConnect = (platformId: string) => {
     console.log("[v0] social_connect_click", { platform: platformId })
-    // Simulate connection process
     setAccounts((prev) =>
       prev.map((account) =>
         account.id === platformId ? { ...account, status: "connected" as const, lastSync: "Just now" } : account,
@@ -145,9 +198,34 @@ export default function SocialAccountsPage() {
     )
   }
 
-  const handleAddAccount = () => {
-    console.log("[v0] social_add_account_click")
-    // This would open a modal or redirect to OAuth flow
+  const handleAddAccount = () => setAddOpen(true)
+
+  const startAuth = async (_platform: string) => {}
+
+  function getBranding(platform: string): { logo: string; bg: string } {
+    switch (platform) {
+      case "instagram":
+        return { logo: logos.instagram, bg: "bg-gradient-to-br from-purple-100 to-pink-100" }
+      case "youtube":
+        return { logo: logos.youtube, bg: "bg-red-100" }
+      case "linkedin":
+        return { logo: logos.linkedin, bg: "bg-blue-100" }
+      case "x":
+      case "twitter":
+        return { logo: logos.x, bg: "bg-gray-100" }
+      case "whatsapp":
+        return { logo: logos.whatsapp, bg: "bg-green-100" }
+      case "reddit":
+        return { logo: "/logos/reddit.svg", bg: "bg-orange-50" }
+      default:
+        return { logo: logos.all, bg: "bg-gray-100" }
+    }
+  }
+
+  function capitalize(s: string): string {
+    if (!s) return s
+    if (s === "x") return "X (Twitter)"
+    return s.charAt(0).toUpperCase() + s.slice(1)
   }
 
   return (
@@ -233,6 +311,8 @@ export default function SocialAccountsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <AddChannelDialog open={addOpen} onOpenChange={setAddOpen} />
     </div>
   )
 }

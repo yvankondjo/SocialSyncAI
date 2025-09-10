@@ -29,7 +29,7 @@ class ConversationService:
                     id, platform, account_id, access_token, user_id
                 ),
                 last_message: conversation_messages!conversation_messages_conversation_id_fkey (
-                    content, created_at
+                    content, created_at, direction
                 )
                 '''
             )
@@ -41,15 +41,15 @@ class ConversationService:
             if channel and channel != 'all':
                 query = query.eq('social_accounts.platform', channel)
             
-            # Ordonner par dernier message
-            query = query.order('last_message_at', desc=True).limit(limit)
+            # Ordonner par dernier message (pré-ordre)
+            query = query.order('last_message_at', desc=True).limit(limit * 2)
             
             response = query.execute()
             
             if not response.data:
                 return []
             
-            conversations = []
+            conversations: List[Dict[str, Any]] = []
             for row in response.data:
                 # Vérifier que l'utilisateur a accès à cette conversation
                 social_account = row.get('social_accounts')
@@ -67,6 +67,30 @@ class ConversationService:
                     'social_account_id': social_account['id']
                 }
                 conversations.append(conversation)
+            
+            # Calcul du last inbound pour tri strict
+            last_inbound_times: Dict[str, Any] = {}
+            for conv in conversations:
+                try:
+                    inbound = (
+                        self.supabase
+                        .table('conversation_messages')
+                        .select('created_at, content')
+                        .eq('conversation_id', conv['id'])
+                        .eq('direction', 'inbound')
+                        .order('created_at', desc=True)
+                        .limit(1)
+                        .execute()
+                    )
+                    if inbound.data:
+                        last_inbound_times[conv['id']] = inbound.data[0]['created_at']
+                    else:
+                        last_inbound_times[conv['id']] = conv['last_message_at']
+                except Exception:
+                    last_inbound_times[conv['id']] = conv['last_message_at']
+            
+            conversations.sort(key=lambda c: last_inbound_times.get(c['id']) or '', reverse=True)
+            conversations = conversations[:limit]
             
             return conversations
             

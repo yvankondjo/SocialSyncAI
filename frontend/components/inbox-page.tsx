@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -17,10 +17,11 @@ import {
   StickyNote,
 } from "lucide-react"
 import { logos } from "@/lib/logos"
+import { apiFetch } from "@/lib/api"
 
 export function InboxPage() {
   const [selectedChannel, setSelectedChannel] = useState("tous")
-  const [selectedConversation, setSelectedConversation] = useState("1")
+  const [selectedConversation, setSelectedConversation] = useState<string>("")
   const [aiEnabled, setAiEnabled] = useState(true)
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false)
   const [socialExpanded, setSocialExpanded] = useState(true)
@@ -30,102 +31,79 @@ export function InboxPage() {
   const [unreadOnly, setUnreadOnly] = useState(false)
 
   const socialChannels = [
-    { id: "instagram", name: "Instagram", unread: 5, hasNew: true },
-    { id: "whatsapp", name: "WhatsApp", unread: 12, hasNew: false },
-    { id: "facebook", name: "Facebook", unread: 3, hasNew: false },
-    { id: "twitter", name: "X (Twitter)", unread: 0, hasNew: false },
-    { id: "linkedin", name: "LinkedIn", unread: 2, hasNew: true },
-    { id: "tiktok", name: "TikTok", unread: 1, hasNew: false },
-    { id: "youtube", name: "YouTube", unread: 0, hasNew: false },
+    { id: "instagram", name: "Instagram", unread: 0, hasNew: false },
+    { id: "whatsapp", name: "WhatsApp", unread: 0, hasNew: false },
+    { id: "reddit", name: "Reddit", unread: 0, hasNew: false },
   ]
 
-  const conversations = [
-    {
-      id: "1",
-      name: "Marie Dubois",
-      avatar: "/diverse-woman-portrait.png",
-      lastMessage: "Merci pour votre réponse rapide !",
-      time: "2m",
-      unread: 2,
-      initials: "MD",
-      platform: "instagram",
-    },
-    {
-      id: "2",
-      name: "Jean Martin",
-      avatar: "/thoughtful-man.png",
-      lastMessage: "Pouvez-vous m'envoyer plus d'infos ?",
-      time: "15m",
-      unread: 0,
-      initials: "JM",
-      platform: "whatsapp",
-    },
-    {
-      id: "3",
-      name: "Sophie Laurent",
-      avatar: "/woman-blonde.png",
-      lastMessage: "Parfait, je prends rendez-vous",
-      time: "1h",
-      unread: 1,
-      initials: "SL",
-      platform: "facebook",
-    },
-    {
-      id: "4",
-      name: "Pierre Durand",
-      avatar: "/man-beard.png",
-      lastMessage: "Merci beaucoup pour votre aide",
-      time: "3h",
-      unread: 0,
-      initials: "PD",
-      platform: "linkedin",
-    },
-  ]
+  type UIConversation = {
+    id: string
+    name: string
+    avatar?: string
+    lastMessage: string
+    time: string
+    unread: number
+    initials: string
+    platform: string
+  }
 
-  const messages = [
-    {
-      id: "1",
-      type: "user",
-      content: "Bonjour, j'aimerais avoir des informations sur vos services",
-      time: "14:30",
-      sender: "Marie Dubois",
-      platform: "instagram",
-    },
-    {
-      id: "2",
-      type: "agent",
-      content:
-        "Bonjour Marie ! Je serais ravi de vous aider. Nous proposons plusieurs services de marketing digital. Quel domaine vous intéresse le plus ?",
-      time: "14:31",
-      sender: "Assistant IA",
-      platform: "instagram",
-    },
-    {
-      id: "3",
-      type: "user",
-      content: "Je cherche surtout de l'aide pour les réseaux sociaux",
-      time: "14:32",
-      sender: "Marie Dubois",
-      platform: "instagram",
-    },
-    {
-      id: "4",
-      type: "agent",
-      content:
-        "Excellent choix ! Nous avons une expertise particulière en gestion de réseaux sociaux. Nous pouvons vous aider avec la création de contenu, la planification des posts, et l'engagement avec votre audience. Souhaitez-vous planifier un appel pour discuter de vos besoins spécifiques ?",
-      time: "14:33",
-      sender: "Assistant IA",
-      platform: "instagram",
-    },
-    {
-      id: "5",
-      type: "user",
-      content: "Merci pour votre réponse rapide !",
-      time: "14:35",
-      sender: "Marie Dubois",
-      platform: "instagram",
-    },
-  ]
+  const [conversations, setConversations] = useState<UIConversation[]>([])
+  const [messages, setMessages] = useState<any[]>([])
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const channelParam = selectedChannel === "tous" ? "all" : selectedChannel
+        const res = await apiFetch<{ conversations: any[]; total: number }>(
+          `/api/conversations?channel=${encodeURIComponent(channelParam)}`,
+        )
+        const list: UIConversation[] = (res.conversations || []).map((c) => ({
+          id: c.id,
+          name: c.customer_name || c.customer_identifier,
+          lastMessage: c.last_message_snippet || "",
+          time: formatAgo(c.last_message_at),
+          unread: c.unread_count || 0,
+          initials: (c.customer_name || "?").split(" ").map((p: string) => p[0]).slice(0, 2).join("") || "?",
+          platform: c.channel,
+        }))
+        setConversations(list)
+      } catch (e) {
+        setConversations([])
+      }
+    })()
+  }, [selectedChannel])
+
+  useEffect(() => {
+    if (!selectedConversation) return
+    ;(async () => {
+      try {
+        const res = await apiFetch<{ messages: any[]; total: number }>(
+          `/api/conversations/${selectedConversation}/messages`,
+        )
+        const msgs = (res.messages || []).map((m) => ({
+          id: m.id,
+          type: m.is_from_agent ? "agent" : m.direction === "outbound" ? "agent" : "user",
+          content: m.content,
+          time: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          platform: selectedChannel === "tous" ? "instagram" : selectedChannel,
+        }))
+        setMessages(msgs)
+      } catch (e) {
+        setMessages([])
+      }
+    })()
+  }, [selectedConversation])
+
+  const formatAgo = (dateIso?: string) => {
+    if (!dateIso) return ""
+    const diffMs = Date.now() - new Date(dateIso).getTime()
+    const minutes = Math.floor(diffMs / 60000)
+    if (minutes < 60) return `${minutes}m`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h`
+    const days = Math.floor(hours / 24)
+    return `${days}d`
+  }
 
   const handleSendMessage = () => {
     if (message.trim()) {
@@ -372,10 +350,10 @@ export function InboxPage() {
             <div className="flex-1 relative">
               <Input
                 value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                onChange={(e: any) => setMessage(e.target.value)}
                 placeholder="Tapez votre message..."
                 className="rounded-full pr-12 border-gray-200 bg-white"
-                onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                onKeyPress={(e: any) => e.key === "Enter" && handleSendMessage()}
               />
               <Button
                 onClick={handleSendMessage}

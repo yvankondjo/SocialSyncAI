@@ -3,7 +3,7 @@ from fastapi.responses import RedirectResponse
 from supabase import Client
 from jose import jwt, JWTError
 from app.services.social_auth_service import social_auth_service
-from app.schemas.social_account import AuthURL, SocialAccount
+from app.schemas.social_account import AuthURL, SocialAccount, SocialAccountWithStatus, AddAccountRequest, AddAccountResponse
 from app.core.security import get_current_user_id
 from app.core.config import get_settings, Settings
 from app.db.session import get_authenticated_db
@@ -129,7 +129,7 @@ async def handle_oauth_callback(
         return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard/accounts?{error_message}")
 
 
-@router.get("/", response_model=list[SocialAccount])
+@router.get("/", response_model=list[SocialAccountWithStatus])
 async def get_social_accounts(
     request: Request,
     db: Client = Depends(get_authenticated_db)
@@ -137,10 +137,56 @@ async def get_social_accounts(
     try:
         # RLS applique automatiquement le filtre user_id = auth.uid()
         response = db.table("social_accounts").select("*").execute()
-        return response.data
+        accounts = response.data or []
+
+        # Injecter le stub LinkedIn si l'utilisateur a un enregistrement LinkedIn
+        enhanced: list[dict] = []
+        for acc in accounts:
+            if acc.get("platform") == "linkedin":
+                acc["status"] = "pending_setup"
+                acc["authorization_url"] = social_auth_service.get_linkedin_auth_url()
+            enhanced.append(acc)
+        return enhanced
     except Exception as e:
         print(f"Error getting social accounts: {e}")
         raise HTTPException(status_code=500, detail="Could not get social accounts.")
+
+
+@router.post("/add", response_model=AddAccountResponse)
+async def add_social_account(
+    payload: AddAccountRequest,
+    db: Client = Depends(get_authenticated_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    platform = payload.platform.lower()
+    if platform not in {"instagram", "whatsapp", "reddit", "linkedin"}:
+        raise HTTPException(status_code=400, detail="Unsupported platform")
+
+    # LinkedIn: stub only
+    if platform == "linkedin":
+        return AddAccountResponse(platform=platform, status="pending_setup", authorization_url=social_auth_service.get_linkedin_auth_url())
+
+    # Pour instagram/whatsapp/reddit: retourner une auth_url pour démarrer OAuth
+    if platform in PLATFORMS:
+        settings: Settings = get_settings()
+        state_payload = {
+            "user_id": user_id,
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=15)
+        }
+        state_jwt = jwt.encode(
+            state_payload,
+            settings.SUPABASE_JWT_SECRET,
+            algorithm=settings.SUPABASE_JWT_ALGORITHM
+        )
+        auth_url_func = PLATFORMS[platform]["get_auth_url"]
+        try:
+            auth_url = auth_url_func(state=state_jwt)
+        except TypeError:
+            # certains stubs n'acceptent pas state
+            auth_url = auth_url_func()  # type: ignore
+        return AddAccountResponse(platform=platform, status="auth_required", authorization_url=auth_url)
+
+    raise HTTPException(status_code=400, detail="Platform configuration missing")
 
 
 @router.delete("/{account_id}")

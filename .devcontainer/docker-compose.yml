@@ -1,7 +1,6 @@
 version: "3.9"
 
 services:
-  # conteneur VS Code – full-stack
   dev:
     build:
       context: ..
@@ -10,21 +9,21 @@ services:
       - ..:/workspace:cached
     command: sleep infinity
     ports:
-      - "8001:8000"         # FastAPI (lancé depuis VS Code)
-      - "3001:3000"         # Next.js (lancé depuis VS Code)
+      - "8001:8000"
+      - "3001:3000"
     depends_on:
       - redis
 
   backend:
     build:
-      context: ..
-      dockerfile: backend/Dockerfile
+      context: ../backend
+      dockerfile: Dockerfile
     volumes:
       - ../backend:/app
-    environment:
-      - PYTHONUNBUFFERED=1
+    env_file:
+      - ../backend/.env
     ports:
-      - "8000:8000"         # exécution autonome si besoin
+      - "8000:8000"
     depends_on:
       - redis
 
@@ -35,12 +34,58 @@ services:
     volumes:
       - ../frontend:/app
       - /app/node_modules
+    env_file:
+      - ../frontend/.env.local
+    environment:
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=1000
     ports:
       - "3000:3000"
     depends_on:
       - backend
 
+  celery:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "celery -A app.workers.celery_app.celery worker -Q ingest -E -l info"
+    volumes:
+      - ../backend:/app
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  flower:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "celery -A app.workers.celery_app flower
+      --port=5555
+      --broker=${CELERY_BROKER_URL}
+      --result-backend=${CELERY_RESULT_BACKEND}
+      --persistent
+      --db=/data/flower.db
+      --basic_auth=${FLOWER_BASIC_AUTH}"
+    volumes:
+      - ../backend:/app
+      - ./data/flower:/data
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - FLOWER_BASIC_AUTH=${FLOWER_BASIC_AUTH}
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+
   redis:
     image: redis:7-alpine
     ports:
       - "6380:6379"
+    restart: unless-stopped

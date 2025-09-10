@@ -74,10 +74,11 @@ export default function InboxPage() {
   }, [conversations]);
 
   const filteredConversations = useMemo(() => {
-    if (selectedChannel === 'all') {
-      return conversations;
-    }
-    return conversations.filter((c) => c.channel === selectedChannel);
+    const sorted = conversations
+      .slice()
+      .sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+    if (selectedChannel === 'all') return sorted;
+    return sorted.filter((c) => c.channel === selectedChannel);
   }, [conversations, selectedChannel]);
 
   const messages = useMemo(() => {

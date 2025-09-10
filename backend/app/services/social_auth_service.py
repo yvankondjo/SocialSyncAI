@@ -312,9 +312,16 @@ class SocialAuthService:
                 print(f"An unexpected error occurred: {e}")
                 raise HTTPException(status_code=500, detail="An unexpected error occurred during Reddit token refresh.")
 
-    def get_linkedin_auth_url(self) -> str:
-        # TODO: Implémenter la logique pour construire l'URL d'auth LinkedIn
-        return "https://www.linkedin.com/oauth/v2/authorization?..."
+    def get_linkedin_auth_url(self, state: str) -> str:
+        # Stub: retourner une URL d'auth factice incluant le state pour rester compatible
+        params = {
+            "response_type": "code",
+            "client_id": "TEST_LINKEDIN_CLIENT_ID",
+            "redirect_uri": "https://example.com/linkedin/callback",
+            "scope": "r_liteprofile r_emailaddress",
+            "state": state,
+        }
+        return f"https://www.linkedin.com/oauth/v2/authorization?{urlencode(params)}"
 
     def handle_linkedin_callback(self, code: str) -> dict:
         # TODO: Implémenter l'échange du code contre un token
@@ -385,17 +392,31 @@ class SocialAuthService:
                 print(f"An unexpected error occurred: {e}")
                 raise HTTPException(status_code=500, detail="An unexpected error occurred during Twitter authentication.")
 
-    def get_tiktok_auth_url(self) -> str:
-        # TODO: Implémenter la logique pour construire l'URL d'auth TikTok
-        return "https://www.tiktok.com/v2/auth/authorize?..."
+    def get_tiktok_auth_url(self, state: str) -> str:
+        # Stub: inclure state pour compatibilité
+        params = {
+            "client_key": "TEST_TIKTOK_CLIENT_ID",
+            "response_type": "code",
+            "redirect_uri": "https://example.com/tiktok/callback",
+            "scope": "user.info.basic,video.list",
+            "state": state,
+        }
+        return f"https://www.tiktok.com/v2/auth/authorize?{urlencode(params)}"
 
     def handle_tiktok_callback(self, code: str) -> dict:
         # TODO: Implémenter l'échange du code contre un token
         return {"access_token": "fake_tiktok_token"}
 
-    def get_whatsapp_auth_url(self) -> str:
-        # TODO: Implémenter la logique pour l'auth WhatsApp via Meta
-        return "https://www.facebook.com/v18.0/dialog/oauth?..."
+    def get_whatsapp_auth_url(self, state: str) -> str:
+        # Stub: inclure state pour compatibilité
+        params = {
+            "client_id": "TEST_META_APP_ID",
+            "redirect_uri": "https://example.com/whatsapp/callback",
+            "response_type": "code",
+            "scope": "whatsapp_business_messaging",
+            "state": state,
+        }
+        return f"https://www.facebook.com/v18.0/dialog/oauth?{urlencode(params)}"
 
     def handle_whatsapp_callback(self, code: str) -> dict:
         # TODO: Implémenter l'échange du code contre un token

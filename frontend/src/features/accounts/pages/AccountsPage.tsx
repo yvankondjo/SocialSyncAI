@@ -7,7 +7,7 @@ import { Plus, MoreHorizontal, RefreshCw, Loader2 } from 'lucide-react';
 import { SocialAccount } from '../types/socialAccount';
 import { SocialAccountsApi } from '../services/socialAccountsApi';
 import { createClient } from '@/lib/supabase/client';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 interface SocialProfile {
   id: string;
@@ -215,6 +215,7 @@ const AccountsPage = () => {
   const [isConnecting, setIsConnecting] = useState(false);
   const router = useRouter();
   const supabase = createClient();
+  const search = useSearchParams();
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -277,6 +278,12 @@ const AccountsPage = () => {
   useEffect(() => {
     loadSocialAccounts();
   }, []);
+
+  useEffect(() => {
+    if (search.get('openModal') === '1') {
+      setModalOpen(true);
+    }
+  }, [search]);
 
   return (
     <main className="flex-1 overflow-y-auto p-8">

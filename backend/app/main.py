@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 # from app.scheduler import start_scheduler, stop_scheduler
-from app.routers import analytics, social_accounts, content, whatsapp, instagram, messaging, web_widget
+from app.routers import analytics, social_accounts, content, whatsapp, instagram, messaging, web_widget, scheduler
 import logging
 
 # Configuration du logging
@@ -46,6 +46,7 @@ app.include_router(whatsapp.router, prefix="/api")
 app.include_router(instagram.router, prefix="/api")
 app.include_router(messaging.router, prefix="/api")
 app.include_router(web_widget.router, prefix="/api")
+app.include_router(scheduler.router, prefix="/api")
 
 # Servir les fichiers statiques du widget
 # TODO: Décommenter quand on implémentera le widget web intégrable

@@ -140,7 +140,7 @@ function FileListItem({
           <span>•</span>
           <span>Taille inconnue</span>
           <span>•</span>
-          <span>Créé: {new Date(file.created_at).toLocaleDateString('fr-FR')}</span>
+          <span>Créé: {file.created_at ? new Date(file.created_at).toLocaleDateString('fr-FR') : 'Date inconnue'}</span>
           {file.last_ingested_at && (
             <>
               <span>•</span>
@@ -159,8 +159,8 @@ function FileListItem({
         )}
       </div>
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        {statusIcons[file.status]}
-        <span>{statusText[file.status]}</span>
+        {statusIcons[file.status as FileStatus] || statusIcons.processing}
+        <span>{statusText[file.status as FileStatus] || statusText.processing}</span>
       </div>
       <div className="flex gap-1">
         {file.status === 'indexed' && file.bucket_name && file.object_key && (

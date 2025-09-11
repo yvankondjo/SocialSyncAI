@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 # from app.scheduler import start_scheduler, stop_scheduler
 from app.routers import( analytics, social_accounts, content, whatsapp, instagram, 
 messaging, web_widget, conversations, automation, process, 
-knowledge_documents, faq_qa, ai_settings)
+knowledge_documents, faq_qa, ai_settings, scheduling)
 import logging
 
 # Configuration du logging
@@ -61,6 +61,7 @@ app.include_router(process.router, prefix="/api")
 app.include_router(knowledge_documents.router, prefix="/api")
 app.include_router(faq_qa.router, prefix="/api")
 app.include_router(ai_settings.router, prefix="/api")
+app.include_router(scheduling.router, prefix="/api")
 # Servir les fichiers statiques du widget
 # TODO: Décommenter quand on implémentera le widget web intégrable
 # app.mount("/static", StaticFiles(directory="static"), name="static")

@@ -564,13 +564,13 @@ export function DesignStudioPage({ loadedAsset, onUseThisMedia, onBack, composer
       }
 
       if (element.properties.shape === "circle") {
-        shapeStyle.borderRadius = "50%"
+        (shapeStyle as any).borderRadius = "50%"
       } else if (element.properties.shape === "triangle") {
-        shapeStyle.backgroundColor = "transparent"
-        shapeStyle.borderLeft = `${element.width / 2}px solid transparent`
-        shapeStyle.borderRight = `${element.width / 2}px solid transparent`
-        shapeStyle.borderBottom = `${element.height}px solid ${element.properties.backgroundColor}`
-        shapeStyle.width = 0
+        shapeStyle.backgroundColor = "transparent";
+        (shapeStyle as any).borderLeft = `${element.width / 2}px solid transparent`;
+        (shapeStyle as any).borderRight = `${element.width / 2}px solid transparent`;
+        (shapeStyle as any).borderBottom = `${element.height}px solid ${element.properties.backgroundColor}`;
+        shapeStyle.width = 0;
         shapeStyle.height = 0
       }
 

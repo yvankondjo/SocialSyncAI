@@ -3,7 +3,7 @@ from fastapi.responses import RedirectResponse
 from supabase import Client
 from jose import jwt, JWTError
 from app.services.social_auth_service import social_auth_service
-from app.schemas.social_account import AuthURL, SocialAccount
+from app.schemas.social_account import AuthURL, SocialAccount, SocialAccountsResponse, SocialAccountWithStatus, PlatformStatus
 from app.core.security import get_current_user_id
 from app.core.config import get_settings, Settings
 from app.db.session import get_authenticated_db
@@ -129,7 +129,7 @@ async def handle_oauth_callback(
         return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard/accounts?{error_message}")
 
 
-@router.get("/", response_model=list[SocialAccount])
+@router.get("/", response_model=SocialAccountsResponse)
 async def get_social_accounts(
     request: Request,
     db: Client = Depends(get_authenticated_db)
@@ -137,7 +137,55 @@ async def get_social_accounts(
     try:
         # RLS applique automatiquement le filtre user_id = auth.uid()
         response = db.table("social_accounts").select("*").execute()
-        return response.data
+        
+        accounts = []
+        
+        # Ajouter les comptes connectés
+        for account_data in response.data:
+            status = PlatformStatus.CONNECTED
+            status_message = None
+            
+            # Vérifier l'expiration du token
+            if account_data.get('token_expires_at'):
+                expires_at = datetime.fromisoformat(account_data['token_expires_at'].replace('Z', '+00:00'))
+                if expires_at <= datetime.now(timezone.utc):
+                    status = PlatformStatus.EXPIRED
+                    status_message = "Token expiré, reconnexion nécessaire"
+            
+            account = SocialAccountWithStatus(
+                id=account_data['id'],
+                platform=account_data['platform'],
+                username=account_data.get('username'),
+                account_id=account_data.get('account_id'),
+                display_name=account_data.get('display_name'),
+                profile_url=account_data.get('profile_url'),
+                status=status,
+                status_message=status_message,
+                is_active=account_data.get('is_active', True),
+                created_at=account_data.get('created_at'),
+                updated_at=account_data.get('updated_at')
+            )
+            accounts.append(account)
+        
+        # Ajouter LinkedIn en stub s'il n'existe pas déjà
+        existing_platforms = [acc.platform for acc in accounts]
+        if 'linkedin' not in existing_platforms:
+            linkedin_stub = SocialAccountWithStatus(
+                platform='linkedin',
+                username=None,
+                account_id=None,
+                display_name='LinkedIn Business',
+                status=PlatformStatus.PENDING_SETUP,
+                status_message='Configuration en cours - Disponible prochainement',
+                is_active=False
+            )
+            accounts.append(linkedin_stub)
+        
+        return SocialAccountsResponse(
+            accounts=accounts,
+            total=len(accounts)
+        )
+        
     except Exception as e:
         print(f"Error getting social accounts: {e}")
         raise HTTPException(status_code=500, detail="Could not get social accounts.")

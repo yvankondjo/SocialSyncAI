@@ -23,9 +23,9 @@ import {
 export function DashboardPage() {
   const { user } = useAuth()
   const [theme, setTheme] = useState<"light" | "dark">("light")
-  const [accounts, setAccounts] = useState([])
-  const [conversations, setConversations] = useState([])
-  const [analytics, setAnalytics] = useState(null)
+  const [accounts, setAccounts] = useState<any>([])
+  const [conversations, setConversations] = useState<any>([])
+  const [analytics, setAnalytics] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   // State for uploaded files
@@ -47,7 +47,7 @@ export function DashboardPage() {
       ])
 
       if (accountsData.status === 'fulfilled') {
-        setAccounts(accountsData.value)
+        setAccounts(accountsData.value.accounts || [])
       }
       if (conversationsData.status === 'fulfilled') {
         setConversations(conversationsData.value.conversations || [])
@@ -147,7 +147,7 @@ export function DashboardPage() {
   const getPostsAutomated = () => {
     if (!analytics) return 32 // Default fallback
     const trends = analytics.trends || []
-    return trends.reduce((total, trend) => total + (trend.total_likes || 0), 0)
+    return trends.reduce((total: number, trend: any) => total + (trend.total_likes || 0), 0)
   }
 
   const getDmsAnswered = () => {
@@ -157,7 +157,7 @@ export function DashboardPage() {
   const getCommentsAutomated = () => {
     if (!analytics) return 35 // Default fallback
     const trends = analytics.trends || []
-    return trends.reduce((total, trend) => total + (trend.total_comments || 0), 0)
+    return trends.reduce((total: number, trend: any) => total + (trend.total_comments || 0), 0)
   }
 
   return (

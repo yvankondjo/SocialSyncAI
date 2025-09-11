@@ -29,17 +29,9 @@ export default function Dashboard() {
       <ComposerModal
         isOpen={composerOpen}
         onClose={handleComposerClose}
-        onSaveDraft={(post) => {
-          console.log("[v0] composer_save_draft", post)
-          // Handle save draft
-        }}
-        onSchedule={(post, datetime) => {
-          console.log("[v0] composer_schedule", { post, datetime })
-          // Handle schedule
-        }}
-        onPublishNow={(post) => {
-          console.log("[v0] composer_publish_now", post)
-          // Handle publish now
+        onSuccess={() => {
+          console.log("[v0] composer_success")
+          // Handle success - reload data, etc.
         }}
       />
     </div>

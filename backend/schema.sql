@@ -127,6 +127,12 @@ CREATE INDEX idx_analytics_recorded_at ON analytics(recorded_at);
 -- CREATE INDEX idx_ai_insights_user_id ON ai_insights(user_id);
 -- CREATE INDEX idx_ai_insights_type ON ai_insights(insight_type);
 
+-- Indexes for scheduled_posts
+CREATE INDEX idx_scheduled_posts_user_id ON scheduled_posts(user_id);
+CREATE INDEX idx_scheduled_posts_scheduled_at ON scheduled_posts(scheduled_at);
+CREATE INDEX idx_scheduled_posts_status ON scheduled_posts(status);
+CREATE INDEX idx_scheduled_posts_platforms ON scheduled_posts USING GIN(platforms);
+
 
 
 
@@ -215,6 +221,44 @@ CREATE TABLE web_widgets (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Scheduled posts table for multi-platform post scheduling
+CREATE TYPE post_status AS ENUM ('scheduled', 'published', 'failed', 'cancelled');
+
+CREATE TABLE scheduled_posts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    platforms TEXT[] NOT NULL, -- ['instagram', 'reddit', 'whatsapp']
+    scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    status post_status DEFAULT 'scheduled',
+    media_urls TEXT[] DEFAULT '{}', -- URLs des médias attachés
+    post_type VARCHAR(50) DEFAULT 'text', -- text, image, video, etc.
+    metadata JSONB DEFAULT '{}', -- Données spécifiques par plateforme
+    published_at TIMESTAMP WITH TIME ZONE,
+    error_message TEXT, -- Message d'erreur en cas d'échec
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    CONSTRAINT chk_scheduled_future CHECK (scheduled_at > created_at),
+    CONSTRAINT chk_platforms_not_empty CHECK (array_length(platforms, 1) > 0)
+);
+
+-- Enable RLS for scheduled_posts
+ALTER TABLE scheduled_posts ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for scheduled_posts
+CREATE POLICY "Users can view their scheduled posts" ON scheduled_posts
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their scheduled posts" ON scheduled_posts
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their scheduled posts" ON scheduled_posts
+    FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their scheduled posts" ON scheduled_posts
+    FOR DELETE USING (auth.uid() = user_id);
 
 
 

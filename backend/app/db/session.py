@@ -5,7 +5,7 @@ from fastapi import Request, HTTPException
 # A single client instance is created and shared across the application.
 settings = get_settings()
 supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
-
+# supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
 def get_db() -> Client:
     """
     Dependency function that provides a Supabase client instance with service role.

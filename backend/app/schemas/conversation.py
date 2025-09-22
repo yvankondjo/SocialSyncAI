@@ -68,6 +68,8 @@ class SendMessageRequest(BaseModel):
     message_type: str = "text"
     media_url: Optional[str] = None
     media_type: Optional[str] = None
+    customer_name: Optional[str] = None
+    platform: Optional[str] = None
 
 class ConversationListResponse(BaseModel):
     conversations: List[Conversation]

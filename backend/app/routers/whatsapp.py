@@ -11,8 +11,8 @@ from app.core.security import get_current_user_id
 from app.schemas.whatsapp import (
     TextMessageRequest, TemplateMessageRequest, MediaMessageRequest,
     WhatsAppMessageResponse, WhatsAppCredentialsValidation, 
-    BusinessProfileResponse, WhatsAppErrorResponse, SendMessageBatch, BatchResponse,
-    WhatsAppCredentials, WebhookPayload, WebhookIncomingMessage, WebhookMessageStatus
+    BusinessProfileResponse, SendMessageBatch, BatchResponse,
+    WhatsAppCredentials
 )
 from app.services.whatsapp_service import get_whatsapp_service, WhatsAppService
 from app.services.response_manager import (
@@ -58,8 +58,6 @@ async def send_text_message(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Aucun compte WhatsApp configuré pour cet utilisateur"
             )
-        
-        # Utiliser les credentials de l'utilisateur connecté
         service = await get_whatsapp_service(
             user_credentials["access_token"], 
             user_credentials["phone_number_id"]
@@ -68,7 +66,7 @@ async def send_text_message(
         result = await service.send_text_message(
             to=request.to,
             text=request.text,
-            skip_validation=True  # Optimisation des performances
+            skip_validation=True  
         )
         
         return WhatsAppMessageResponse(
@@ -98,7 +96,6 @@ async def send_template_message(
     Utilise les credentials de l'utilisateur connecté
     """
     try:
-        # Récupérer les credentials de l'utilisateur connecté
         user_credentials = await get_user_credentials_by_user_id(current_user_id)
         
         if not user_credentials:
@@ -107,7 +104,6 @@ async def send_template_message(
                 detail="Aucun compte WhatsApp configuré pour cet utilisateur"
             )
         
-        # Utiliser les credentials de l'utilisateur connecté
         service = await get_whatsapp_service(
             user_credentials["access_token"], 
             user_credentials["phone_number_id"]
@@ -247,7 +243,7 @@ def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> boo
     """
     if not secret:
         logger.warning("WHATSAPP_WEBHOOK_SECRET non configuré - signature non vérifiée")
-        return True  # En développement, on peut désactiver la vérification
+        return True  
     
     expected_signature = hmac.new(
         secret.encode('utf-8'),
@@ -255,7 +251,6 @@ def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> boo
         hashlib.sha256
     ).hexdigest()
     
-    # WhatsApp envoie la signature au format "sha256=..."
     received_signature = signature.replace('sha256=', '') if signature.startswith('sha256=') else signature
     
     return hmac.compare_digest(expected_signature, received_signature)
@@ -295,30 +290,27 @@ async def webhook_handler(request: Request):
     - Événements de lecture/écriture
     """
     try:
-        # Récupérer le payload et les headers
+        
         payload = await request.body()
         signature = request.headers.get("X-Hub-Signature-256", "")
-        
-        # Vérifier la signature (sécurité)
+
         webhook_secret = os.getenv("WHATSAPP_WEBHOOK_SECRET")
         if not verify_webhook_signature(payload, signature, webhook_secret):
             logger.warning("Signature webhook invalide")
             raise HTTPException(status_code=403, detail="Signature invalide")
         
-        # Parser le JSON
         webhook_data = await request.json()
         logger.info(f"Webhook reçu: {webhook_data}")
         
-        # Traiter chaque entrée du webhook avec routage par utilisateur
         for entry in webhook_data.get("entry", []):
+            print(f"entry: {entry} message: {webhook_data.get('message')}")
             await process_webhook_entry_with_user_routing(entry)
         
-        # Répondre rapidement à WhatsApp (obligatoire)
+        
         return {"status": "ok"}
         
     except Exception as e:
         logger.error(f"Erreur traitement webhook: {e}")
-        # Toujours répondre 200 à WhatsApp pour éviter les retries
         return {"status": "error", "message": str(e)}
 
 

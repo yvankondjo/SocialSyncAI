@@ -110,6 +110,37 @@ async def send_message(
             detail=f"Erreur lors de l'envoi du message: {str(e)}"
         )
 
+@router.post("/send-message", response_model=Message)
+async def send_message_new(
+    request: SendMessageRequest,
+    db = Depends(get_authenticated_db)
+):
+    """
+    Envoie un message dans une conversation (nouvelle signature)
+    """
+    try:
+        service = ConversationService(db)
+        message = await service.send_message(
+            content=request.content,
+            customer_name=request.customer_name,
+            platform=request.platform,
+            message_type=request.message_type
+        )
+        
+        return message
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Erreur lors de l'envoi du message: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors de l'envoi du message: {str(e)}"
+        )
+
 @router.patch("/{conversation_id}/read")
 async def mark_conversation_as_read(
     conversation_id: str,

@@ -28,7 +28,6 @@ class WhatsAppService:
         if not self.phone_number_id:
             raise RuntimeError("WHATSAPP_PHONE_NUMBER_ID manquant")
             
-        # Utilisation de l'API Graph v23.0 - cohérent avec les webhooks Meta
         self.api_url = "https://graph.facebook.com/v23.0"
         
         self.client = httpx.AsyncClient(
@@ -140,6 +139,54 @@ class WhatsAppService:
         
         return await self._send_with_retry(url, payload, headers)
 
+    async def mark_message_as_read(self, message_id: str) -> Dict[str, Any]:
+        """
+        Marquer un message comme lu
+        
+        Args:
+            message_id: ID du message à marquer comme lu
+        """
+        url = f"/{self.phone_number_id}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": message_id
+        }
+        headers = {"Idempotency-Key": str(uuid.uuid4())}
+        
+        logger.info(f"Marquage comme lu du message {message_id}")
+        
+        return await self._send_with_retry(url, payload, headers)
+
+    async def send_typing_indicator(self, to: str, message_id: str = None) -> Dict[str, Any]:
+        """
+        Envoyer un indicateur de frappe
+        
+        Args:
+            to: Numéro de téléphone destinataire
+            message_id: ID du message (optionnel, pour marquer comme lu en même temps)
+        """
+        url = f"/{self.phone_number_id}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "text",
+            "text": {"body": ""},
+            "typing_indicator": {
+                "type": "text"
+            }
+        }
+        
+        if message_id:
+            payload["status"] = "read"
+            payload["message_id"] = message_id
+        
+        headers = {"Idempotency-Key": str(uuid.uuid4())}
+        
+        logger.info(f"Envoi indicateur de frappe vers {to}")
+        
+        return await self._send_with_retry(url, payload, headers)
+
     async def get_business_profile(self) -> Dict[str, Any]:
         """Récupérer le profil business WhatsApp"""
         try:
@@ -210,18 +257,15 @@ class WhatsAppService:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
 
-# Instance globale pour réutilisation
+
 _whatsapp_service: Optional[WhatsAppService] = None
 
 async def get_whatsapp_service(access_token: Optional[str] = None, phone_number_id: Optional[str] = None) -> WhatsAppService:
     """Factory pour obtenir une instance du service WhatsApp"""
     global _whatsapp_service
-    
-    # Si des credentials spécifiques sont fournis, créer une nouvelle instance
+   
     if access_token or phone_number_id:
         return WhatsAppService(access_token, phone_number_id)
-    
-    # Sinon, réutiliser l'instance globale
     if _whatsapp_service is None:
         _whatsapp_service = WhatsAppService()
         

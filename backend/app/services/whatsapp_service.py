@@ -160,7 +160,7 @@ class WhatsAppService:
 
     async def send_typing_indicator(self, to: str, message_id: str = None) -> Dict[str, Any]:
         """
-        Envoyer un indicateur de frappe
+        Envoyer un indicateur de frappe et marquer comme lu en une seule requête
         
         Args:
             to: Numéro de téléphone destinataire
@@ -170,13 +170,10 @@ class WhatsAppService:
         payload = {
             "messaging_product": "whatsapp",
             "to": to,
-            "type": "text",
-            "text": {"body": ""},
-            "typing_indicator": {
-                "type": "text"
-            }
+            "typing_indicator": {"type": "text"}
         }
         
+        # Ajouter le marquage comme lu si on a un message_id
         if message_id:
             payload["status"] = "read"
             payload["message_id"] = message_id

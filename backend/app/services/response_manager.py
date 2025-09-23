@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from app.services.message_batcher import message_batcher
+from app.services.message_batcher import message_batcher, add_message_to_batch
 from app.services.whatsapp_service import WhatsAppService
 from app.services.instagram_service import InstagramService
 
@@ -58,15 +58,19 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
     platform = user_info.get('platform', 'whatsapp')
     account_id = user_info.get('account_id')
     user_credentials = await get_user_credentials_by_platform_account(platform, account_id)
+
+    contact_id = message.get('from')
+    message_id = message.get('id')
+    
     extracted_message = await extract_message_content(message, user_credentials)
-    contact_id = extracted_message.get('message_from') if extracted_message else None
-    message_id = extracted_message.get('message_id') if extracted_message else None
     
     if extracted_message is None:
-        if user_credentials:
+        if user_credentials and contact_id:
             result = await send_error_notification_to_user(contact_id, 'This Type of message is not supported yet', platform, user_credentials, message_id)
             if not result:
                 logger.error(f'Erreur envoi notification à l\'utilisateur {contact_id}: This Type of message is not supported yet')
+        else:
+            logger.error(f'Impossible d\'envoyer notification: contact_id={contact_id}, user_credentials={bool(user_credentials)}')
         return None
     
     if extracted_message.get('token_count') > 7000:
@@ -89,8 +93,9 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
             return None
     
     try:
-        message_id = await save_incoming_message_to_db(extracted_message, user_info)
-        return message_id
+        conversation_message_info = await save_incoming_message_to_db(extracted_message, user_info)
+        await add_message_to_batch(platform, account_id, contact_id, conversation_message_info['conversation_message_data'], conversation_message_info['conversation_message_id'])
+        return conversation_message_info['conversation_message_id']
     except Exception as e:
         logger.error(f'Erreur sauvegarde message en BDD: {e}')
         return None
@@ -123,32 +128,36 @@ async def process_webhook_change_for_user(change: Dict[str, Any], user_info: Dic
     else:
         logger.info(f'Type de webhook non géré: {field}')
 
-async def save_incoming_message_to_db(extracted_message: Dict[str, Any], user_info: Dict[str, Any]) -> Optional[str]:
+async def save_incoming_message_to_db(extracted_message: Dict[str, Any], user_info: Dict[str, Any]) -> Dict[str, Any]:
     from app.db.session import get_db
     try:
         db = get_db()
         conversation_id = await get_or_create_conversation(social_account_id=user_info['social_account_id'], customer_identifier=extracted_message.get('message_from'), customer_name=None)
         
         if not conversation_id:
-            return None
+            logger.error(f"Conversation non trouvée pour l'utilisateur {user_info['user_id']}")
+            return {'conversation_message_id': None, 'conversation_message_data': None}
             
         if extracted_message.get('message_type') == 'image':
             caption = extracted_message.get('caption')
+            content_text = caption if caption else '[Image]'
             message_data = {
                 'conversation_id': conversation_id,
                 'external_message_id': extracted_message.get('message_id'),
                 'direction': 'inbound',
                 'message_type': extracted_message.get('message_type'),
-                'content': caption if caption else extracted_message.get('media_url'),
+                'content': content_text,
                 'sender_id': extracted_message.get('message_from'),
-                'media_url': extracted_message.get('media_url'),
+                'storage_object_name': extracted_message.get('storage_object_name'),
                 'media_type': extracted_message.get('media_type'),
                 'status': 'received',
                 'metadata': {
                     'role': 'user',
                     'content': extracted_message.get('content'),
                     'token_count': extracted_message.get('token_count'),
-                    'media_path': extracted_message.get('media_path')
+                    'storage_object_name': extracted_message.get('storage_object_name'),
+                    'caption': extracted_message.get('caption'),
+
                 }
             }
         elif extracted_message.get('message_type') in ['text', 'audio']:
@@ -169,25 +178,29 @@ async def save_incoming_message_to_db(extracted_message: Dict[str, Any], user_in
                 }
             }
         else:
-            return None
+            logger.error(f"Message type non supporté pas normale: {extracted_message.get('message_type')}")
+            return {'conversation_message_id': None, 'conversation_message_data': None}
             
         try:
             res = db.table('conversation_messages').insert(message_data).execute()
             message_id = None
             if res and res.data:
                 first = res.data[0]
-                message_id = first.get('id') if first else None
-            return message_id
+                conversation_message_id = first.get('id') if first else None
+            return {'conversation_message_id': conversation_message_id, 'conversation_message_data': message_data}
+
+            
         except Exception as db_unique_error:
             if 'unique_external_message_id' in str(db_unique_error).lower():
                 logger.info(f"Message {extracted_message.get('message_id')} déjà traité pour utilisateur {user_info['user_id']}")
-                return None
+                return {'conversation_message_id': None, 'conversation_message_data': None}
             else:
                 raise db_unique_error
                 
     except Exception as e:
         logger.error(f'Erreur sauvegarde message en BDD: {e}')
-        return None
+        return {'conversation_message_id': None, 'conversation_message_data': None}
+
 async def get_or_create_conversation(social_account_id: str, customer_identifier: str, customer_name: Optional[str]=None) -> Optional[str]:
     from app.db.session import get_db
     try:
@@ -212,38 +225,7 @@ async def get_or_create_conversation(social_account_id: str, customer_identifier
         logger.error(f'Erreur gestion conversation: {e}')
         return None
 
-async def add_message_to_conversation_message_groups(conversation_id: str, message: Dict[str, Any], model: str, user_id: str, message_count: int, token_count: int, message_ids: List[str]) -> Optional[str]:
-    from app.db.session import get_db
-    from datetime import datetime, timezone
-    try:
-        db = get_db()
-        now = datetime.now(timezone.utc)
-        uuid_message_ids = []
-        for msg_id in message_ids:
-            if msg_id:
-                uuid_message_ids.append(str(msg_id))
-        
-        group_data = {
-            'conversation_id': conversation_id,
-            'user_id': user_id,
-            'messages': message,
-            'model': model,
-            'message_count': message_count,
-            'message_ids': uuid_message_ids,
-            'token_count': token_count,
-            'time_window_seconds': 15,
-            'first_message_at': now.isoformat(),
-            'last_message_at': now.isoformat(),
-            'finalized_at': now.isoformat()
-        }
-        res = db.table('conversations_message_groups').insert(group_data).execute()
-        if res.data:
-            logger.info(f'Groupe de messages ajouté à la conversation {conversation_id}')
-            return res.data[0]['id']
-        return None
-    except Exception as e:
-        logger.error(f'Erreur lors de l\'ajout du groupe de messages: {e}')
-        return None
+
 
 def encode_image_to_base64(image_content: bytes) -> str:
     import base64
@@ -292,7 +274,8 @@ def save_data_to_bucket(data: bytes, bucket_id: str, object_name: str) -> str:
     try:
         db = get_db()
         res = db.storage.from_(bucket_id).upload(object_name, data)
-        if res.data and len(res.data) > 0:
+        logger.info(f'Upload vers bucket {bucket_id}: {res}')
+        if res:
             return object_name
         logger.error(f'Erreur upload vers bucket {bucket_id}: {res}')
         return None
@@ -305,8 +288,8 @@ def get_signed_url(object_path: str, bucket_id: str='message', expires_in: int=3
     try:
         db = get_db()
         res = db.storage.from_(bucket_id).create_signed_url(object_path, expires_in)
-        if res.data and len(res.data) > 0:
-            return res.data[0]['signed_url']
+        if res and ('signedURL' in res or 'signedUrl' in res):
+            return res.get('signedURL') or res.get('signedUrl')
         logger.error(f'Erreur génération URL signée pour {object_path}: {res}')
         return None
     except Exception as e:
@@ -362,9 +345,10 @@ async def extract_message_content(message: Dict[str, Any], user_credentials: Dic
                 'message_type': message_type,
                 'message_id': message.get('id'),
                 'message_from': message.get('from'),
-                'media_url': image_url,
+                'storage_object_name': saved_path,
+                'media_type': message.get('image', {}).get('mime_type', 'image/jpeg'),
                 'caption': caption,
-                'media_path': saved_path
+                'media_url': image_url
             }
         except Exception as e:
             logger.error(f'Erreur téléchargement image: {e}')
@@ -526,3 +510,13 @@ async def save_response_to_db(conversation_id: str, content: str, user_id: str) 
         return res.data[0]['id'] if res.data else None
     except Exception as e:
         logger.error(f'Erreur lors de la sauvegarde de réponse en BDD: {e}')
+
+async def refresh_image_urls_in_message(message: Dict[str, Any]) -> Dict[str, Any]:
+    if isinstance(message.get('content'), list):
+        storage_list = message.get('storage_object_name_list', [])
+        storage_index = 0
+        for item in message.get('content'):
+            if item.get('type') == 'image_url' and storage_index < len(storage_list):
+                item['image_url']['url'] = get_signed_url(storage_list[storage_index], bucket_id='message', expires_in=3600)
+                storage_index += 1
+    return message

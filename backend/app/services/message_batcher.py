@@ -46,7 +46,7 @@ class MessageBatcher:
         """Base key for a conversation"""
         return f'conv:{platform}:{account_id}:{contact_id}'
 
-    async def add_message_to_batch(self, platform: str, account_id: str, contact_id: str, message_data: Dict[str, Any], message_id: str, conversation_id: str = None, external_message_id: str = None) -> bool:
+    async def add_message_to_batch(self, platform: str, account_id: str, contact_id: str, message_data: Dict[str, Any], conversation_message_id: str) -> bool:
         """
         Add a message to the Redis batch
         
@@ -55,34 +55,40 @@ class MessageBatcher:
             account_id: phone_number_id ou instagram_business_account_id
             contact_id: wa_id ou ig_user_id
             message_data: Données complètes du message
-            conversation_id: UUID de la conversation en BDD
+            conversation_message_id: UUID du message en BDD
             
         Returns:
             bool: True si premier message de la session, False sinon
         """
         base_key = self._get_conversation_key(platform, account_id, contact_id)
         async with self.redis_connection() as redis_client:
-            batch_message = {'message_data': message_data, 'conversation_id': conversation_id, 'message_id': message_id, 'external_message_id': external_message_id}
+            conversation_id = message_data["conversation_id"]
+            batch_message = {'message_data': message_data["metadata"], 'conversation_message_id': conversation_message_id, 'message_type': message_data["message_type"],"external_message_id": message_data["external_message_id"]}
             history_exists = await redis_client.exists(f'{base_key}:history')
             if not history_exists:
                 logger.info(f'Cache miss pour {base_key} - hydratation nécessaire')
                 await self._hydrate_conversation_cache(redis_client, base_key, platform, account_id, contact_id, conversation_id)
-            await redis_client.ltrim(f'{base_key}:history', 0, self.history_limit - 1)
-            await redis_client.expire(f'{base_key}:history', self.cache_ttl_hours * 3600)
-            await redis_client.rpush(f'{base_key}:msgs', json.dumps(batch_message))
-            await redis_client.expire(f'{base_key}:msgs', self.cache_ttl_hours * 3600)
-            conversation_identifier = f'{platform}:{account_id}:{contact_id}'
-            existing_deadline = await redis_client.get(f'{base_key}:deadline')
-            if not existing_deadline:
-                deadline = datetime.now() + timedelta(seconds=self.batch_window_seconds)
-                deadline_timestamp = int(deadline.timestamp())
-                await redis_client.set(f'{base_key}:deadline', deadline_timestamp, ex=self.cache_ttl_hours * 3600)
-                await redis_client.zadd('conv:deadlines', {conversation_identifier: deadline_timestamp})
-                logger.info(f'⏰ Timer 15s démarré pour {base_key}, deadline: {deadline}')
-            else:
-                existing_deadline_dt = datetime.fromtimestamp(int(existing_deadline))
-                logger.info(f'📝 Message ajouté au batch {base_key}, deadline inchangée: {existing_deadline_dt}')
-            return not history_exists
+            
+            try:
+                await redis_client.ltrim(f'{base_key}:history', 0, self.history_limit - 1)
+                await redis_client.expire(f'{base_key}:history', self.cache_ttl_hours * 3600)
+                await redis_client.rpush(f'{base_key}:msgs', json.dumps(batch_message))
+                await redis_client.expire(f'{base_key}:msgs', self.cache_ttl_hours * 3600)
+                conversation_identifier = f'{platform}:{account_id}:{contact_id}'
+                existing_deadline = await redis_client.get(f'{base_key}:deadline')
+                if not existing_deadline:
+                    deadline = datetime.now() + timedelta(seconds=self.batch_window_seconds)
+                    deadline_timestamp = int(deadline.timestamp())
+                    await redis_client.set(f'{base_key}:deadline', deadline_timestamp, ex=self.cache_ttl_hours * 3600)
+                    await redis_client.zadd('conv:deadlines', {conversation_identifier: deadline_timestamp})
+                    logger.info(f'⏰ Timer 15s démarré pour {base_key}, deadline: {deadline}')
+                else:
+                    existing_deadline_dt = datetime.fromtimestamp(int(existing_deadline))
+                    logger.info(f'📝 Message ajouté au batch {base_key}, deadline inchangée: {existing_deadline_dt}')
+                return not history_exists
+            except Exception as e:
+                logger.error(f'Error adding message to batch: {e}')
+                return False
 
     async def _hydrate_conversation_cache(self, redis_client: redis.Redis, base_key: str, platform: str, account_id: str, contact_id: str, conversation_id: str):
         """
@@ -99,15 +105,15 @@ class MessageBatcher:
                 for row in reversed(msgs):
                     messages = row.get('messages', {})
                     if isinstance(messages, dict):
-                        history_messages.append({'message_data': messages, 'conversation_id': conversation_id})
+                        if isinstance(messages.get('message_data').get("content"), list):
+                            from app.services.response_manager import refresh_image_urls_in_message
+                            messages= refresh_image_urls_in_message(messages)
+                        history_messages.append({'message_data': messages['message_data'], 'conversation_id': conversation_id})
                     else:
                         logger.warning(f"Invalid messages format for message {row.get('id')}: {messages}")
                 if history_messages:
                     for msg in history_messages:
                         try:
-                            from app.services.response_manager import refresh_image_urls_in_message
-                            if msg.get('message_data'):
-                                msg['message_data'] = refresh_image_urls_in_message(msg['message_data'])
                             await redis_client.rpush(f'{base_key}:history', json.dumps(msg))
                         except Exception as e:
                             logger.error(f'Error serializing message for cache: {e}')
@@ -171,18 +177,42 @@ class MessageBatcher:
                 await redis_client.zrem("conv:deadlines", conversation_identifier)
                 await redis_client.delete(f"{base_key}:deadline")
 
-                messages_content = ""
+                context_messages_text_only = ""
+                context_messages =[]
                 message_ids = []
                 last_external_message_id = None
+                #verifie si il y'a ne serait que une seule image parmir les message
+                image_in_messages = False
+                storage_object_name_list = []
+                for msg_raw in messages_raw:
+                    msg_data = json.loads(msg_raw)
+                    if msg_data.get("message_type") == "image":
+                        image_in_messages = True
+                        continue
                 for msg_raw in messages_raw:
                     try:
                         msg_data = json.loads(msg_raw)
-                        content = msg_data.get("message_data", {}).get("content", "")
+                        content = msg_data.get("metadata", {}).get("content", "")
+                        if image_in_messages:
+                            if msg_data.get("message_type") == "image":
+                                storage_object_name_list.append(msg_data.get("metadata", {}).get("storage_object_name"))
+                                
+                                if isinstance(content, list):
+                                    context_messages.extend(content)
+                                else:
+                                    context_messages.append(content)
+                                continue
+                            elif msg_data.get("message_type") == "text":
+                               
+                                context_messages.append({"type": "text", "text": content})
+                                continue
+                            else:
+                                continue
+                        else:
+                            context_messages_text_only = context_messages_text_only + " " + content
+                            
                         message_ids.append(msg_data.get("message_id", ""))
-                        # Récupérer l'external_message_id du dernier message
                         last_external_message_id = msg_data.get("external_message_id")
-                        if content:
-                            messages_content = messages_content + " " + content
                     except (json.JSONDecodeError, AttributeError) as e:
                         logger.warning(f"Invalid message ignored: {msg_raw} - Error: {e}")
                 
@@ -191,8 +221,9 @@ class MessageBatcher:
                
                 try:
                     messages = {
-                    "message_data": {"role": "user", "content": messages_content},
-                    "external_message_id": last_external_message_id  # Inclure le wamid du dernier message
+                    "message_data": {"role": "user", "content": context_messages_text_only if not image_in_messages else context_messages},
+                    "storage_object_name_list": storage_object_name_list,
+                    "external_message_id": last_external_message_id
                 }
                     await redis_client.lpush(f"{base_key}:history", json.dumps( messages))
                 except Exception as e:

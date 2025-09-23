@@ -211,34 +211,3 @@ async def delete_faq_qa(
         print(f"Erreur lors de la suppression de la FAQ {faq_id}: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Erreur lors de la suppression de la FAQ: {str(e)}")
 
-
-@router.post("/search", response_model=List[FAQQA])
-async def search_faq_qa(
-    search_data: FAQQASearch,
-    request: Request,
-    db: Client = Depends(get_authenticated_db)
-):
-    """Recherche full-text dans les FAQ Q&A"""
-    try:
-        # Recherche full-text avec ranking (sans filtre is_active car hard delete)
-        query = f"""
-        SELECT *, ts_rank(tsv, plainto_tsquery('simple', %s)) as rank
-        FROM faq_qa
-        WHERE tsv @@ plainto_tsquery('simple', %s)
-        ORDER BY rank DESC
-        LIMIT %s OFFSET %s
-        """
-
-        result = db.rpc('execute_sql', {
-            'sql': query,
-            'params': [
-                search_data.query,
-                search_data.query,
-                search_data.limit,
-                search_data.offset
-            ]
-        }).execute()
-
-        return [FAQQA(**item) for item in result.data]
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erreur lors de la recherche: {str(e)}")

@@ -10,7 +10,6 @@ from app.services.response_manager import (
     get_user_credentials_by_platform_account,
     send_response,
     save_response_to_db,
-    add_message_to_conversation_message_groups,
     send_typing_indicator,
 )
 from app.services.automation_service import AutomationService
@@ -182,22 +181,22 @@ class BatchScanner:
             completion_tokens = response.get("completion_tokens", 0)
             model = response.get("model", "")
         
-            try:
-                raw_group_id = await add_message_to_conversation_message_groups(
-                    conversation_id=conversation_id, 
-                    message=messages, 
-                    model=model, 
-                    user_id=user_id, 
-                    message_count=len(message_ids), 
-                    token_count=prompt_tokens, 
-                    message_ids=message_ids
-                )                
-                if not raw_group_id:
-                    logger.error(f"Failed to create message group for conversation {conversation_id}")
-                    return
-            except Exception as e:
-                logger.error(f"Error adding message to conversation message groups: {e}")
-                return
+            # try:
+            #     raw_group_id = await add_message_to_conversation_message_groups(
+            #         conversation_id=conversation_id, 
+            #         message=messages, 
+            #         model=model, 
+            #         user_id=user_id, 
+            #         message_count=len(message_ids), 
+            #         token_count=prompt_tokens, 
+            #         message_ids=message_ids
+            #     )                
+            #     if not raw_group_id:
+            #         logger.error(f"Failed to create message group for conversation {conversation_id}")
+            #         return
+            # except Exception as e:
+            #     logger.error(f"Error adding message to conversation message groups: {e}")
+            #     return
             
            
             if not response_content:
@@ -229,15 +228,15 @@ class BatchScanner:
                     "role": "assistant",
                     "content": response_content
                 }
-                await add_message_to_conversation_message_groups(
-                    conversation_id=conversation_id, 
-                    message=response_message, 
-                    model=model, 
-                    user_id=user_id, 
-                    message_count=1, 
-                    token_count=completion_tokens, 
-                    message_ids=[message_assistant_group_id] if message_assistant_group_id else []
-                )
+                # await add_message_to_conversation_message_groups(
+                #     conversation_id=conversation_id, 
+                #     message=response_message, 
+                #     model=model, 
+                #     user_id=user_id, 
+                #     message_count=1, 
+                #     token_count=completion_tokens, 
+                #     message_ids=[message_assistant_group_id] if message_assistant_group_id else []
+                # )
                 
                 logger.info(f"Response sent for {platform}:{account_id}:{contact_id}")
             

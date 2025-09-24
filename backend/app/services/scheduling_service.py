@@ -1,8 +1,3 @@
-# Decompiled with PyLingual (https://pylingual.io)
-# Internal filename: /app/app/services/scheduling_service.py
-# Bytecode version: 3.12.0rc2 (3531)
-# Source timestamp: 2025-09-11 08:43:21 UTC (1757580201)
-
 from typing import List, Optional, Dict, Any
 from supabase import Client
 from datetime import datetime, timezone

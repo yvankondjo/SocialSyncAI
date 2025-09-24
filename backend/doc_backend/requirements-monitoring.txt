@@ -1,0 +1,37 @@
+# 📊 Monitoring et Observabilité - SocialSyncAI
+
+# Core monitoring
+langsmith>=0.1.0          # Monitoring avancé pour LangChain/LangGraph
+langchain>=0.1.0          # Framework de base avec tracing intégré
+
+# Métriques système
+psutil>=5.9.0             # Monitoring système (CPU, mémoire, disques)
+prometheus-client>=0.20.0 # Export des métriques Prometheus
+
+# Logging avancé
+structlog>=23.0.0         # Logging structuré avec métadonnées
+python-json-logger>=2.0.0 # JSON logging pour les logs centralisés
+
+# Monitoring des performances
+datadog>=0.48.0          # Alternative à Prometheus
+sentry-sdk>=1.40.0       # Monitoring d'erreurs et performances
+
+# Tracing distribué
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+opentelemetry-exporter-jaeger>=1.20.0
+
+# Installation :
+# pip install -r requirements-monitoring.txt
+
+# Configuration recommandée :
+export LANGCHAIN_API_KEY="your-langsmith-key"
+export LANGCHAIN_PROJECT="socialsync-ai-prod"
+export LANGCHAIN_TRACING_V2="true"
+
+# Avantages :
+# ✅ Tracing complet des invocations RAG
+# ✅ Métriques de latence et tokens
+# ✅ Alertes sur les anomalies
+# ✅ Monitoring des coûts par utilisateur
+# ✅ Dashboard visuel des performances

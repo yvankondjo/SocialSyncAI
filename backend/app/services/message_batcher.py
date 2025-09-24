@@ -13,19 +13,18 @@ class MessageBatcher:
     """
     Service of batching for WhatsApp/Instagram messages
     
-    Logique:
-    1. Messages saved immediately in DB (idempotent)
-    2. Messages added to Redis for batching
-    3. Sliding window of 15s (trailing debounce)
-    4. Scanner processes due batches
+    Logique simplifiée:
+    1. Messages sauvegardés immédiatement en BDD
+    2. Messages ajoutés à Redis pour groupement
+    3. Fenêtre glissante de 15s (debounce)
+    4. Scanner traite les batches dus
     """
 
     def __init__(self, redis_url: str = None):
         self.redis_url = redis_url or os.getenv('REDIS_URL', 'redis://localhost:6379/0')
         self._redis_pool = None
         self.batch_window_seconds = 15
-        self.cache_ttl_hours = 1
-        self.history_limit = 200
+        self.cache_ttl_hours = 0.5  
 
     async def get_redis(self) -> redis.Redis:
         """Get a Redis connection from the pool"""
@@ -52,77 +51,48 @@ class MessageBatcher:
         
         Args:
             platform: whatsapp, instagram
-            account_id: phone_number_id ou instagram_business_account_id
-            contact_id: wa_id ou ig_user_id
-            message_data: Données complètes du message
-            conversation_message_id: UUID du message en BDD
+            account_id: phone_number_id or instagram_business_account_id
+            contact_id: wa_id or ig_user_id
+            message_data: Full message data
+            conversation_message_id: UUID of the message in the DB
             
         Returns:
-            bool: True si premier message de la session, False sinon
+            bool: True if first message of the session, False otherwise
         """
         base_key = self._get_conversation_key(platform, account_id, contact_id)
         async with self.redis_connection() as redis_client:
-            conversation_id = message_data["conversation_id"]
-            batch_message = {'message_data': message_data["metadata"], 'conversation_message_id': conversation_message_id, 'message_type': message_data["message_type"],"external_message_id": message_data["external_message_id"]}
-            history_exists = await redis_client.exists(f'{base_key}:history')
-            if not history_exists:
-                logger.info(f'Cache miss pour {base_key} - hydratation nécessaire')
-                await self._hydrate_conversation_cache(redis_client, base_key, platform, account_id, contact_id, conversation_id)
+            batch_message = {
+                'message_data': message_data["metadata"], 
+                'conversation_message_id': conversation_message_id, 
+                'message_type': message_data["message_type"],
+                'external_message_id': message_data["external_message_id"]
+            }
             
             try:
-                await redis_client.ltrim(f'{base_key}:history', 0, self.history_limit - 1)
-                await redis_client.expire(f'{base_key}:history', self.cache_ttl_hours * 3600)
                 await redis_client.rpush(f'{base_key}:msgs', json.dumps(batch_message))
                 await redis_client.expire(f'{base_key}:msgs', self.cache_ttl_hours * 3600)
+                
+               
                 conversation_identifier = f'{platform}:{account_id}:{contact_id}'
                 existing_deadline = await redis_client.get(f'{base_key}:deadline')
+                
                 if not existing_deadline:
                     deadline = datetime.now() + timedelta(seconds=self.batch_window_seconds)
                     deadline_timestamp = int(deadline.timestamp())
                     await redis_client.set(f'{base_key}:deadline', deadline_timestamp, ex=self.cache_ttl_hours * 3600)
                     await redis_client.zadd('conv:deadlines', {conversation_identifier: deadline_timestamp})
-                    logger.info(f'⏰ Timer 15s démarré pour {base_key}, deadline: {deadline}')
+                    await redis_client.set(f'{base_key}:conversation_id', message_data["conversation_id"], ex=self.cache_ttl_hours * 3600)
+                    logger.info(f'⏰ Timer 15s started for {base_key}, deadline: {deadline}')
+                    return True
                 else:
                     existing_deadline_dt = datetime.fromtimestamp(int(existing_deadline))
-                    logger.info(f'📝 Message ajouté au batch {base_key}, deadline inchangée: {existing_deadline_dt}')
-                return not history_exists
+                    logger.info(f'📝 Message added to batch {base_key}, deadline unchanged: {existing_deadline_dt}')
+                    return False
+                    
             except Exception as e:
                 logger.error(f'Error adding message to batch: {e}')
                 return False
 
-    async def _hydrate_conversation_cache(self, redis_client: redis.Redis, base_key: str, platform: str, account_id: str, contact_id: str, conversation_id: str):
-        """
-        Load the history from the DB to Redis (Supabase)
-        """
-        try:
-            from app.db.session import get_db
-            db = get_db()
-            select_str = 'id, messages'
-            msgs_res = db.table('conversations_message_groups').select(select_str).eq('conversation_id', conversation_id).order('created_at', desc=True).limit(self.history_limit).execute()
-            msgs = msgs_res.data or []
-            if msgs:
-                history_messages = []
-                for row in reversed(msgs):
-                    messages = row.get('messages', {})
-                    if isinstance(messages, dict):
-                        if isinstance(messages.get('message_data').get("content"), list):
-                            from app.services.response_manager import refresh_image_urls_in_message
-                            messages= refresh_image_urls_in_message(messages)
-                        history_messages.append({'message_data': messages['message_data'], 'conversation_id': conversation_id})
-                    else:
-                        logger.warning(f"Invalid messages format for message {row.get('id')}: {messages}")
-                if history_messages:
-                    for msg in history_messages:
-                        try:
-                            await redis_client.rpush(f'{base_key}:history', json.dumps(msg))
-                        except Exception as e:
-                            logger.error(f'Error serializing message for cache: {e}')
-                    await redis_client.expire(f'{base_key}:history', self.cache_ttl_hours * 3600)
-                    logger.info(f'Cache hydraté pour {base_key}: {len(history_messages)} messages')
-            await redis_client.hset(f'{base_key}:meta', mapping={'last_db_sync': datetime.now().isoformat(), 'platform': platform, 'account_id': account_id, 'contact_id': contact_id})
-            await redis_client.set(f'{base_key}:conversation_id', conversation_id, ex=self.cache_ttl_hours * 3600)
-        except Exception as e:
-            logger.error(f'Error hydrating cache {base_key}: {e}')
 
     async def get_due_conversations(self) -> List[Dict[str, Any]]:
         """
@@ -163,17 +133,17 @@ class MessageBatcher:
             try:
                 current_deadline = await redis_client.get(f"{base_key}:deadline")
                 if current_deadline and int(current_deadline) > datetime.now().timestamp():
-                    logger.warning(f"Deadline not yet reached for {base_key}, abandon (race condition)")
+                    logger.warning(f"Deadline pas encore atteinte pour {base_key}, abandon (race condition)")
                     return None
                 
-                
+                # Récupérer les messages du batch
                 messages_raw = await redis_client.lrange(f"{base_key}:msgs", 0, -1)
                 if not messages_raw:    
-                    logger.info(f"No message pending for {base_key}")
+                    logger.info(f"No message in waiting for {base_key}")
                     return None
 
+                # Nettoyer le batch
                 await redis_client.delete(f"{base_key}:msgs")
-                
                 await redis_client.zrem("conv:deadlines", conversation_identifier)
                 await redis_client.delete(f"{base_key}:deadline")
 
@@ -181,7 +151,7 @@ class MessageBatcher:
                 context_messages =[]
                 message_ids = []
                 last_external_message_id = None
-                #verifie si il y'a ne serait que une seule image parmir les message
+                #check if there is only one image in the messages
                 image_in_messages = False
                 storage_object_name_list = []
                 for msg_raw in messages_raw:
@@ -216,32 +186,13 @@ class MessageBatcher:
                     except (json.JSONDecodeError, AttributeError) as e:
                         logger.warning(f"Invalid message ignored: {msg_raw} - Error: {e}")
                 
-                
-               
-               
-                try:
-                    messages = {
-                    "message_data": {"role": "user", "content": context_messages_text_only if not image_in_messages else context_messages},
-                    "storage_object_name_list": storage_object_name_list,
-                    "external_message_id": last_external_message_id
-                }
-                    await redis_client.lpush(f"{base_key}:history", json.dumps( messages))
-                except Exception as e:
-                    logger.warning(f"Error adding message to history: {e}") 
-                await redis_client.ltrim(f"{base_key}:history", 0, self.history_limit - 1)
-                await redis_client.expire(f"{base_key}:history", self.cache_ttl_hours * 3600)
-                
-                
-                context_raw = await redis_client.lrange(f"{base_key}:history", 0, -1)
-                context_messages = []
-                for ctx_raw in context_raw:
-                    try:
-                        context_messages.append(json.loads(ctx_raw))
-                    except json.JSONDecodeError:
-                        continue
-                
-                
-                
+                messages = {
+                "message_data": {"role": "user", "content": context_messages_text_only if not image_in_messages else context_messages},
+                "storage_object_name_list": storage_object_name_list,
+                "external_message_id": last_external_message_id
+            }
+                     
+
                 logger.info(f"Batch processed for {base_key}: 1 concatenated message")
                 
                 
@@ -256,7 +207,6 @@ class MessageBatcher:
                     "contact_id": contact_id,
                     "messages": messages,
                     "message_ids": message_ids,
-                    "context": context_messages,
                     "conversation_key": base_key,
                     "conversation_id": conversation_id
                 }
@@ -265,24 +215,6 @@ class MessageBatcher:
                 
                 await redis_client.delete(lock_key)
     
-    async def add_response_to_history(
-        self,
-        platform: str,
-        account_id: str,
-        contact_id: str,
-        response_data: Dict[str, Any],
-        conversation_id: str
-    ):
-        """
-        Add the sent response to the Redis history
-        """
-        base_key = self._get_conversation_key(platform, account_id, contact_id)
-        response_message = {'message_data': response_data, 'conversation_id': conversation_id}
-        async with self.redis_connection() as redis_client:
-            await redis_client.lpush(f'{base_key}:history', json.dumps(response_message))
-            await redis_client.ltrim(f'{base_key}:history', 0, self.history_limit - 1)
-            await redis_client.expire(f'{base_key}:history', self.cache_ttl_hours * 3600)
-
     async def cleanup_expired_data(self):
         """
         Clean expired data (optional, Redis TTL handles it)
@@ -303,10 +235,9 @@ class MessageBatcher:
         base_key = self._get_conversation_key(platform, account_id, contact_id)
         conversation_identifier = f'{platform}:{account_id}:{contact_id}'
         async with self.redis_connection() as redis_client:
-            await redis_client.delete(f'{base_key}:history')
             await redis_client.delete(f'{base_key}:msgs')
             await redis_client.delete(f'{base_key}:deadline')
-            await redis_client.delete(f'{base_key}:meta')
+            await redis_client.delete(f'{base_key}:conversation_id')
             await redis_client.delete(f'{base_key}:lock')
             await redis_client.zrem('conv:deadlines', conversation_identifier)
 

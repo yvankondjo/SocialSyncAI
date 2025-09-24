@@ -398,12 +398,9 @@ class RAGAgent:
             }
 
     def invoke(self, 
-               message: str, 
-               conversation_id: str, 
-               trim_strategy: Optional[Literal["none", "soft", "hard", "summary"]] = None,
-               max_tokens: Optional[int] = None) -> Dict[str, Any]:
+               message: HumanMessage, 
+               conversation_id: str) -> Dict[str, Any]:
         """Invoke the agent with persistence"""
-        
         
         config = {
             "configurable": {
@@ -411,24 +408,16 @@ class RAGAgent:
             }
         }
         
-        
-        initial_state = RAGAgentState(
-            messages=[HumanMessage(content=message)],
-            search_results=[],
-            n_search=0,
-            max_searches=self.max_searches,
-            trim_strategy=trim_strategy or self.trim_strategy,
-            max_tokens=max_tokens or self.max_tokens,
-            summary_enabled=False
-        )
+        # Just add the new message, LangGraph handles the rest
+
 
         try:
-            result = self.graph.invoke(initial_state, config=config)
-            return result
+            result = self.graph.invoke({"messages": [message]}, config=config)
+            return result["messages"][-1].content
         except Exception as e:
             return {
                 "messages": [
-                    HumanMessage(content=message),
+                    message,
                     AIMessage(content=f"Error: {str(e)}")
                 ],
                 "search_results": [],
@@ -476,10 +465,10 @@ class RAGAgent:
 
 def create_rag_agent(user_id: str,
                      summarization_model_name: str = "gpt-4o-mini",
-                     summarization_max_tokens: int = 300,
+                     summarization_max_tokens: int = 350,
                      model_name: str = "gpt-4o-mini", 
                      max_searches: int = 3,
-                     trim_strategy: Literal["none", "soft", "hard", "summary"] = "soft",
+                     trim_strategy: Literal["none", "soft", "hard", "summary"] = "hard",
                      max_tokens: int = 8000) -> RAGAgent:
     """Factory function to create a RAG Agent"""
     return RAGAgent(
@@ -497,7 +486,7 @@ if __name__ == "__main__":
     
     agent = create_rag_agent(
         user_id="example_user_id",
-        trim_strategy="summary", 
+        trim_strategy="hard", 
         max_tokens=6000
     )
     

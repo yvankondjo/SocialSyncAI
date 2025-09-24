@@ -1,0 +1,68 @@
+ARCHITECTURE SIMPLIFIÉE - GESTION DES MESSAGES ET RAG
+=====================================================
+
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Message       │    │   MessageBatcher │    │   BatchScanner  │
+│   Entrant       │───▶│   (Simplifié)    │───▶│   (Mis à jour)  │
+│                 │    │                  │    │                 │
+│ - WhatsApp      │    │ - Groupement     │    │ - Traitement    │
+│ - Instagram     │    │ - Timer 15s      │    │ - Conversion    │
+│ - etc.          │    │ - Redis Cache    │    │ - RAG Agent     │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                                         │
+                                                         ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   RAGAgent      │    │   PostgresSaver  │    │   Réponse       │
+│   (Avec user_id)│───▶│   (Historique)   │    │   Générée       │
+│                 │    │                  │    │                 │
+│ - Recherche     │    │ - Persistance    │    │ - WhatsApp      │
+│ - Documents     │    │ - Historique     │    │ - Instagram     │
+│ - user_id filter│    │ - Conversations  │    │ - etc.          │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+         │
+         ▼
+
+FLUX DE DONNÉES:
+================
+
+1. Message Entrant
+   ├── Sauvegarde immédiate en BDD
+   └── Ajout au batch Redis
+
+2. Timer 15s
+   ├── BatchScanner vérifie les deadlines
+   └── Traitement des batches dus
+
+3. Groupement
+   ├── MessageBatcher groupe les messages
+   └── Conversion au format structuré
+
+4. RAG Processing
+   ├── RAGAgent génère la réponse
+   └── PostgresSaver gère l'historique
+
+5. Envoi
+   ├── Réponse envoyée via plateforme
+   └── Sauvegarde en BDD
+
+AVANTAGES:
+==========
+
+✅ Simplicité
+   - Suppression gestion historique complexe
+   - Un seul point d'historique (PostgresSaver)
+   - Code plus maintenable
+
+✅ Performance
+   - Moins de requêtes Redis
+   - Cache agents RAG par utilisateur
+   - Groupement efficace
+
+✅ Sécurité
+   - Isolation données par utilisateur
+   - Chaque agent voit ses documents uniquement
+
+✅ Flexibilité
+   - Ajout facile nouveaux types messages
+   - Conversion modulaire
+   - Gestion erreurs améliorée

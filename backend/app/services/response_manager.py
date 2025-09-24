@@ -1,12 +1,12 @@
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from app.services.message_batcher import message_batcher, add_message_to_batch
-from app.services.whatsapp_service import WhatsAppService
+from app.services.message_batcher import MessageBatcher
 from app.services.instagram_service import InstagramService
-
+from app.services.whatsapp_service import WhatsAppService
+from langchain_core.messages import HumanMessage
 logger = logging.getLogger(__name__)
-
+message_batcher = MessageBatcher()
 async def get_user_credentials_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
     from app.db.session import get_db
     try:
@@ -16,10 +16,10 @@ async def get_user_credentials_by_user_id(user_id: str) -> Optional[Dict[str, An
         if rows:
             row = rows[0]
             return {'user_id': user_id, 'social_account_id': str(row['id']), 'phone_number_id': row['account_id'], 'access_token': row['access_token'], 'display_name': row.get('display_name'), 'username': row.get('username')}
-        logger.warning(f'Aucun compte WhatsApp trouvé pour l\'utilisateur {user_id}')
+        logger.warning(f'No WhatsApp account found for user {user_id}')
         return None
     except Exception as e:
-        logger.error(f'Erreur lors de la récupération des credentials WhatsApp: {e}')
+        logger.error(f'Error retrieving WhatsApp credentials: {e}')
         return None
 
 async def get_user_by_phone_number_id(phone_number_id: str) -> Optional[Dict[str, Any]]:
@@ -31,10 +31,10 @@ async def get_user_by_phone_number_id(phone_number_id: str) -> Optional[Dict[str
         if rows:
             row = rows[0]
             return {'user_id': str(row['user_id']), 'social_account_id': str(row['id']), 'account_id': phone_number_id, 'phone_number_id': phone_number_id, 'access_token': row['access_token'], 'display_name': row.get('display_name'), 'username': row.get('username')}
-        logger.warning(f'Aucun utilisateur trouvé pour phone_number_id: {phone_number_id}')
+        logger.warning(f'No user found for phone_number_id: {phone_number_id}')
         return None
     except Exception as e:
-        logger.error(f'Erreur lors de la récupération utilisateur WhatsApp: {e}')
+        logger.error(f'Error retrieving WhatsApp user: {e}')
         return None
 
 async def handle_messages_webhook_for_user(value: Dict[str, Any], user_info: Dict[str, Any]) -> None:
@@ -50,7 +50,7 @@ async def send_error_notification_to_user(contact_id: str, message: str, platfor
     time.sleep(5)
     result = await send_response(platform, user_credentials, contact_id, message)
     if not result:
-        logger.error(f'Erreur envoi notification à l\'utilisateur {contact_id}: {message}')
+        logger.error(f'Error sending notification to user {contact_id}: {message}')
         return
     return result
 
@@ -68,7 +68,7 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
         if user_credentials and contact_id:
             result = await send_error_notification_to_user(contact_id, 'This Type of message is not supported yet', platform, user_credentials, message_id)
             if not result:
-                logger.error(f'Erreur envoi notification à l\'utilisateur {contact_id}: This Type of message is not supported yet')
+                logger.error(f'Error sending notification to user {contact_id}: This Type of message is not supported yet')
         else:
             logger.error(f'Impossible d\'envoyer notification: contact_id={contact_id}, user_credentials={bool(user_credentials)}')
         return None
@@ -77,33 +77,33 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
         logger.error(f"Message trop long: {extracted_message.get('token_count')}")
         from langdetect import detect
         lang = detect(extracted_message.get('content')[:500])
-        logger.error(f'Langue du message: {lang}')
+        logger.error(f'Message language: {lang}')
         if lang != 'fr':
-            logger.error(f'Langue du message non française: {lang}')
+            logger.error(f'Message language not French: {lang}')
             if user_credentials:
                 result = await send_error_notification_to_user(contact_id, 'error your message is too long', platform, user_credentials, message_id)
                 if not result:
-                    logger.error(f'Erreur envoi notification à l\'utilisateur {contact_id}: error your message is too long')
+                    logger.error(f'Error sending notification to user {contact_id}: error your message is too long')
             return None
         else:
             if user_credentials:
                 result = await send_error_notification_to_user(contact_id, 'Votre message est trop long', platform, user_credentials, message_id)
                 if not result:
-                    logger.error(f'Erreur envoi notification à l\'utilisateur {contact_id}: Votre message est trop long')
+                    logger.error(f'Error sending notification to user {contact_id}: Your message is too long')
             return None
     
     try:
         conversation_message_info = await save_incoming_message_to_db(extracted_message, user_info)
-        await add_message_to_batch(platform, account_id, contact_id, conversation_message_info['conversation_message_data'], conversation_message_info['conversation_message_id'])
+        await message_batcher.add_message_to_batch(platform, account_id, contact_id, conversation_message_info['conversation_message_data'], conversation_message_info['conversation_message_id'])
         return conversation_message_info['conversation_message_id']
     except Exception as e:
-        logger.error(f'Erreur sauvegarde message en BDD: {e}')
+        logger.error(f'Error saving message to DB: {e}')
         return None
 
 async def process_message_status_for_user(status: Dict[str, Any], user_info: Dict[str, Any]) -> None:
     message_id = status.get('id')
     status_type = status.get('status')
-    logger.info(f"Statut \'{status_type}\' pour message {message_id} (utilisateur: {user_info['user_id']})")
+    logger.info(f"Status \'{status_type}\' for message {message_id} (user: {user_info['user_id']})")
     await update_message_status_in_user_db(message_id, status_type, user_info)
 
 async def update_message_status_in_user_db(message_id: str, status: str, user_info: Dict[str, Any]) -> None:
@@ -353,29 +353,29 @@ async def extract_message_content(message: Dict[str, Any], user_credentials: Dic
         except Exception as e:
             logger.error(f'Erreur téléchargement image: {e}')
             return None
-    elif message_type == 'audio':
-        media_id = message.get('audio', {}).get('id', '')
-        try:
-            media_content = await get_media_content(media_id, user_credentials.get('access_token'))
-            audio_tokens = 50
-            logger.info(f'Audio size: {len(media_content)} bytes, estimated tokens: {audio_tokens}')
-            return {
-                'content': '[Audio]',
-                'token_count': audio_tokens,
-                'message_type': message_type,
-                'message_id': message.get('id'),
-                'message_from': message.get('from')
-            }
-        except Exception as e:
-            logger.error(f'Erreur téléchargement audio: {e}')
-            return {
-                'content': '[Audio]',
-                'token_count': 10,
-                'message_type': message_type,
-                'message_id': message.get('id'),
-                'message_from': message.get('from')
-            }
-    elif message_type in ['video', 'document', 'location', 'contacts']:
+    # elif message_type == 'audio':
+    #     media_id = message.get('audio', {}).get('id', '')
+    #     try:
+    #         media_content = await get_media_content(media_id, user_credentials.get('access_token'))
+    #         audio_tokens = 50
+    #         logger.info(f'Audio size: {len(media_content)} bytes, estimated tokens: {audio_tokens}')
+    #         return {
+    #             'content': '[Audio]',
+    #             'token_count': audio_tokens,
+    #             'message_type': message_type,
+    #             'message_id': message.get('id'),
+    #             'message_from': message.get('from')
+    #         }
+    #     except Exception as e:
+    #         logger.error(f'Erreur téléchargement audio: {e}')
+    #         return {
+    #             'content': '[Audio]',
+    #             'token_count': 10,
+    #             'message_type': message_type,
+    #             'message_id': message.get('id'),
+    #             'message_from': message.get('from')
+    #         }
+    elif message_type in ['video', 'document', 'location', 'contacts', 'audio']:
         return None
     else:
         return None
@@ -392,63 +392,14 @@ async def get_media_content(media_id: str, access_token: str) -> bytes:
     response.raise_for_status()
     return response.content
 
-async def generate_smart_response(messages: List[Dict[str, Any]], context: List[Dict[str, Any]], platform: str, ai_settings: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    from dotenv import load_dotenv
-    import os
-    from openai import OpenAI
-    load_dotenv()
-    OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
-    OPENROUTER_BASE_URL = os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')
-    openai = OpenAI(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
-    history = [{'role': ctx.get('message_data', {}).get('role', 'user'), 'content': ctx.get('message_data', {}).get('content', '')} for ctx in context]
-    if not messages or not messages.get('message_data', {}).get('content'):
-        return None
-    new_messages = [{'role': messages.get('message_data', {}).get('role', 'user'), 'content': messages.get('message_data', {}).get('content', '')}]
-    all_messages = [{'role': 'system', 'content': ai_settings.get('system_prompt')}, *history, *new_messages]
-    logger.info('================================================================================')
-    logger.info('🤖 LLM INPUT - Conversation Context')
-    logger.info('================================================================================')
-    logger.info(f"📊 Model: {ai_settings.get('ai_model')}")
-    logger.info(f"🌡️ Temperature: {ai_settings.get('temperature')}")
-    logger.info(f"📈 Top-p: {ai_settings.get('top_p')}")
-    logger.info(f'📝 Total messages: {len(all_messages)}')
-    logger.info(f'📚 History messages: {len(history)}')
-    logger.info(f'💬 New messages: {len(new_messages)} (concatenated)')
-    logger.info(f"📄 Concatenated content length: {len(messages.get('message_data', {}).get('content', ''))} characters")
-    logger.info('--------------------------------------------------------------------------------')
-    for i, msg in enumerate(all_messages):
-        role = msg.get('role', 'user')
-        role_emoji = '🤖' if role == 'system' else '👤' if role == 'user' else '🤖'
-        content = msg.get('content', '')
-        content_preview = content[:100] + '...' if len(content) > 100 else content
-        logger.info(f'{role_emoji} [{i + 1}] {role.upper()}: {content_preview}')
-    logger.info('--------------------------------------------------------------------------------')
-    try:
-        response = openai.chat.completions.create(
-            model=ai_settings.get('ai_model'),
-            messages=all_messages,
-            temperature=ai_settings.get('temperature'),
-            top_p=ai_settings.get('top_p'),
-            max_tokens=1024
-        )
-        response_content = response.choices[0].message.content
-        prompt_tokens = response.usage.prompt_tokens
-        completion_tokens = response.usage.completion_tokens
-        
-        logger.info('🤖 LLM OUTPUT - Response Generated')
-        logger.info('--------------------------------------------------------------------------------')
-        logger.info(f'📝 Response length: {len(response_content)} characters')
-        logger.info(f'💬 Response content: {response_content}')
-        
-        return {
-            'model': ai_settings.get('ai_model'),
-            'response_content': response_content,
-            'prompt_tokens': prompt_tokens,
-            'completion_tokens': completion_tokens
-        }
-    except Exception as e:
-        logger.error(f'Erreur lors de la génération de la réponse: {e}')
-        return None
+async def generate_smart_response(messages: HumanMessage, user_id: str, ai_settings: Dict[str, Any], conversation_id: str) -> Optional[Dict[str, Any]]:
+    from app.services.rag_agent import create_rag_agent
+    system_prompt = ai_settings.get('system_prompt', '')
+    model_name = ai_settings.get('ai_model', 'gpt-4o-mini')
+    agent = create_rag_agent(user_id, model_name=model_name, system_prompt=system_prompt)
+    response = agent.invoke(messages, conversation_id)
+    return response
+
 
 async def get_user_credentials_by_platform_account(platform: str, account_id: str) -> Optional[Dict[str, Any]]:
     from app.db.session import get_db
@@ -463,12 +414,12 @@ async def get_user_credentials_by_platform_account(platform: str, account_id: st
             return rows[0]
         return None
     except Exception as e:
-        logger.error(f'Erreur lors de la récupération des credentials {platform}:{account_id}: {e}')
+        logger.error(f'Error retrieving credentials {platform}:{account_id}: {e}')
         return None
 
 async def send_typing_indicator(platform: str, user_credentials: Dict[str, Any], contact_id: str, message_id: str=None) -> bool:
     """
-    Envoyer un indicateur de frappe via la plateforme appropriée
+    Send a typing indicator via the appropriate platform
     """
     try:
         if platform == 'whatsapp':

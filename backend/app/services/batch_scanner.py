@@ -3,14 +3,14 @@ import logging
 from datetime import datetime
 from typing import List, Dict, Any
 from contextlib import asynccontextmanager
-
+from langchain_core.messages import HumanMessage
 from app.services.message_batcher import message_batcher
 from app.services.response_manager import (
-    generate_smart_response,
     get_user_credentials_by_platform_account,
     send_response,
     save_response_to_db,
     send_typing_indicator,
+    generate_smart_response,
 )
 from app.services.automation_service import AutomationService
 
@@ -18,15 +18,27 @@ logger = logging.getLogger(__name__)
 
 class BatchScanner:
     """
-    Scanner de tâche de fond pour traiter les batches de messages
-    
-    Vérifie périodiquement les conversations dues et envoie les réponses
+    Scanner of background task to process the batches of messages
+
+    Check periodically the due conversations and send the responses
     """
-    
+
     def __init__(self, scan_interval: float = 0.5):
-        self.scan_interval = scan_interval  
+        self.scan_interval = scan_interval
         self.is_running = False
         self._task: asyncio.Task = None
+
+        # 📊 Métriques de monitoring
+        self.metrics = {
+            'conversations_processed': 0,
+            'conversations_failed': 0,
+            'conversations_timed_out': 0,
+            'responses_generated': 0,
+            'errors_total': 0,
+            'processing_times': [],
+            'last_scan_timestamp': None,
+            'total_scans': 0
+        }
         
     
     async def start(self):
@@ -54,12 +66,17 @@ class BatchScanner:
         """Main loop of the scanner"""
         while self.is_running:
             try:
+                # 📊 Tracker les scans
+                self.metrics['total_scans'] += 1
+                self.metrics['last_scan_timestamp'] = datetime.now().isoformat()
+
                 await self._process_due_conversations()
                 await asyncio.sleep(self.scan_interval)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Error in scanner: {e}")
+                self.metrics['errors_total'] += 1
                 await asyncio.sleep(self.scan_interval)
     
     async def _process_due_conversations(self):
@@ -94,24 +111,32 @@ class BatchScanner:
         contact_id = conv_info["contact_id"]
         conversation_key = conv_info["conversation_key"]
         conversation_id = conv_info["conversation_id"]
-        
+
+        # ⏱️ Mesure du temps de traitement pour les métriques
+        start_time = asyncio.get_event_loop().time()
+
         try:
-            
-            batch_result = await message_batcher.process_batch_for_conversation(
-                platform, account_id, contact_id, conversation_key, conversation_id
-            )
+            async with asyncio.timeout(30):
+                batch_result = await message_batcher.process_batch_for_conversation(
+                    platform, account_id, contact_id, conversation_key, conversation_id
+                )
             
             if not batch_result:
                 logger.info(f"No batch result for {platform}:{account_id}:{contact_id}")
                 await message_batcher.delete_conversation_cache(platform, account_id, contact_id)
+                # 📊 Métriques
+                self.metrics['conversations_failed'] += 1
+                self.metrics['errors_total'] += 1
                 return
             
-            if not isinstance(batch_result, dict) or "messages" not in batch_result or "context" not in batch_result:
+            if not isinstance(batch_result, dict) or "messages" not in batch_result:
                 logger.warning(f"Invalid batch result structure for {platform}:{account_id}:{contact_id}: {batch_result}")
+                # 📊 Métriques
+                self.metrics['conversations_failed'] += 1
+                self.metrics['errors_total'] += 1
                 return
             
-            messages = batch_result["messages"]
-            context = batch_result["context"]
+            messages = batch_result["messages"]["message_data"]
             message_ids = batch_result["message_ids"]
             logger.info("=" * 60)
             logger.info(f"🔄 PROCESSING BATCH - {platform}:{account_id}:{contact_id}")
@@ -122,7 +147,6 @@ class BatchScanner:
                 logger.info(f"📄 Concatenated content length: {len(messages.get('message_data', {}).get('content', ''))} characters")
             else:
                 logger.info(f"📊 Messages in batch: {len(messages)}")
-            logger.info(f"📚 Context messages: {len(context)}")
             logger.info(f"🔑 Conversation ID: {conversation_id}")
             logger.info("-" * 60)
             
@@ -132,13 +156,6 @@ class BatchScanner:
                 direction = messages.get("message_data", {}).get("role", "user")
                 logger.info(f"💬 Batch Message (concatenated) ({direction}): {content[:200]}{'...' if len(content) > 200 else ''}")
 
-            if context:
-                logger.info(f"📚 Context preview (last 3 messages):")
-                for i, ctx in enumerate(context[-3:]):
-                    content = ctx.get("message_data", {}).get("content", "")
-                    direction = ctx.get("message_data", {}).get("direction", "unknown")
-                    logger.info(f"   [{i+1}] ({direction}): {content[:80]}{'...' if len(content) > 80 else ''}")
-            
             logger.info("-" * 60)
             
             user_credentials = await get_user_credentials_by_platform_account(platform, account_id)
@@ -170,38 +187,20 @@ class BatchScanner:
                         f"Rules matched: {automation_check['reason']}"
                     )
             
-             # Envoyer l'indicateur de frappe et marquer comme lu (en un seul appel)
+             # Send the typing indicator and mark as read (in one call)
             if message_ids:
                 await send_typing_indicator(platform, user_credentials, contact_id, message_ids[-1])
                 logger.info(f"📝 Typing indicator + read receipt sent for {platform}:{account_id}:{contact_id}")
-            
-            response = await generate_smart_response(messages, context, platform, automation_check["ai_settings"])
-            response_content = response.get("response_content", "")
-            prompt_tokens = response.get("prompt_tokens", 0)
-            completion_tokens = response.get("completion_tokens", 0)
-            model = response.get("model", "")
-        
-            # try:
-            #     raw_group_id = await add_message_to_conversation_message_groups(
-            #         conversation_id=conversation_id, 
-            #         message=messages, 
-            #         model=model, 
-            #         user_id=user_id, 
-            #         message_count=len(message_ids), 
-            #         token_count=prompt_tokens, 
-            #         message_ids=message_ids
-            #     )                
-            #     if not raw_group_id:
-            #         logger.error(f"Failed to create message group for conversation {conversation_id}")
-            #         return
-            # except Exception as e:
-            #     logger.error(f"Error adding message to conversation message groups: {e}")
-            #     return
-            
-           
+            content = self._format_messages(messages)
+            response_content = await generate_smart_response(content, user_id,automation_check["ai_settings"],conversation_id)
+
+
             if not response_content:
                 logger.warning(f"❌ No response generated for {platform}:{account_id}:{contact_id}")
                 logger.info("=" * 60)
+                # 📊 Métriques
+                self.metrics['conversations_failed'] += 1
+                self.metrics['errors_total'] += 1
                 return
             
             logger.info(f"✅ Response generated successfully for {platform}:{account_id}:{contact_id}")
@@ -210,38 +209,100 @@ class BatchScanner:
             response_sent = await send_response(platform, user_credentials, contact_id, response_content)
             
             if response_sent:
-                
-                await message_batcher.add_response_to_history(
-                    platform, account_id, contact_id,
-                    {
-                        "role": "assistant",
-                        "content": response_content,
-                    },
-                    conversation_id
-                )
-                
+                # Save the response to the DB
                 message_assistant_group_id = await save_response_to_db(
                     conversation_id, response_content, user_credentials.get("user_id")
                 )
-               
-                response_message = {
-                    "role": "assistant",
-                    "content": response_content
-                }
-                # await add_message_to_conversation_message_groups(
-                #     conversation_id=conversation_id, 
-                #     message=response_message, 
-                #     model=model, 
-                #     user_id=user_id, 
-                #     message_count=1, 
-                #     token_count=completion_tokens, 
-                #     message_ids=[message_assistant_group_id] if message_assistant_group_id else []
-                # )
-                
+
                 logger.info(f"Response sent for {platform}:{account_id}:{contact_id}")
-            
+
+                # 📊 Métriques de succès
+                end_time = asyncio.get_event_loop().time()
+                processing_time = end_time - start_time
+                self.metrics['conversations_processed'] += 1
+                self.metrics['responses_generated'] += 1
+                self.metrics['processing_times'].append(processing_time)
+                # Garder seulement les 100 derniers temps
+                if len(self.metrics['processing_times']) > 100:
+                    self.metrics['processing_times'] = self.metrics['processing_times'][-100:]
+            else:
+                # Réponse générée mais pas envoyée
+                logger.error(f"❌ Failed to send response for {platform}:{account_id}:{contact_id}")
+                # 📊 Métriques d'échec
+                end_time = asyncio.get_event_loop().time()
+                processing_time = end_time - start_time
+                self.metrics['conversations_failed'] += 1
+                self.metrics['errors_total'] += 1
+                self.metrics['processing_times'].append(processing_time)
+                if len(self.metrics['processing_times']) > 100:
+                    self.metrics['processing_times'] = self.metrics['processing_times'][-100:]
+
+        except asyncio.TimeoutError:
+            logger.error(f"⏰ Timeout (30s) processing {platform}:{account_id}:{contact_id}")
+            await message_batcher.delete_conversation_cache(platform, account_id, contact_id)
+            # 📊 Métriques
+            self.metrics['conversations_timed_out'] += 1
+            self.metrics['errors_total'] += 1
         except Exception as e:
             logger.error(f"Error processing {platform}:{account_id}:{contact_id}: {e}")
+            # 📊 Métriques
+            self.metrics['conversations_failed'] += 1
+            self.metrics['errors_total'] += 1
     
+    def _format_messages(self, messages: Dict[str, Any]) -> HumanMessage:
+        """
+        Format the messages for the agent
+        """
+        content = HumanMessage(content=messages.get("content", ""))
+        return content
 
+    # 📊 Méthodes de monitoring
+    def get_metrics(self) -> Dict[str, Any]:
+        """Récupérer les métriques de performance"""
+        metrics = self.metrics.copy()
+        if metrics['processing_times']:
+            metrics['avg_processing_time'] = sum(metrics['processing_times']) / len(metrics['processing_times'])
+            metrics['max_processing_time'] = max(metrics['processing_times'])
+            metrics['min_processing_time'] = min(metrics['processing_times'])
+        else:
+            metrics['avg_processing_time'] = 0
+            metrics['max_processing_time'] = 0
+            metrics['min_processing_time'] = 0
+        return metrics
+
+    def log_performance_metrics(self):
+        """Logger les métriques de performance"""
+        metrics = self.get_metrics()
+        logger.info(f"  - Conversations traitées: {metrics['conversations_processed']}")
+        logger.info(f"  - Échecs: {metrics['conversations_failed']}")
+        logger.info(f"  - Timeouts: {metrics['conversations_timed_out']}")
+        logger.info(f"  - Réponses générées: {metrics['responses_generated']}")
+        logger.info(f"  - Erreurs totales: {metrics['errors_total']}")
+        logger.info(f"  - Scans totaux: {metrics['total_scans']}")
+
+        if metrics['processing_times']:
+            logger.info(f"  - Temps moyen de traitement: {metrics['avg_processing_time']:.2f}s")
+            logger.info(f"  - Temps max: {metrics['max_processing_time']:.2f}s")
+            logger.info(f"  - Temps min: {metrics['min_processing_time']:.2f}s")
+
+        # Calculer les taux de succès
+        total_processed = metrics['conversations_processed'] + metrics['conversations_failed']
+        if total_processed > 0:
+            success_rate = (metrics['conversations_processed'] / total_processed) * 100
+            logger.info(f"  - Taux de succès: {success_rate:.1f}%")
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """Récupérer le statut de santé du scanner"""
+        metrics = self.get_metrics()
+        return {
+            'is_running': self.is_running,
+            'last_scan': metrics['last_scan_timestamp'],
+            'total_scans': metrics['total_scans'],
+            'conversations_processed': metrics['conversations_processed'],
+            'errors_total': metrics['errors_total'],
+            'success_rate': (metrics['conversations_processed'] / (metrics['conversations_processed'] + metrics['conversations_failed']) * 100) if (metrics['conversations_processed'] + metrics['conversations_failed']) > 0 else 0,
+            'avg_response_time': metrics['avg_processing_time']
+        }
+
+# Instance globale du scanner
 batch_scanner = BatchScanner()

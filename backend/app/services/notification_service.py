@@ -1,8 +1,3 @@
-# Decompiled with PyLingual (https://pylingual.io)
-# Internal filename: /app/app/services/notification_service.py
-# Bytecode version: 3.12.0rc2 (3531)
-# Source timestamp: 2025-09-21 18:47:41 UTC (1758480461)
-
 import logging
 from app.services.response_manager import get_user_credentials_by_platform_account
 logger = logging.getLogger(__name__)

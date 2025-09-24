@@ -23,7 +23,7 @@ class MessageBatcher:
     def __init__(self, redis_url: str = None):
         self.redis_url = redis_url or os.getenv('REDIS_URL', 'redis://localhost:6379/0')
         self._redis_pool = None
-        self.batch_window_seconds = 15
+        self.batch_window_seconds = 2 
         self.cache_ttl_hours = 0.5  
 
     async def get_redis(self) -> redis.Redis:
@@ -48,50 +48,69 @@ class MessageBatcher:
     async def add_message_to_batch(self, platform: str, account_id: str, contact_id: str, message_data: Dict[str, Any], conversation_message_id: str) -> bool:
         """
         Add a message to the Redis batch
-        
+
         Args:
             platform: whatsapp, instagram
             account_id: phone_number_id or instagram_business_account_id
             contact_id: wa_id or ig_user_id
             message_data: Full message data
             conversation_message_id: UUID of the message in the DB
-            
+
         Returns:
             bool: True if first message of the session, False otherwise
         """
-        base_key = self._get_conversation_key(platform, account_id, contact_id)
-        async with self.redis_connection() as redis_client:
-            batch_message = {
-                'message_data': message_data["metadata"], 
-                'conversation_message_id': conversation_message_id, 
-                'message_type': message_data["message_type"],
-                'external_message_id': message_data["external_message_id"]
-            }
-            
-            try:
-                await redis_client.rpush(f'{base_key}:msgs', json.dumps(batch_message))
-                await redis_client.expire(f'{base_key}:msgs', self.cache_ttl_hours * 3600)
-                
-               
-                conversation_identifier = f'{platform}:{account_id}:{contact_id}'
-                existing_deadline = await redis_client.get(f'{base_key}:deadline')
-                
-                if not existing_deadline:
-                    deadline = datetime.now() + timedelta(seconds=self.batch_window_seconds)
-                    deadline_timestamp = int(deadline.timestamp())
-                    await redis_client.set(f'{base_key}:deadline', deadline_timestamp, ex=self.cache_ttl_hours * 3600)
-                    await redis_client.zadd('conv:deadlines', {conversation_identifier: deadline_timestamp})
-                    await redis_client.set(f'{base_key}:conversation_id', message_data["conversation_id"], ex=self.cache_ttl_hours * 3600)
-                    logger.info(f'⏰ Timer 15s started for {base_key}, deadline: {deadline}')
-                    return True
-                else:
-                    existing_deadline_dt = datetime.fromtimestamp(int(existing_deadline))
-                    logger.info(f'📝 Message added to batch {base_key}, deadline unchanged: {existing_deadline_dt}')
-                    return False
-                    
-            except Exception as e:
-                logger.error(f'Error adding message to batch: {e}')
+        # Initialiser les variables pour éviter les erreurs de portée
+        conversation_identifier = f'{platform}:{account_id}:{contact_id}'
+        deadline_timestamp = None
+        
+        try:
+            if not conversation_message_id:
+                logger.error('conversation_message_id cannot be None or empty')
                 return False
+
+            if not message_data:
+                logger.error('message_data cannot be None')
+                return False
+
+            base_key = self._get_conversation_key(platform, account_id, contact_id)
+            async with self.redis_connection() as redis_client:
+                batch_message = {
+                    'message_data': message_data["metadata"],
+                    'conversation_message_id': conversation_message_id,
+                    'message_type': message_data["message_type"],
+                    'external_message_id': message_data["external_message_id"]
+                }
+
+                try:
+                    await redis_client.rpush(f'{base_key}:msgs', json.dumps(batch_message))
+                    await redis_client.expire(f'{base_key}:msgs', int(self.cache_ttl_hours * 3600))
+
+                    existing_deadline = await redis_client.get(f'{base_key}:deadline')
+
+                    if not existing_deadline:
+                        deadline = datetime.now() + timedelta(seconds=self.batch_window_seconds)
+                        deadline_timestamp = int(deadline.timestamp())
+                        
+                        
+                        await redis_client.set(f'{base_key}:deadline', deadline_timestamp, ex=int(self.cache_ttl_hours * 3600))
+                        
+                        await redis_client.zadd('conv:deadlines', {conversation_identifier: deadline_timestamp})
+                        
+                        await redis_client.set(f'{base_key}:conversation_id', message_data["conversation_id"], ex=int(self.cache_ttl_hours * 3600))
+                        logger.info(f'⏰ Timer 15s started for {base_key}, deadline: {deadline}')
+                        return True
+                    else:
+                        existing_deadline_dt = datetime.fromtimestamp(int(existing_deadline))
+                        logger.info(f'📝 Message added to batch {base_key}, deadline unchanged: {existing_deadline_dt}')
+                        return False
+
+                except Exception as redis_error:
+                    logger.error(f'Redis operation failed for {base_key}: {redis_error}')
+                    return False
+
+        except Exception as e:
+            logger.error(f'Error adding message to batch: {e}')
+            return False
 
 
     async def get_due_conversations(self) -> List[Dict[str, Any]]:
@@ -181,8 +200,9 @@ class MessageBatcher:
                         else:
                             context_messages_text_only = context_messages_text_only + " " + content
                             
-                        message_ids.append(msg_data.get("message_id", ""))
-                        last_external_message_id = msg_data.get("external_message_id")
+                        external_id = msg_data.get("external_message_id", "")
+                        message_ids.append(external_id)
+                        last_external_message_id = external_id
                     except (json.JSONDecodeError, AttributeError) as e:
                         logger.warning(f"Invalid message ignored: {msg_raw} - Error: {e}")
                 

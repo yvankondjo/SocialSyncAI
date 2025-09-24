@@ -9,7 +9,7 @@ from app.services.response_manager import (
     get_user_credentials_by_platform_account,
     send_response,
     save_response_to_db,
-    send_typing_indicator,
+    send_typing_indicator_and_mark_read,
     generate_smart_response,
 )
 from app.services.automation_service import AutomationService
@@ -166,15 +166,12 @@ class BatchScanner:
            
             user_id = user_credentials.get("user_id")
             
+            # Récupérer les ai_settings
+            automation_service = AutomationService()
+            automation_check = await automation_service.should_auto_reply(user_id=user_id)
+            ai_settings = automation_check.get("ai_settings", {})
+            
             if conversation_id and user_id:
-                from app.db.session import get_db
-                automation_service = AutomationService(get_db())
-                
-                
-                automation_check = await automation_service.should_auto_reply(
-                    user_id=user_id
-                )
-                
                 if not automation_check["should_reply"]:
                     logger.info(
                         f"Auto-response blocked for {platform}:{account_id}:{contact_id} - "
@@ -186,13 +183,18 @@ class BatchScanner:
                         f"Auto-response allowed for {platform}:{account_id}:{contact_id} - "
                         f"Rules matched: {automation_check['reason']}"
                     )
-            
-             # Send the typing indicator and mark as read (in one call)
-            if message_ids:
-                await send_typing_indicator(platform, user_credentials, contact_id, message_ids[-1])
+            else:
+                logger.info(f"Processing without conversation_id or user_id for {platform}:{account_id}:{contact_id}")
+
+        
+            if message_ids and message_ids[-1]:
+                await send_typing_indicator_and_mark_read(platform, user_credentials, contact_id, message_ids[-1])
                 logger.info(f"📝 Typing indicator + read receipt sent for {platform}:{account_id}:{contact_id}")
+            else:
+                logger.warning(f"No valid message ID found for typing indicator: {message_ids}")
+            
             content = self._format_messages(messages)
-            response_content = await generate_smart_response(content, user_id,automation_check["ai_settings"],conversation_id)
+            response_content = await generate_smart_response(content, user_id, ai_settings, conversation_id)
 
 
             if not response_content:
@@ -204,6 +206,7 @@ class BatchScanner:
                 return
             
             logger.info(f"✅ Response generated successfully for {platform}:{account_id}:{contact_id}")
+            logger.info(f"🔑 Response content: {response_content}")
             logger.info("=" * 60)
             
             response_sent = await send_response(platform, user_credentials, contact_id, response_content)

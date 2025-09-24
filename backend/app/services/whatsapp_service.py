@@ -72,7 +72,13 @@ class WhatsAppService:
             validation = await self.validate_credentials()
             if not validation["valid"]:
                 raise HTTPException(status_code=401, detail="Credentials WhatsApp invalides")
-            
+
+        text = (text or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Paramètre 'text' requis pour type 'text'")
+        if len(text) > 4096:
+            text = text[:4096]
+
         url = f"/{self.phone_number_id}/messages"
         payload = {
             "messaging_product": "whatsapp",
@@ -81,9 +87,7 @@ class WhatsAppService:
             "text": {"body": text},
         }
         headers = {"Idempotency-Key": str(uuid.uuid4())}
-
         logger.info(f"Envoi message vers {to}: {text[:50]}...")
-
         return await self._send_with_retry(url, payload, headers)
 
     async def send_template_message(self, to: str, template_name: str = "hello_world", language_code: str = "en_US") -> Dict[str, Any]:
@@ -139,49 +143,26 @@ class WhatsAppService:
         
         return await self._send_with_retry(url, payload, headers)
 
-    async def mark_message_as_read(self, message_id: str) -> Dict[str, Any]:
-        """
-        Marquer un message comme lu
-        
-        Args:
-            message_id: ID du message à marquer comme lu
-        """
-        url = f"/{self.phone_number_id}/messages"
-        payload = {
-            "messaging_product": "whatsapp",
-            "status": "read",
-            "message_id": message_id
-        }
-        headers = {"Idempotency-Key": str(uuid.uuid4())}
-        
-        logger.info(f"Marquage comme lu du message {message_id}")
-        
-        return await self._send_with_retry(url, payload, headers)
 
-    async def send_typing_indicator(self, to: str, message_id: str = None) -> Dict[str, Any]:
+    async def send_typing_and_mark_read(self, to: str, last_wamid: str, skip_validation: bool = True) -> Dict[str, Any]:
         """
-        Envoyer un indicateur de frappe et marquer comme lu en une seule requête
-        
-        Args:
-            to: Numéro de téléphone destinataire
-            message_id: ID du message (optionnel, pour marquer comme lu en même temps)
+        Affiche 'typing…' et marque le dernier message comme lu.
         """
+        if not skip_validation:
+            validation = await self.validate_credentials()
+            if not validation["valid"]:
+                raise HTTPException(status_code=401, detail="Credentials WhatsApp invalides")
+
         url = f"/{self.phone_number_id}/messages"
         payload = {
             "messaging_product": "whatsapp",
             "to": to,
+            "status": "read",
+            "message_id": last_wamid,
             "typing_indicator": {"type": "text"}
         }
-        
-        # Ajouter le marquage comme lu si on a un message_id
-        if message_id:
-            payload["status"] = "read"
-            payload["message_id"] = message_id
-        
         headers = {"Idempotency-Key": str(uuid.uuid4())}
-        
-        logger.info(f"Envoi indicateur de frappe vers {to}")
-        
+        logger.info(f"Envoi indicateur de frappe vers {to} (wamid={last_wamid})")
         return await self._send_with_retry(url, payload, headers)
 
     async def get_business_profile(self) -> Dict[str, Any]:

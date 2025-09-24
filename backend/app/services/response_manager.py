@@ -44,7 +44,7 @@ async def handle_messages_webhook_for_user(value: Dict[str, Any], user_info: Dic
         await process_message_status_for_user(status, user_info)
 
 async def send_error_notification_to_user(contact_id: str, message: str, platform: str, user_credentials: Dict[str, Any], message_id: str=None) -> str:
-    await send_typing_indicator(platform, user_credentials, contact_id, message_id)
+    await send_typing_indicator_and_mark_read(platform, user_credentials, contact_id, message_id)
     logger.info(f'📝 Typing indicator + read receipt sent for error message to {platform}:{contact_id}')
     import time
     time.sleep(5)
@@ -87,14 +87,31 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
             return None
         else:
             if user_credentials:
-                result = await send_error_notification_to_user(contact_id, 'Votre message est trop long', platform, user_credentials, message_id)
+                result = await send_error_notification_to_user(contact_id, 'Your message is too long', platform, user_credentials, message_id)
                 if not result:
                     logger.error(f'Error sending notification to user {contact_id}: Your message is too long')
             return None
     
     try:
         conversation_message_info = await save_incoming_message_to_db(extracted_message, user_info)
-        await message_batcher.add_message_to_batch(platform, account_id, contact_id, conversation_message_info['conversation_message_data'], conversation_message_info['conversation_message_id'])
+
+        if not conversation_message_info['conversation_message_id']:
+            logger.error('Message not saved in database')
+            return None
+
+        success = await message_batcher.add_message_to_batch(
+            platform,
+            account_id,
+            contact_id,
+            conversation_message_info['conversation_message_data'],
+            conversation_message_info['conversation_message_id']
+        )
+
+        if not success:
+            logger.error('Failed to add to batch, deleting message from database')
+            await delete_message_from_db(conversation_message_info['conversation_message_id'])
+            return None
+
         return conversation_message_info['conversation_message_id']
     except Exception as e:
         logger.error(f'Error saving message to DB: {e}')
@@ -128,12 +145,36 @@ async def process_webhook_change_for_user(change: Dict[str, Any], user_info: Dic
     else:
         logger.info(f'Type de webhook non géré: {field}')
 
+async def delete_message_from_db(conversation_message_id: str) -> bool:
+    """
+    Supprime un message de la base de données en cas d'échec du batch
+
+    Args:
+        conversation_message_id: ID du message à supprimer
+
+    Returns:
+        bool: True si suppression réussie, False sinon
+    """
+    from app.db.session import get_db
+    try:
+        db = get_db()
+        res = db.table('conversation_messages').delete().eq('id', conversation_message_id).execute()
+        if res:
+            logger.info(f'Message {conversation_message_id} supprimé suite à échec du batch')
+            return True
+        else:
+            logger.error(f'Échec suppression message {conversation_message_id}')
+            return False
+    except Exception as e:
+        logger.error(f'Erreur lors de la suppression du message {conversation_message_id}: {e}')
+        return False
+
 async def save_incoming_message_to_db(extracted_message: Dict[str, Any], user_info: Dict[str, Any]) -> Dict[str, Any]:
     from app.db.session import get_db
     try:
         db = get_db()
         conversation_id = await get_or_create_conversation(social_account_id=user_info['social_account_id'], customer_identifier=extracted_message.get('message_from'), customer_name=None)
-        
+
         if not conversation_id:
             logger.error(f"Conversation non trouvée pour l'utilisateur {user_info['user_id']}")
             return {'conversation_message_id': None, 'conversation_message_data': None}
@@ -168,7 +209,7 @@ async def save_incoming_message_to_db(extracted_message: Dict[str, Any], user_in
                 'message_type': extracted_message.get('message_type'),
                 'content': extracted_message.get('content'),
                 'sender_id': extracted_message.get('message_from'),
-                'media_url': None,
+                'storage_object_name': None,
                 'media_type': extracted_message.get('media_type', None),
                 'status': 'received',
                 'metadata': {
@@ -417,14 +458,15 @@ async def get_user_credentials_by_platform_account(platform: str, account_id: st
         logger.error(f'Error retrieving credentials {platform}:{account_id}: {e}')
         return None
 
-async def send_typing_indicator(platform: str, user_credentials: Dict[str, Any], contact_id: str, message_id: str=None) -> bool:
-    """
-    Send a typing indicator via the appropriate platform
-    """
+async def send_typing_indicator_and_mark_read(platform: str, user_credentials: Dict[str, Any], contact_id: str, message_id: str=None) -> bool:
     try:
         if platform == 'whatsapp':
             service = WhatsAppService(user_credentials.get('access_token'), user_credentials.get('account_id') or user_credentials.get('phone_number_id'))
-            result = await service.send_typing_indicator(contact_id, message_id)
+            if message_id:
+                result = await service.send_typing_and_mark_read(contact_id, message_id)
+            else:
+                logger.warning('Message ID requis pour WhatsApp typing indicator')
+                return False
             return bool(result.get('messages'))
         elif platform == 'instagram':
             logger.info('Indicateur de frappe non supporté pour Instagram')

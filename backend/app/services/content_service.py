@@ -1,8 +1,3 @@
-# Decompiled with PyLingual (https://pylingual.io)
-# Internal filename: /app/app/services/content_service.py
-# Bytecode version: 3.12.0rc2 (3531)
-# Source timestamp: 2025-09-10 20:14:13 UTC (1757535253)
-
 from supabase import Client
 from uuid import UUID
 from typing import List

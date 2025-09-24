@@ -1,15 +1,19 @@
 from app.services.ingest_helpers import embed_texts
 from typing import List, Tuple, Dict, Any, Optional
-from app.db.session import get_authenticated_db
+from app.db.session import get_db
 
 class Retriever:
-    def __init__(self):
+    def __init__(self, user_id: str):
         self.embed_texts = embed_texts
+        self.db = get_db()
+        if not user_id:
+            raise ValueError('User ID is required')
+        self.user_id=user_id
 
     def _embed_texts(self, texts: List[str]) -> List[List[float]]:
         return embed_texts(texts)
     
-    async def retrieve_from_knowledge_chunks(self, query: str, k: int = 10, type: str = 'text', query_lang: str = 'simple') -> List[Dict[str, Any]]:
+    def retrieve_from_knowledge_chunks(self, query: str, k: int = 10, type: str = 'text', query_lang: str = 'simple') -> List[Dict[str, Any]]:
         """
         Retrieve from knowledge
         Args:
@@ -21,7 +25,7 @@ class Retriever:
         Returns:
             List of dictionaries with content and score
         """
-        db = get_authenticated_db()
+        db = get_db()
         if type not in ['text', 'vector', 'hybrid']:
             raise ValueError('Type must be one of: text, vector, hybrid')
         
@@ -31,12 +35,14 @@ class Retriever:
                 'query_text': query,
                 'query_lang': query_lang,
                 'match_count': k,
+                'user_id': self.user_id
             }).execute()
         elif type == 'vector':
             result = db.rpc(f'{type}_knowledge_chunks_search', {
                 'query_text': query,
                 'query_embedding': self._embed_texts([query])[0],
                 'match_count': k,
+                'user_id': self.user_id
             }).execute()
         elif type == 'hybrid':
             result = db.rpc(f'{type}_knowledge_chunks_search', {
@@ -44,7 +50,8 @@ class Retriever:
                 'query_embedding': self._embed_texts([query])[0],
                 'query_lang': query_lang,
                 'match_count': k,
-                'rrf_k': k
+                'rrf_k': k,
+                'user_id': self.user_id
             }).execute()
         
         if result and result[0]:
@@ -63,7 +70,7 @@ class Retriever:
         Returns:
             List of dictionaries with content and score
         """
-        db = get_authenticated_db()
+        db = get_db()
         if type not in ['text']:
             raise ValueError('Type must be one of: text')
         
@@ -72,7 +79,8 @@ class Retriever:
             result = db.rpc(f'{type}_faq_search', {
                 'query_text': query,
                 'query_lang': query_lang,
-                'match_count': k
+                'match_count': k,
+                'user_id': self.user_id
             }).execute()
         
         if result and result[0]:

@@ -4,6 +4,7 @@ from supabase import Client
 from uuid import UUID
 from typing import List
 from app.schemas.faq_qa_service import FAQQA, FAQQACreate, FAQQAUpdate, FAQQASearch
+from app.core.security import get_current_user_id
 
 router = APIRouter(prefix="/faq-qa", tags=["FAQ Q&A"])
 
@@ -11,13 +12,17 @@ router = APIRouter(prefix="/faq-qa", tags=["FAQ Q&A"])
 @router.get("/", response_model=List[FAQQA])
 async def get_faq_qa_list(
     request: Request,
-    db: Client = Depends(get_authenticated_db)
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
 ):
     """Récupère toutes les FAQ Q&A de l'utilisateur connecté"""
+    print(f"Récupération des FAQ pour l'utilisateur: {current_user_id}")
     try:
         data = db.table("faq_qa").select("*").execute()
+        print(f"Nombre de FAQ trouvées: {len(data.data) if data.data else 0}")
         return [FAQQA(**item) for item in data.data]
     except Exception as e:
+        print(f"Erreur lors de la récupération des FAQ: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Erreur lors de la récupération des FAQ: {str(e)}")
 
 
@@ -25,17 +30,22 @@ async def get_faq_qa_list(
 async def get_faq_qa(
     faq_id: UUID,
     request: Request,
-    db: Client = Depends(get_authenticated_db)
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
 ):
     """Récupère une FAQ Q&A spécifique"""
+    print(f"Récupération de la FAQ {faq_id} pour l'utilisateur: {current_user_id}")
     try:
         data = db.table("faq_qa").select("*").eq("id", faq_id).single().execute()
         if not data.data:
+            print(f"FAQ {faq_id} non trouvée")
             raise HTTPException(status_code=404, detail="FAQ non trouvée")
+        print(f"FAQ trouvée: {data.data.get('title', 'Sans titre')}")
         return FAQQA(**data.data)
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Erreur lors de la récupération de la FAQ {faq_id}: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Erreur lors de la récupération de la FAQ: {str(e)}")
 
 
@@ -43,32 +53,21 @@ async def get_faq_qa(
 async def create_faq_qa(
     faq_data: FAQQACreate,
     request: Request,
-    db: Client = Depends(get_authenticated_db)
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
 ):
     """Crée une nouvelle FAQ Q&A"""
     print(f"Création d'une nouvelle FAQ Q&A: {faq_data}")
+    print(f"User ID: {current_user_id}")
     try:
-        # Récupérer l'utilisateur authentifié
-        user_response = db.auth.get_user()
-        if not user_response.user:
-            raise HTTPException(status_code=401, detail="Utilisateur non authentifié")
-        print(f"Utilisateur authentifié: {user_response.user}")
-
-        user_id = user_response.user.id
-        print(f"ID de l'utilisateur: {user_id}")
-
-        # Préparer les métadonnées avec les tags si présents
         metadata = faq_data.metadata.copy() if faq_data.metadata else {}
 
-        # Gérer les tags depuis metadata.context si présent
         if "context" in metadata and isinstance(metadata["context"], list):
             tags = metadata["context"]
             print(f"Tags lors de la création: {tags}")
-            # Vous pouvez traiter les tags ici (indexation, etc.)
 
-        # Utiliser les propriétés calculées du schéma pour lang_code et tsconfig
         data = {
-            "user_id": user_id,
+            "user_id": current_user_id,
             "title": faq_data.title,
             "question": faq_data.question,
             "answer": faq_data.answer,
@@ -77,9 +76,13 @@ async def create_faq_qa(
             "metadata": metadata
         }
 
+        print(f"Données à insérer: {data}")
         result = db.table("faq_qa").insert(data).execute()
+        print(f"Résultat de l'insertion: {result}")
         return FAQQA(**result.data[0])
     except Exception as e:
+        print(f"Erreur détaillée lors de la création de la FAQ: {str(e)}")
+        print(f"Type d'erreur: {type(e)}")
         raise HTTPException(status_code=400, detail=f"Erreur lors de la création de la FAQ: {str(e)}")
 
 
@@ -88,34 +91,39 @@ async def update_faq_qa(
     faq_id: UUID,
     faq_data: FAQQAUpdate,
     request: Request,
-    db: Client = Depends(get_authenticated_db)
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
 ):
     """Met à jour une FAQ Q&A"""
+    print(f"Mise à jour de la FAQ {faq_id} pour l'utilisateur: {current_user_id}")
     try:
         existing = db.table("faq_qa").select("*").eq("id", faq_id).single().execute()
         if not existing.data:
+            print(f"FAQ {faq_id} non trouvée")
             raise HTTPException(status_code=404, detail="FAQ non trouvée")
 
-    
         update_data = {k: v for k, v in faq_data.model_dump().items() if v is not None}
+        print(f"Données de mise à jour: {update_data}")
 
         if hasattr(faq_data, 'language') and faq_data.language is not None:
             update_data["lang_code"] = faq_data.lang_code
             update_data["tsconfig"] = faq_data.tsconfig
 
-        
         if "metadata" in update_data and update_data["metadata"]:
             metadata = update_data["metadata"]
             if "context" in metadata and isinstance(metadata["context"], list):
-               
                 tags = metadata["context"]
+                print(f"Tags lors de la mise à jour: {tags}")
+        
         update_data["updated_at"] = "now()"
 
         result = db.table("faq_qa").update(update_data).eq("id", faq_id).execute()
+        print(f"FAQ {faq_id} mise à jour avec succès")
         return FAQQA(**result.data[0])
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Erreur lors de la mise à jour de la FAQ {faq_id}: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Erreur lors de la mise à jour de la FAQ: {str(e)}")
 
 
@@ -124,7 +132,8 @@ async def patch_faq_qa(
     faq_id: UUID,
     faq_data: FAQQAUpdate,
     request: Request,
-    db: Client = Depends(get_authenticated_db)
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
 ):
     """Met à jour partiellement une FAQ Q&A"""
     try:
@@ -158,7 +167,8 @@ async def patch_faq_qa(
 async def toggle_faq_qa(
     faq_id: UUID,
     request: Request,
-    db: Client = Depends(get_authenticated_db)
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
 ):
     """Active/désactive une FAQ Q&A (soft delete avec toggle)"""
     try:
@@ -170,7 +180,7 @@ async def toggle_faq_qa(
         current_status = existing.data.get("is_active", True)
         new_status = not current_status
 
-        # Soft delete/activate via is_active
+    
         result = db.table("faq_qa").update({
             "is_active": new_status,
             "updated_at": "now()"
@@ -192,7 +202,8 @@ async def toggle_faq_qa(
 async def delete_faq_qa(
     faq_id: UUID,
     request: Request,
-    db: Client = Depends(get_authenticated_db)
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
 ):
     """Supprime définitivement une FAQ Q&A (hard delete)"""
     try:

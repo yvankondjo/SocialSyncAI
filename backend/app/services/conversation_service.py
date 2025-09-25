@@ -12,7 +12,7 @@ class ConversationService:
     def __init__(self, supabase_client: Client):
         self.supabase = supabase_client
 
-    async def get_user_conversations(self, user_id: str, channel: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_user_conversations(self, user_id: str, channel: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         """Récupère les conversations d'un utilisateur"""
         try:
             query = self.supabase.table('conversations').select('''
@@ -74,7 +74,7 @@ class ConversationService:
         except Exception as e:
             logger.error(f'Erreur lors de la récupération des conversations pour l\'utilisateur {user_id}: {e}')
             raise
-    async def get_conversation_messages(self, conversation_id: str, user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_conversation_messages(self, conversation_id: str, user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Récupère les messages d'une conversation"""
         try:
             response = self.supabase.table('conversation_messages').select(

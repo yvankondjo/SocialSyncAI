@@ -181,20 +181,18 @@ class MessageBatcher:
                 for msg_raw in messages_raw:
                     try:
                         msg_data = json.loads(msg_raw)
-                        content = msg_data.get("metadata", {}).get("content", "")
+                        content = msg_data.get("message_data", {}).get("content", "")
                         if image_in_messages:
                             if msg_data.get("message_type") == "image":
-                                storage_object_name_list.append(msg_data.get("metadata", {}).get("storage_object_name"))
+                                storage_object_name_list.append(msg_data.get("message_data", {}).get("storage_object_name"))
                                 
                                 if isinstance(content, list):
                                     context_messages.extend(content)
                                 else:
                                     context_messages.append(content)
-                                continue
                             elif msg_data.get("message_type") == "text":
                                
                                 context_messages.append({"type": "text", "text": content})
-                                continue
                             else:
                                 continue
                         else:

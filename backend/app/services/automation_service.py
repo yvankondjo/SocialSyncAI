@@ -41,7 +41,7 @@ class AutomationService:
                 'ai_settings': {}
             }
 
-    async def _check_conversation_automation(self, user_id: str) -> Dict[str, Any]:
+    def _check_conversation_automation(self, user_id: str) -> Dict[str, Any]:
         """Vérifie les règles de conversation"""
         try:
             response = self.db.table('ai_settings').select('*').eq('user_id', user_id).limit(1).single().execute()

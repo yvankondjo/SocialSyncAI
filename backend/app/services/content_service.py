@@ -5,7 +5,7 @@ from app.schemas.content import ContentCreate, ContentUpdate
 
 class ContentService:
 
-    async def get_content_by_id(self, db: Client, content_id: UUID):
+    def get_content_by_id(self, db: Client, content_id: UUID):
         """Récupère un contenu par son ID"""
         try:
             response = db.table('content').select('*').eq('id', str(content_id)).single().execute()
@@ -13,7 +13,7 @@ class ContentService:
         except Exception as e:
             raise Exception(f'Erreur lors de la récupération du contenu: {e}')
 
-    async def get_all_content_for_user(self, db: Client, user_id: UUID) -> List[dict]:
+    def get_all_content_for_user(self, db: Client, user_id: UUID) -> List[dict]:
         """Récupère tous les contenus d'un utilisateur"""
         try:
             response = db.table('content').select('\n                *,\n                social_accounts:social_account_id (\n                    platform, username\n                )\n                ').eq('created_by', str(user_id)).order('created_at', desc=True).execute()
@@ -21,7 +21,7 @@ class ContentService:
         except Exception as e:
             raise Exception(f'Erreur lors de la récupération des contenus: {e}')
 
-    async def create_content(self, db: Client, content: ContentCreate, user_id: UUID):
+    def create_content(self, db: Client, content: ContentCreate, user_id: UUID):
         """Crée un nouveau contenu"""
         try:
             content_data = content.dict()
@@ -33,7 +33,7 @@ class ContentService:
         except Exception as e:
             raise Exception(f'Erreur lors de la création du contenu: {e}')
 
-    async def update_content(self, db: Client, content_id: UUID, content: ContentUpdate):
+    def update_content(self, db: Client, content_id: UUID, content: ContentUpdate):
         """Met à jour un contenu existant"""
         try:
             update_data = content.dict(exclude_unset=True)
@@ -44,7 +44,7 @@ class ContentService:
         except Exception as e:
             raise Exception(f'Erreur lors de la mise à jour du contenu: {e}')
 
-    async def delete_content(self, db: Client, content_id: UUID):
+    def delete_content(self, db: Client, content_id: UUID):
         """Supprime un contenu"""
         try:
             response = db.table('content').delete().eq('id', str(content_id)).execute()

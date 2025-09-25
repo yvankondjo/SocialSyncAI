@@ -7,7 +7,7 @@ from app.services.whatsapp_service import WhatsAppService
 from langchain_core.messages import HumanMessage
 logger = logging.getLogger(__name__)
 message_batcher = MessageBatcher()
-async def get_user_credentials_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
+def get_user_credentials_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
     from app.db.session import get_db
     try:
         db = get_db()
@@ -22,7 +22,7 @@ async def get_user_credentials_by_user_id(user_id: str) -> Optional[Dict[str, An
         logger.error(f'Error retrieving WhatsApp credentials: {e}')
         return None
 
-async def get_user_by_phone_number_id(phone_number_id: str) -> Optional[Dict[str, Any]]:
+def get_user_by_phone_number_id(phone_number_id: str) -> Optional[Dict[str, Any]]:
     from app.db.session import get_db
     try:
         db = get_db()
@@ -57,7 +57,7 @@ async def send_error_notification_to_user(contact_id: str, message: str, platfor
 async def process_incoming_message_for_user(message: Dict[str, Any], user_info: Dict[str, Any]) -> None:
     platform = user_info.get('platform', 'whatsapp')
     account_id = user_info.get('account_id')
-    user_credentials = await get_user_credentials_by_platform_account(platform, account_id)
+    user_credentials = get_user_credentials_by_platform_account(platform, account_id)
 
     contact_id = message.get('from')
     message_id = message.get('id')
@@ -93,7 +93,7 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
             return None
     
     try:
-        conversation_message_info = await save_incoming_message_to_db(extracted_message, user_info)
+        conversation_message_info = save_incoming_message_to_db(extracted_message, user_info)
 
         if not conversation_message_info['conversation_message_id']:
             logger.error('Message not saved in database')
@@ -109,7 +109,7 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
 
         if not success:
             logger.error('Failed to add to batch, deleting message from database')
-            await delete_message_from_db(conversation_message_info['conversation_message_id'])
+            delete_message_from_db(conversation_message_info['conversation_message_id'])
             return None
 
         return conversation_message_info['conversation_message_id']
@@ -145,7 +145,7 @@ async def process_webhook_change_for_user(change: Dict[str, Any], user_info: Dic
     else:
         logger.info(f'Type de webhook non géré: {field}')
 
-async def delete_message_from_db(conversation_message_id: str) -> bool:
+def delete_message_from_db(conversation_message_id: str) -> bool:
     """
     Supprime un message de la base de données en cas d'échec du batch
 
@@ -169,11 +169,11 @@ async def delete_message_from_db(conversation_message_id: str) -> bool:
         logger.error(f'Erreur lors de la suppression du message {conversation_message_id}: {e}')
         return False
 
-async def save_incoming_message_to_db(extracted_message: Dict[str, Any], user_info: Dict[str, Any]) -> Dict[str, Any]:
+def save_incoming_message_to_db(extracted_message: Dict[str, Any], user_info: Dict[str, Any]) -> Dict[str, Any]:
     from app.db.session import get_db
     try:
         db = get_db()
-        conversation_id = await get_or_create_conversation(social_account_id=user_info['social_account_id'], customer_identifier=extracted_message.get('message_from'), customer_name=None)
+        conversation_id = get_or_create_conversation(social_account_id=user_info['social_account_id'], customer_identifier=extracted_message.get('message_from'), customer_name=None)
 
         if not conversation_id:
             logger.error(f"Conversation non trouvée pour l'utilisateur {user_info['user_id']}")
@@ -182,9 +182,14 @@ async def save_incoming_message_to_db(extracted_message: Dict[str, Any], user_in
         if extracted_message.get('message_type') == 'image':
             caption = extracted_message.get('caption')
             content_text = caption if caption else '[Image]'
+            external_id = extracted_message.get('message_id')
+            logger.info(f"DEBUG SAVE IMAGE: external_message_id: {external_id}")
+            if not external_id:
+                logger.error(f"ERROR: No message_id found for image message: {extracted_message}")
+                return {'conversation_message_id': None, 'conversation_message_data': None}
             message_data = {
                 'conversation_id': conversation_id,
-                'external_message_id': extracted_message.get('message_id'),
+                'external_message_id': external_id,
                 'direction': 'inbound',
                 'message_type': extracted_message.get('message_type'),
                 'content': content_text,
@@ -242,7 +247,7 @@ async def save_incoming_message_to_db(extracted_message: Dict[str, Any], user_in
         logger.error(f'Erreur sauvegarde message en BDD: {e}')
         return {'conversation_message_id': None, 'conversation_message_data': None}
 
-async def get_or_create_conversation(social_account_id: str, customer_identifier: str, customer_name: Optional[str]=None) -> Optional[str]:
+def get_or_create_conversation(social_account_id: str, customer_identifier: str, customer_name: Optional[str]=None) -> Optional[str]:
     from app.db.session import get_db
     try:
         db = get_db()
@@ -355,6 +360,8 @@ async def extract_message_content(message: Dict[str, Any], user_credentials: Dic
         import uuid
         caption = message.get('image', {}).get('caption', '')
         media_id = message.get('image', {}).get('id', '')
+        message_id = message.get('id')
+        logger.info(f"DEBUG IMAGE: message_id from webhook: {message_id}")
         try:
             media_content = await get_media_content(media_id, user_credentials.get('access_token'))
             width, height = extract_image_dimensions(media_content)
@@ -380,17 +387,19 @@ async def extract_message_content(message: Dict[str, Any], user_credentials: Dic
             else:
                 content = [{'type': 'image_url', 'image_url': {'url': image_url}}]
                 total_tokens = image_tokens
-            return {
+            result = {
                 'content': content,
                 'token_count': total_tokens,
                 'message_type': message_type,
-                'message_id': message.get('id'),
+                'message_id': message_id,
                 'message_from': message.get('from'),
                 'storage_object_name': saved_path,
                 'media_type': message.get('image', {}).get('mime_type', 'image/jpeg'),
                 'caption': caption,
                 'media_url': image_url
             }
+            logger.info(f"DEBUG IMAGE: returning message_id: {result['message_id']}")
+            return result
         except Exception as e:
             logger.error(f'Erreur téléchargement image: {e}')
             return None
@@ -436,13 +445,14 @@ async def get_media_content(media_id: str, access_token: str) -> bytes:
 async def generate_smart_response(messages: HumanMessage, user_id: str, ai_settings: Dict[str, Any], conversation_id: str) -> Optional[Dict[str, Any]]:
     from app.services.rag_agent import create_rag_agent
     system_prompt = ai_settings.get('system_prompt', '')
-    model_name = ai_settings.get('ai_model', 'gpt-4o-mini')
+    # model_name = ai_settings.get('ai_model', 'gpt-4o-mini')
+    model_name = 'google/gemini-2.5-flash'
     agent = create_rag_agent(user_id, model_name=model_name, system_prompt=system_prompt)
     response = agent.invoke(messages, conversation_id)
     return response
 
 
-async def get_user_credentials_by_platform_account(platform: str, account_id: str) -> Optional[Dict[str, Any]]:
+def get_user_credentials_by_platform_account(platform: str, account_id: str) -> Optional[Dict[str, Any]]:
     from app.db.session import get_db
     try:
         if platform not in ['facebook', 'twitter', 'instagram', 'linkedin', 'youtube', 'tiktok', 'whatsapp']:
@@ -494,7 +504,7 @@ async def send_response(platform: str, user_credentials: Dict[str, Any], contact
         logger.error(f'Erreur lors de l\'envoi de réponse {platform}: {e}')
         return False
 
-async def save_response_to_db(conversation_id: str, content: str, user_id: str) -> Optional[str]:
+def save_response_to_db(conversation_id: str, content: str, user_id: str) -> Optional[str]:
     from app.db.session import get_db
     try:
         db = get_db()

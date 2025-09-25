@@ -11,7 +11,7 @@ class TokenRefreshService:
     def __init__(self):
         self.db = None
 
-    async def check_expired_tokens(self, user_id: str):
+    def check_expired_tokens(self, user_id: str):
         """Vérifie si un utilisateur a des tokens expirés et retourne la liste."""
         try:
             db = next(get_authenticated_db())
@@ -56,7 +56,7 @@ class TokenRefreshService:
             }).eq('id', account['id']).execute()
             return
 
-    async def refresh_specific_token(self, account_id: str) -> bool:
+    def refresh_specific_token(self, account_id: str) -> bool:
         """Rafraîchit le token d'un compte spécifique à la demande."""
         try:
             db = next(get_authenticated_db())

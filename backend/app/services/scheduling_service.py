@@ -93,7 +93,7 @@ class SchedulingService:
             logger.error(f'Erreur lors de la récupération des posts du calendrier: {e}')
             raise
 
-    async def get_scheduled_post(self, post_id: str, user_id: str) -> Optional[ScheduledPost]:
+    def get_scheduled_post(self, post_id: str, user_id: str) -> Optional[ScheduledPost]:
         """Récupère un post planifié spécifique"""
         try:
             response = self.supabase.table('scheduled_posts').select('*').eq('id', post_id).eq('user_id', user_id).execute()
@@ -103,7 +103,7 @@ class SchedulingService:
             logger.error(f'Erreur lors de la récupération du post {post_id}: {e}')
             raise
 
-    async def cancel_scheduled_post(self, post_id: str, user_id: str) -> bool:
+    def cancel_scheduled_post(self, post_id: str, user_id: str) -> bool:
         """Annule un post planifié"""
         try:
             response = self.supabase.table('scheduled_posts').update({'status': PostStatus.CANCELLED.value, 'updated_at': datetime.now(timezone.utc).isoformat()}).eq('id', post_id).eq('user_id', user_id).execute()

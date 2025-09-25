@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 import os
 import sys
 from pathlib import Path
-# backend_path = Path(__file__).parent.parent.parent
-# sys.path.insert(0, str(backend_path))
+backend_path = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(backend_path))
 load_dotenv()
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage, AnyMessage, SystemMessage, ToolMessage
@@ -20,12 +20,29 @@ from psycopg import connect
 from psycopg.rows import dict_row
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 from app.services.retriever import Retriever
+from app.services.find_answers import Answer
 # from langmem.short_term import SummarizationNode
 load_dotenv()
 
 class QueryItem(BaseModel):
     query: str = Field(..., description="The query to search for")
     lang: Literal["french", "english", "spanish"] = Field(default="french", description="The language to search for")
+
+
+
+
+def create_find_answers_tool(user_id: str):
+    """Factory function to create find_answers tool with user_id"""
+    retriever = Retriever(user_id)
+    
+    @tool
+    def find_answers(question: str) -> List[str]:
+        """
+        Find the answers to the given user question
+        """
+        return retriever.find_answers(question)
+    
+    return find_answers
 
 def create_search_files_tool(user_id: str):
     """Factory function to create search_files tool with user_id"""
@@ -48,8 +65,8 @@ def create_search_files_tool(user_id: str):
         for q in queries_list:
             query_item = q if isinstance(q, QueryItem) else QueryItem(**q)
 
-            results = retriever.retrieve_from_knowledge_and_faq(
-                query_item.query, query_item.lang, type_faq='text', type_doc='hybrid'
+            results = retriever.retrieve_from_knowledge_chunks(
+                query_item.query, query_item.lang, type='hybrid'
             )
             for r in results:
                 all_results.append(r.get('content'))
@@ -61,7 +78,10 @@ class RAGAgentState(BaseModel):
     messages: Annotated[List[AnyMessage], operator.add]
     search_results: List[str] = []
     n_search: int = 0
+    find_answers_results: List[Answer] = []
+    n_find_answers: int = 0
     max_searches: int = 3
+    max_find_answers: int = 1
     last_error: Optional[str] = None
     trim_strategy: Literal["none", "soft", "hard", "summary"] = "soft"
     max_tokens: int = 8000
@@ -75,19 +95,23 @@ class RAGAgent:
                  model_name: str = "gpt-4o-mini", 
                  summarization_model_name: str = "gpt-4o-mini",
                  summarization_max_tokens: int = 300,
+                 system_prompt: str = None,
                  max_searches: int = 3,
                  trim_strategy: Literal["none", "soft", "hard", "summary"] = "soft",
-                 max_tokens: int = 8000):
+                 max_tokens: int = 8000,
+                 max_find_answers: int = 1):
         
         self.user_id = user_id
         self.model_name = model_name
         self.max_searches = max_searches
         self.trim_strategy = trim_strategy
         self.max_tokens = max_tokens
+        self.max_find_answers = max_find_answers
         self.max_tokens_before_summary = int(max_tokens * 0.8)
         self.summarization_model_name = summarization_model_name
         self.summarization_max_tokens = summarization_max_tokens
-
+        self.system_prompt = SystemMessage(content=system_prompt) if system_prompt else None
+        self.init_system_prompt = False
         self.llm = ChatOpenAI(
             api_key=os.getenv('OPENROUTER_API_KEY'),
             base_url=os.getenv('OPENROUTER_BASE_URL') or "https://openrouter.ai/api/v1",
@@ -100,7 +124,8 @@ class RAGAgent:
             model=summarization_model_name
         )
         self.search_files_tool = create_search_files_tool(user_id)
-        self.tools = [self.search_files_tool]
+        self.find_answers_tool = create_find_answers_tool(user_id)
+        self.tools = [self.search_files_tool, self.find_answers_tool]
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
 
@@ -134,7 +159,8 @@ class RAGAgent:
       
         graph.add_node("history_manager", self._manage_history)
         graph.add_node("llm", self._call_llm)
-        graph.add_node("search", self._search_files)
+        graph.add_node("search_files", self._search_files)
+        graph.add_node("find_answers", self._find_answers)
         graph.add_node("summary_node", self._summarize_history)
         graph.add_node("error_handler", self._handle_error)
 
@@ -159,7 +185,8 @@ class RAGAgent:
             "llm",
             self._should_search,
             {
-                "search": "search",
+                "search_files": "search_files",
+                "find_answers": "find_answers",
                 "error": "error_handler",
                 "end": END
             }
@@ -167,7 +194,12 @@ class RAGAgent:
         
        
         graph.add_edge(
-            "search",
+            "search_files",
+            "llm"
+        )
+        
+        graph.add_edge(
+            "find_answers",
             "llm"
         )
         
@@ -217,15 +249,9 @@ class RAGAgent:
         """Call the LLM with trimming soft"""
         try:
             messages = state.messages.copy()
-
-            if not any(isinstance(msg, SystemMessage) for msg in messages):
-                system_msg = SystemMessage(
-                    content="You are a useful assistant with access to search tools. "
-                           "Use the search tools to find relevant information "
-                           "before answering user questions. "
-                           "Always respond in the language of the user unless the user explicitly asks for another language."
-                )
-                messages.insert(0, system_msg)
+            if self.system_prompt and not self.init_system_prompt:
+                self.init_system_prompt = True
+                messages.insert(0, self.system_prompt)
 
             if state.trim_strategy == "soft":
                 llm_input = trim_messages(
@@ -263,16 +289,91 @@ class RAGAgent:
         if not last_message or not hasattr(last_message, 'tool_calls'):
             return "end"
 
-        if getattr(last_message, 'tool_calls', []):
-            return "search"
+        tool_calls = getattr(last_message, 'tool_calls', [])
 
-        return "end"
+        if not tool_calls:
+            return "end"
+
+        tool = tool_calls[0].get("name")
+        if tool == "search_files":
+            return "search_files"
+
+        elif tool == "find_answers":    
+            return "find_answers"
+        else:
+            return "end"
+
+
+    def _find_answers(self, state: RAGAgentState) -> Dict[str, Any]:
+        """Execute the find answers"""
+        if state.n_find_answers >= state.max_find_answers:
+            return {
+                "messages": [f"Max find answers reached"],
+                "n_find_answers": state.n_find_answers
+            }
+            
+        try:
+            last_message = state.messages[-1]
+            tool_calls = getattr(last_message, 'tool_calls', [])
+
+            if not tool_calls:
+                return {
+                    "messages": [f"No tool calls found"],
+                    "n_find_answers": state.n_find_answers
+                }
+
+            tool_messages = []
+            find_answers_results: List[Answer] = []
+
+            tool_call = tool_calls[0]
+            try:
+                tool_name = tool_call.get("name")
+                tool_args = tool_call.get("args", {})
+
+
+                if tool_name == "find_answers":
+                    question = tool_args.get("question", "")
+                    results = self.find_answers_tool.invoke({"question": question})
+                    
+                    content = json.dumps({
+                        "results": results,
+                        "question": question
+                    }, ensure_ascii=False)
+                    find_answers_results.append(results)
+                else:
+                    content = json.dumps({"error": f"Unknown tool: {tool_name}"})
+
+                tool_message = ToolMessage(
+                    content=content,
+                    tool_call_id=tool_call.get("id"),
+                    name=tool_call.get("name")
+                )
+                tool_messages.append(tool_message)
+
+            except Exception as e:
+                error_content = json.dumps({"error": str(e)})
+                tool_message = ToolMessage(
+                    content=error_content,
+                    tool_call_id=tool_call.get("id"),
+                    name=tool_call.get("name")
+                )
+                tool_messages.append(tool_message)
+
+            return {
+                "messages": tool_messages,
+                "n_find_answers": state.n_find_answers + 1,
+                "find_answers_results": find_answers_results
+            }
+
+        except Exception as e:
+            return {
+                "messages": [f"Find answers error: {str(e)}"],
+                "n_find_answers": state.n_find_answers + 1
+            }
+
 
     def _search_files(self, state: RAGAgentState) -> Dict[str, Any]:
         """Execute the search"""
-
-
-        
         if state.n_search >= state.max_searches:
             return {
                 "messages": [f"Max searches reached"],
@@ -292,38 +393,38 @@ class RAGAgent:
             tool_messages = []
             search_results: List[str] = []
 
-            for tool_call in tool_calls:
-                try:
-                    tool_name = tool_call.get("name")
-                    tool_args = tool_call.get("args", {})
+            tool_call = tool_calls[0]
+            try:
+                tool_name = tool_call.get("name")
+                tool_args = tool_call.get("args", {})
 
-                    if tool_name == "search_files":
-                        queries = tool_args.get("queries", [])
-                        results = self.search_files_tool.invoke({"queries": queries})
-                        
-                        content = json.dumps({
-                            "results": results,
-                            "query_count": len(queries)
-                        }, ensure_ascii=False)
-                        search_results.extend(results)
-                    else:
-                        content = json.dumps({"error": f"Unknown tool: {tool_name}"})
+                if tool_name == "search_files":
+                    queries = tool_args.get("queries", [])
+                    results = self.search_files_tool.invoke({"queries": queries})
+                    
+                    content = json.dumps({
+                        "results": results,
+                        "query_count": len(queries)
+                    }, ensure_ascii=False)
+                    search_results.extend(results)
+                else:
+                    content = json.dumps({"error": f"Unknown tool: {tool_name}"})
 
-                    tool_message = ToolMessage(
-                        content=content,
-                        tool_call_id=tool_call.get("id"),
-                        name=tool_call.get("name")
-                    )
-                    tool_messages.append(tool_message)
+                tool_message = ToolMessage(
+                    content=content,
+                    tool_call_id=tool_call.get("id"),
+                    name=tool_call.get("name")
+                )
+                tool_messages.append(tool_message)
 
-                except Exception as e:
-                    error_content = json.dumps({"error": str(e)})
-                    tool_message = ToolMessage(
-                        content=error_content,
-                        tool_call_id=tool_call.get("id"),
-                        name=tool_call.get("name")
-                    )
-                    tool_messages.append(tool_message)
+            except Exception as e:
+                error_content = json.dumps({"error": str(e)})
+                tool_message = ToolMessage(
+                    content=error_content,
+                    tool_call_id=tool_call.get("id"),
+                    name=tool_call.get("name")
+                )
+                tool_messages.append(tool_message)
 
             return {
                 "messages": tool_messages,
@@ -468,17 +569,21 @@ def create_rag_agent(user_id: str,
                      summarization_max_tokens: int = 350,
                      model_name: str = "gpt-4o-mini", 
                      max_searches: int = 3,
+                     system_prompt: str = "",
                      trim_strategy: Literal["none", "soft", "hard", "summary"] = "hard",
-                     max_tokens: int = 8000) -> RAGAgent:
+                     max_tokens: int = 8000,
+                     max_find_answers: int = 1) -> RAGAgent:
     """Factory function to create a RAG Agent"""
     return RAGAgent(
         user_id=user_id,
         model_name=model_name,
         max_searches=max_searches,
+        max_find_answers=max_find_answers,
         trim_strategy=trim_strategy,
         summarization_model_name=summarization_model_name,
         summarization_max_tokens=summarization_max_tokens,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        system_prompt=system_prompt
     )
 
 # Exemple d'utilisation
@@ -486,8 +591,10 @@ if __name__ == "__main__":
     
     agent = create_rag_agent(
         user_id="example_user_id",
+        system_prompt="You are a helpful assistant that can answer questions and help with tasks.",
         trim_strategy="hard", 
-        max_tokens=6000
+        max_tokens=6000,
+        max_find_answers=1
     )
     
 

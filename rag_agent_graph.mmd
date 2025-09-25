@@ -7,18 +7,21 @@ graph TD;
 	__start__([<p>__start__</p>]):::first
 	history_manager(history_manager)
 	llm(llm)
-	search(search)
+	search_files(search_files)
+	find_answers(find_answers)
 	summary_node(summary_node)
 	error_handler(error_handler)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> history_manager;
+	find_answers --> llm;
 	history_manager -. &nbsp;error&nbsp; .-> error_handler;
 	history_manager -.-> llm;
 	history_manager -. &nbsp;summary&nbsp; .-> summary_node;
 	llm -. &nbsp;end&nbsp; .-> __end__;
 	llm -. &nbsp;error&nbsp; .-> error_handler;
-	llm -.-> search;
-	search --> llm;
+	llm -.-> find_answers;
+	llm -.-> search_files;
+	search_files --> llm;
 	summary_node --> llm;
 	error_handler --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2

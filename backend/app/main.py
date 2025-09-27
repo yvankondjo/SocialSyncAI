@@ -61,6 +61,10 @@ app.include_router(process.router, prefix="/api")
 app.include_router(knowledge_documents.router, prefix="/api")
 app.include_router(faq_qa.router, prefix="/api")
 app.include_router(ai_settings.router, prefix="/api")
+
+# Nouvelles routes PRD2
+from app.routers import support
+app.include_router(support.router, prefix="/api")
 # Servir les fichiers statiques du widget
 # TODO: Décommenter quand on implémentera le widget web intégrable
 # app.mount("/static", StaticFiles(directory="static"), name="static")

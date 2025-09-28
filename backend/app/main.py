@@ -1,8 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-# from app.scheduler import start_scheduler, stop_scheduler
-from app.routers import( analytics, social_accounts, content, whatsapp, instagram, 
+from app.routers import( social_accounts, whatsapp, instagram, 
 messaging, web_widget, conversations, automation, process, 
 knowledge_documents, faq_qa, ai_settings)
 import logging
@@ -48,9 +47,7 @@ app.add_middleware(
 )
 
 # Inclusion des routes
-app.include_router(analytics.router, prefix="/api")
 app.include_router(social_accounts.router, prefix="/api")
-app.include_router(content.router, prefix="/api")
 app.include_router(whatsapp.router, prefix="/api")
 app.include_router(instagram.router, prefix="/api")
 app.include_router(messaging.router, prefix="/api")

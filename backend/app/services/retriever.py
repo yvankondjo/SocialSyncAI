@@ -1,8 +1,8 @@
-import sys
-from pathlib import Path
-backend_path = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(backend_path))
-
+# import sys
+# from pathlib import Path
+# backend_path = Path(__file__).parent.parent.parent
+# sys.path.insert(0, str(backend_path))
+import re
 from app.services.ingest_helpers import embed_texts
 from typing import List, Tuple, Dict, Any, Optional
 from app.db.session import get_db
@@ -119,11 +119,13 @@ class Retriever:
             
             try:
                 if type == 'text':
-                    result = db.rpc(f'{type}_knowledge_chunks_search', {
+                    query = " ".join(query.split())
+                    query = re.sub(r'\s+', ' | ', query)
+                    result = db.rpc(f'{type}_knowledge_chunks_search_v2', {
+                        'p_user_id': self.user_id,
                         'query_text': query,
                         'query_lang': query_lang,
-                        'match_count': k,
-                        'user_id': self.user_id
+                        'match_count': k
                     }).execute()
                 elif type == 'vector':
                     try:
@@ -137,11 +139,11 @@ class Retriever:
                             details={"query": query, "original_error": str(e)}
                         )
                     
-                    result = db.rpc(f'{type}_knowledge_chunks_search', {
+                    result = db.rpc(f'{type}_knowledge_chunks_search_v2', {
+                        'p_user_id': self.user_id,
                         'query_text': query,
                         'query_embedding': embedding,
-                        'match_count': k,
-                        'user_id': self.user_id
+                        'match_count': k
                     }).execute()
                 elif type == 'hybrid':
                     try:
@@ -154,14 +156,15 @@ class Retriever:
                             error_type="EMBEDDING_GENERATION_ERROR",
                             details={"query": query, "original_error": str(e)}
                         )
-                    
-                    result = db.rpc(f'{type}_knowledge_chunks_search', {
+                    query = " ".join(query.split())
+                    query = re.sub(r'\s+', ' | ', query)
+                    result = db.rpc(f'{type}_knowledge_chunks_search_v2', {
+                        'p_user_id': self.user_id,
                         'query_text': query,
                         'query_embedding': embedding,
                         'query_lang': query_lang,
                         'match_count': k,
-                        'rrf_k': k,
-                        'user_id': self.user_id
+                        'rrf_k': k
                     }).execute()
                 
             except HTTPError as e:
@@ -176,10 +179,10 @@ class Retriever:
                     error_type="SEARCH_ERROR",
                     details={"query": query, "type": type, "user_id": self.user_id, "original_error": str(e)}
                 )
-            
-            if result and result[0]:
-                logger.info(f"Retrieved {len(result[0])} knowledge chunks for query: '{query}'")
-                return result[0]
+            result_data = result.data
+            if result_data:
+                logger.info(f"Retrieved {len(result_data)} knowledge chunks for query: '{query}'")
+                return result_data
             
             logger.info(f"No knowledge chunks found for query: '{query}'")
             return []
@@ -239,11 +242,13 @@ class Retriever:
             
             try:
                 if type == 'text':
-                    result = db.rpc(f'{type}_faq_search', {
+                    query = " ".join(query.split())
+                    query = re.sub(r'\s+', ' | ', query)
+                    result = db.rpc(f'{type}_faq_search_v2', {
+                        'p_user_id': self.user_id,
                         'query_text': query,
                         'query_lang': query_lang,
-                        'match_count': k,
-                        'user_id': self.user_id
+                        'match_count': k
                     }).execute()
                 
             except HTTPError as e:
@@ -258,10 +263,10 @@ class Retriever:
                     error_type="SEARCH_ERROR",
                     details={"query": query, "type": type, "user_id": self.user_id, "original_error": str(e)}
                 )
-            
-            if result and result[0]:
-                logger.info(f"Retrieved {len(result[0])} FAQ results for query: '{query}'")
-                return result[0]
+            result_data = result.data
+            if result_data:
+                logger.info(f"Retrieved {len(result_data)} FAQ results for query: '{query}'")
+                return result_data
             
             logger.info(f"No FAQ results found for query: '{query}'")
             return []

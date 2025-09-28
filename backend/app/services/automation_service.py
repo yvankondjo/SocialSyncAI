@@ -9,7 +9,7 @@ class AutomationService:
     def __init__(self):
         self.db = get_db()
 
-    async def should_auto_reply(self, user_id: str) -> Dict[str, Any]:
+    def should_auto_reply(self, user_id: str) -> Dict[str, Any]:
         """
         Vérifie si l'IA doit répondre automatiquement à ce message
         
@@ -22,7 +22,7 @@ class AutomationService:
         }
         """
         try:
-            conv_check = await self._check_conversation_automation(user_id)
+            conv_check = self._check_conversation_automation(user_id)
             if not conv_check['should_reply']:
                 return conv_check
                 

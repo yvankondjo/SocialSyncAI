@@ -3,10 +3,10 @@ from typing import List, Dict, Any, Optional, Literal
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 import os
-import sys
-from pathlib import Path
-backend_path = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(backend_path))
+# import sys
+# from pathlib import Path
+# backend_path = Path(__file__).parent.parent.parent
+# sys.path.insert(0, str(backend_path))
 load_dotenv()
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage, AnyMessage, SystemMessage, ToolMessage
@@ -20,7 +20,7 @@ from psycopg import connect
 from psycopg.rows import dict_row
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 from app.services.retriever import Retriever
-from app.services.find_answers import Answer
+from app.services.find_answers import Answer, FindAnswers
 # from langmem.short_term import SummarizationNode
 load_dotenv()
 
@@ -33,14 +33,14 @@ class QueryItem(BaseModel):
 
 def create_find_answers_tool(user_id: str):
     """Factory function to create find_answers tool with user_id"""
-    retriever = Retriever(user_id)
+    find_answers_service = FindAnswers(user_id)
     
     @tool
-    def find_answers(question: str) -> List[str]:
+    def find_answers(question: str) -> Answer:
         """
         Find the answers to the given user question
         """
-        return retriever.find_answers(question)
+        return find_answers_service.find_answers(question)
     
     return find_answers
 
@@ -63,10 +63,14 @@ def create_search_files_tool(user_id: str):
         queries_list = queries if isinstance(queries, list) else [queries]
 
         for q in queries_list:
-            query_item = q if isinstance(q, QueryItem) else QueryItem(**q)
+            try:
+                query_item = q if isinstance(q, QueryItem) else QueryItem(**q)
+            except Exception as e:
+                print(f"Error creating QueryItem from {q}: {e}")
+                continue
 
             results = retriever.retrieve_from_knowledge_chunks(
-                query_item.query, query_item.lang, type='hybrid'
+                query_item.query, k=10, type='hybrid', query_lang=query_item.lang
             )
             for r in results:
                 all_results.append(r.get('content'))
@@ -80,8 +84,8 @@ class RAGAgentState(BaseModel):
     n_search: int = 0
     find_answers_results: List[Answer] = []
     n_find_answers: int = 0
-    max_searches: int = 3
-    max_find_answers: int = 1
+    max_searches: int = 5
+    max_find_answers: int = 5
     last_error: Optional[str] = None
     trim_strategy: Literal["none", "soft", "hard", "summary"] = "soft"
     max_tokens: int = 8000
@@ -99,7 +103,7 @@ class RAGAgent:
                  max_searches: int = 3,
                  trim_strategy: Literal["none", "soft", "hard", "summary"] = "soft",
                  max_tokens: int = 8000,
-                 max_find_answers: int = 1):
+                 max_find_answers: int = 5):
         
         self.user_id = user_id
         self.model_name = model_name
@@ -335,8 +339,11 @@ class RAGAgent:
                     question = tool_args.get("question", "")
                     results = self.find_answers_tool.invoke({"question": question})
                     
+                    # Convert Answer object to dict for JSON serialization
+                    results_dict = results.model_dump() if hasattr(results, 'model_dump') else results.__dict__
+                    
                     content = json.dumps({
-                        "results": results,
+                        "results": results_dict,
                         "question": question
                     }, ensure_ascii=False)
                     find_answers_results.append(results)
@@ -572,7 +579,7 @@ def create_rag_agent(user_id: str,
                      system_prompt: str = "",
                      trim_strategy: Literal["none", "soft", "hard", "summary"] = "hard",
                      max_tokens: int = 8000,
-                     max_find_answers: int = 1) -> RAGAgent:
+                     max_find_answers: int = 5) -> RAGAgent:
     """Factory function to create a RAG Agent"""
     return RAGAgent(
         user_id=user_id,
@@ -586,7 +593,7 @@ def create_rag_agent(user_id: str,
         system_prompt=system_prompt
     )
 
-# Exemple d'utilisation
+
 if __name__ == "__main__":
     
     agent = create_rag_agent(
@@ -594,28 +601,24 @@ if __name__ == "__main__":
         system_prompt="You are a helpful assistant that can answer questions and help with tasks.",
         trim_strategy="hard", 
         max_tokens=6000,
-        max_find_answers=1
+        max_find_answers=5
     )
     
 
 
-    # Accéder au graphique
     print('Accès au graphique...')
     graph = agent.graph.get_graph()
 
-    # Obtenir le code Mermaid
     print('Génération du code Mermaid...')
     try:
         mermaid_code = graph.draw_mermaid()
         print('Code Mermaid généré avec succès!')
         print('Longueur du code:', len(mermaid_code), 'caractères')
-        
-        # Sauvegarder le code Mermaid dans un fichier
+   
         with open('/workspace/rag_agent_graph.mmd', 'w', encoding='utf-8') as f:
             f.write(mermaid_code)
         print('Code Mermaid sauvegardé dans /workspace/rag_agent_graph.mmd')
-        
-        # Afficher les premières lignes du code
+    
         print('\nPremières lignes du code Mermaid:')
         print('=' * 50)
         lines = mermaid_code.split('\n')

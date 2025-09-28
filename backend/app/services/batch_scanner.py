@@ -136,29 +136,40 @@ class BatchScanner:
                 self.metrics['errors_total'] += 1
                 return
             
-            messages = batch_result["messages"]["message_data"]
+            messages = batch_result["messages"]
             message_ids = batch_result["message_ids"]
             logger.info("=" * 60)
             logger.info(f"🔄 PROCESSING BATCH - {platform}:{account_id}:{contact_id}")
             logger.info("=" * 60)
             logger.info(f"🔑 Message IDs: {message_ids}")
-            if isinstance(messages, dict):
+            if isinstance(messages, dict) and "message_data" in messages:
                 logger.info(f"📊 Messages in batch: 1 (concatenated)")
-                logger.info(f"📄 Concatenated content length: {len(messages.get('message_data', {}).get('content', ''))} characters")
+                message_data = messages.get("message_data", {})
+                content = message_data.get("content", "")
+                logger.info(f"📄 Concatenated content length: {len(content)} characters")
             else:
-                logger.info(f"📊 Messages in batch: {len(messages)}")
+                logger.info(f"📊 Messages in batch: {len(messages) if isinstance(messages, list) else 1}")
+                content = messages.get("content", "") if isinstance(messages, dict) else ""
+                logger.info(f"📄 Content length: {len(content)} characters")
+            
             logger.info(f"🔑 Conversation ID: {conversation_id}")
             logger.info("-" * 60)
             
-           
-            if isinstance(messages, dict):
-                content = messages.get("message_data", {}).get("content", "")
+            # Debug: Log the full structure
+            logger.info(f"🔍 DEBUG - Full messages structure: {messages}")
+            logger.info(f"🔍 DEBUG - content extracted: '{content}'")
+            
+            direction = "user"
+            if isinstance(messages, dict) and "message_data" in messages:
                 direction = messages.get("message_data", {}).get("role", "user")
-                logger.info(f"💬 Batch Message (concatenated) ({direction}): {content[:200]}{'...' if len(content) > 200 else ''}")
+            elif isinstance(messages, dict):
+                direction = messages.get("role", "user")
+                
+            logger.info(f"💬 Batch Message (concatenated) ({direction}): {content[:200]}{'...' if len(content) > 200 else ''}")
 
             logger.info("-" * 60)
             
-            user_credentials = await get_user_credentials_by_platform_account(platform, account_id)
+            user_credentials = get_user_credentials_by_platform_account(platform, account_id)
             if not user_credentials:
                 logger.error(f"Credentials not found for {platform}:{account_id}")
                 return
@@ -166,9 +177,9 @@ class BatchScanner:
            
             user_id = user_credentials.get("user_id")
             
-            # Récupérer les ai_settings
+            
             automation_service = AutomationService()
-            automation_check = await automation_service.should_auto_reply(user_id=user_id)
+            automation_check = automation_service.should_auto_reply(user_id=user_id)
             ai_settings = automation_check.get("ai_settings", {})
             
             if conversation_id and user_id:
@@ -194,10 +205,28 @@ class BatchScanner:
                 logger.warning(f"No valid message ID found for typing indicator: {message_ids}")
             
             content = self._format_messages(messages)
-            response_content = await generate_smart_response(content, user_id, ai_settings, conversation_id)
+            logger.info(f"🔍 DEBUG - About to call generate_smart_response with content: {content}")
+            logger.info(f"🔍 DEBUG - Content type: {type(content)}")
+            logger.info(f"🔍 DEBUG - Content content: '{content.content}'")
+            
+            try:
+                response_result = await generate_smart_response(content, user_id, ai_settings, conversation_id)
+            except Exception as e:
+                logger.error(f"🔍 DEBUG - Exception in generate_smart_response: {e}")
+                logger.error(f"🔍 DEBUG - Exception type: {type(e)}")
+                import traceback
+                logger.error(f"🔍 DEBUG - Traceback: {traceback.format_exc()}")
+                raise e
 
-
-            if not response_content:
+            # Vérifier si la réponse est une chaîne (succès) ou un dictionnaire (erreur)
+            if isinstance(response_result, dict):
+                logger.error(f"❌ Error in RAG agent: {response_result.get('last_error', 'Unknown error')}")
+                logger.info("=" * 60)
+                # 📊 Métriques
+                self.metrics['conversations_failed'] += 1
+                self.metrics['errors_total'] += 1
+                return
+            elif not response_result:
                 logger.warning(f"❌ No response generated for {platform}:{account_id}:{contact_id}")
                 logger.info("=" * 60)
                 # 📊 Métriques
@@ -205,6 +234,7 @@ class BatchScanner:
                 self.metrics['errors_total'] += 1
                 return
             
+            response_content = response_result
             logger.info(f"✅ Response generated successfully for {platform}:{account_id}:{contact_id}")
             logger.info(f"🔑 Response content: {response_content}")
             logger.info("=" * 60)
@@ -213,7 +243,7 @@ class BatchScanner:
             
             if response_sent:
                 # Save the response to the DB
-                message_assistant_group_id = await save_response_to_db(
+                message_assistant_group_id = save_response_to_db(
                     conversation_id, response_content, user_credentials.get("user_id")
                 )
 
@@ -256,8 +286,26 @@ class BatchScanner:
         """
         Format the messages for the agent
         """
-        content = HumanMessage(content=messages.get("content", ""))
-        return content
+        logger.info(f"🔍 DEBUG _format_messages - Input messages: {messages}")
+        
+        # La structure peut être soit:
+        # 1. {"message_data": {"content": "...", "role": "user"}} (ancienne structure)
+        # 2. {"content": "...", "role": "user"} (nouvelle structure)
+        
+        if isinstance(messages, dict) and "message_data" in messages:
+            # Ancienne structure
+            message_data = messages.get("message_data", {})
+            content = message_data.get("content", "")
+            logger.info(f"🔍 DEBUG _format_messages - content from message_data: '{content}'")
+        else:
+            # Nouvelle structure ou structure directe
+            content = messages.get("content", "")
+            logger.info(f"🔍 DEBUG _format_messages - content from messages: '{content}'")
+        
+        # Nettoyer le contenu (supprimer les espaces en début/fin)
+        content = content.strip()
+        logger.info(f"🔍 DEBUG _format_messages - Final content (cleaned): '{content}'")
+        return HumanMessage(content=content)
 
     # 📊 Méthodes de monitoring
     def get_metrics(self) -> Dict[str, Any]:

@@ -7,25 +7,21 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { logos } from "@/lib/logos"
 import {
-  Bell,
-  Sun,
-  Moon,
   User,
-  TrendingUp,
-  MessageSquare,
-  Calendar,
   Sparkles,
   Clock,
   Send,
   Bot,
+  TrendingUp,
+  MessageSquare,
 } from "lucide-react"
 
 export function DashboardPage() {
   const { user } = useAuth()
   const [theme, setTheme] = useState<"light" | "dark">("light")
-  const [accounts, setAccounts] = useState([])
-  const [conversations, setConversations] = useState([])
-  const [analytics, setAnalytics] = useState(null)
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [conversations, setConversations] = useState<any[]>([])
+  const [analytics, setAnalytics] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   // State for uploaded files
@@ -67,10 +63,6 @@ export function DashboardPage() {
     console.log("[v0] theme_toggle", { theme: theme === "light" ? "dark" : "light" })
   }
 
-  const handleCreatePost = () => {
-    console.log("[v0] dashboard_create_post_click")
-    // This would open the composer modal
-  }
 
   const handleConnectInstagram = () => {
     console.log("[v0] dashboard_connect_instagram_click")
@@ -144,10 +136,10 @@ export function DashboardPage() {
   }
 
   // Calculate metrics from real data
-  const getPostsAutomated = () => {
-    if (!analytics) return 32 // Default fallback
+  const getContentAutomated = () => {
+    if (!analytics) return 12 // Default fallback
     const trends = analytics.trends || []
-    return trends.reduce((total, trend) => total + (trend.total_likes || 0), 0)
+    return trends.reduce((total: number, trend: any) => total + (trend.total_likes || 0), 0)
   }
 
   const getDmsAnswered = () => {
@@ -178,14 +170,14 @@ export function DashboardPage() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Create Your First Post</h3>
-                  <p className="text-muted-foreground">Start engaging with your audience today</p>
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Welcome to SocialSync</h3>
+                  <p className="text-muted-foreground">Manage your social media presence efficiently</p>
                 </div>
                 <Button
-                  onClick={handleCreatePost}
+                  onClick={handleConnectInstagram}
                   className="bg-primary text-primary-foreground hover:bg-primary/90 hover-lift shadow-soft"
                 >
-                  Create Post Now
+                  Connect Accounts
                 </Button>
               </div>
             </CardContent>
@@ -196,12 +188,12 @@ export function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card className="shadow-soft hover-lift">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Posts Automated</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Content Automated</CardTitle>
               <TrendingUp className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-foreground">
-                {loading ? "..." : getPostsAutomated()}
+                {loading ? "..." : getContentAutomated()}
               </div>
               <p className="text-xs text-muted-foreground mt-1">+12% from last month</p>
             </CardContent>
@@ -254,11 +246,11 @@ export function DashboardPage() {
             <CardContent className="p-6">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-primary/10 rounded-lg">
-                  <Calendar className="w-6 h-6 text-primary" />
+                  <Clock className="w-6 h-6 text-primary" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-foreground">Schedule Content</h3>
-                  <p className="text-sm text-muted-foreground">Plan your posts in advance</p>
+                  <h3 className="font-semibold text-foreground">Content Management</h3>
+                  <p className="text-sm text-muted-foreground">Organize your content strategy</p>
                 </div>
               </div>
             </CardContent>
@@ -290,7 +282,7 @@ export function DashboardPage() {
                 <Send className="w-4 h-4 text-primary" />
               </div>
               <div className="flex-1">
-                <p className="text-sm font-medium text-foreground">Post scheduled for Instagram</p>
+                <p className="text-sm font-medium text-foreground">Content scheduled for Instagram</p>
                 <div className="flex items-center gap-2 mt-1">
                   <Clock className="w-3 h-3 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">2 minutes ago</span>

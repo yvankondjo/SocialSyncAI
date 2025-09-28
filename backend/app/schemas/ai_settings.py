@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 from datetime import datetime
 
 AIModelType = Literal[
@@ -32,6 +32,7 @@ class AISettingsBase(BaseModel):
     lang: LangType = "en"
     tone: ToneType = "friendly"
     is_active: bool = True
+    doc_lang: List[str] = Field(default_factory=list, description="Liste des langues des documents de l'utilisateur")
 
 class AISettingsCreate(AISettingsBase):
     pass
@@ -44,6 +45,7 @@ class AISettingsUpdate(BaseModel):
     lang: Optional[LangType] = None
     tone: Optional[ToneType] = None
     is_active: Optional[bool] = None
+    doc_lang: Optional[List[str]] = Field(None, description="Liste des langues des documents de l'utilisateur")
 
 class AISettings(AISettingsBase):
     id: str

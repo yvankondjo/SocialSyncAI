@@ -25,6 +25,7 @@ interface AISettings {
   lang: string
   tone: string
   is_active: boolean
+  doc_lang: string[]
 }
 
 interface AIModel {
@@ -81,9 +82,9 @@ const PROMPT_TEMPLATES = {
     prompt: `You are an AI assistant specialized in social media management for {{brand_name}}.
 
 Your responsibilities:
-- Create engaging and viral content for social media
-- Analyze trending hashtags and topics
-- Optimize posts for each platform (Instagram, TikTok, Facebook, Twitter)
+- Analyze social media trends and engagement patterns
+- Provide insights on audience behavior
+- Suggest content optimization strategies
 - Propose growth and engagement strategies
 - Respond in {{lang}} with a {{tone}} tone
 - Provide creative and authentic advice`
@@ -133,14 +134,15 @@ export function PromptTuningTab() {
     top_p: 1.00,
     lang: "en",
     tone: "friendly",
-    is_active: true
+    is_active: true,
+    doc_lang: []
   })
   
   // UI states
   const [isLoading, setIsLoading] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
-  const [testInput, setTestInput] = useState("How can I improve engagement on my Instagram posts?")
+  const [testInput, setTestInput] = useState("How can I improve engagement on my social media content?")
   const [testResponse, setTestResponse] = useState("")
   const [testMetrics, setTestMetrics] = useState({ responseTime: 0, confidence: 0 })
 

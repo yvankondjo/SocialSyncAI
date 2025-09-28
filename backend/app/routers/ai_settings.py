@@ -74,7 +74,8 @@ async def get_ai_settings(
                 "top_p": 1.00,
                 "lang": "en",
                 "tone": "friendly",
-                "is_active": True
+                "is_active": True,
+                "doc_lang": []
             }
             
             create_result = db.table("ai_settings").insert(default_settings).execute()

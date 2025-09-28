@@ -23,7 +23,7 @@ async def toggle_conversation_automation(
     """Active/désactive l'automation pour une conversation spécifique"""
     try:
         service = AutomationService(db)
-        success = await service.toggle_conversation_automation(
+        success = service.toggle_conversation_automation(
             conversation_id=conversation_id,
             user_id=current_user_id,
             enabled=request.enabled
@@ -59,9 +59,7 @@ async def check_automation_rules(
     """Vérifie si l'IA doit répondre automatiquement à un message"""
     try:
         service = AutomationService(db)
-        result = await service.should_auto_reply(
-            conversation_id=conversation_id,
-            message_content=message_content,
+        result = service.should_auto_reply(
             user_id=current_user_id
         )
         
@@ -82,7 +80,7 @@ async def get_keyword_rules(
     """Récupère toutes les règles de mots-clés de l'utilisateur"""
     try:
         service = AutomationService(db)
-        rules = await service.get_user_keyword_rules(current_user_id)
+        rules = service.get_user_keyword_rules(current_user_id)
         
         return KeywordRulesResponse(
             rules=rules,
@@ -105,7 +103,7 @@ async def create_keyword_rule(
     """Crée une nouvelle règle de mots-clés"""
     try:
         service = AutomationService(db)
-        rule_id = await service.create_keyword_rule(
+        rule_id = service.create_keyword_rule(
             user_id=current_user_id,
             scope_type=rule.scope_type,
             scope_id=rule.scope_id,

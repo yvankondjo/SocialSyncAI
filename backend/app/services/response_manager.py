@@ -7,6 +7,74 @@ from app.services.whatsapp_service import WhatsAppService
 from langchain_core.messages import HumanMessage
 logger = logging.getLogger(__name__)
 message_batcher = MessageBatcher()
+system_prompt = """
+You are a professional customer support agent. Your role is to help customers by answering their questions and providing assistance in a friendly, helpful, and accurate manner.
+
+## CRITICAL: Always respond in the customer's language
+You must detect the language the customer is using and respond in the same language. If they write in French, respond in French. If they write in English, respond in English. If they write in Spanish, respond in Spanish.
+
+## Available Tools and Priority Order
+
+You have access to TWO tools to help customers. Use them in this EXACT priority order:
+
+### 1. find_answers (PRIORITY #1 - Use First)
+- **Purpose**: Find direct answers to customer questions from the knowledge base
+- **When to use**: For any customer question that needs a specific answer
+- **Parameter**: 
+  - `question` (string): The customer's question exactly as they asked it
+- **Example usage**: 
+  - Customer asks: "How do I reset my password?"
+  - You call: find_answers(question="How do I reset my password?")
+
+### 2. search_files (PRIORITY #2 - Use Only If find_answers Fails or can't find the answer or the answer is not good)
+- **Purpose**: Search through documents when find_answers doesn't provide sufficient information
+- **When to use**: Only when find_answers doesn't give you enough information to help the customer
+- **Considerations**: The docsare in the following languages: {doc_lang} so you you can use mutiple language for the same query in order to find the best answer
+- **Important**: YOUR QUERY MUST BE IN THE SAME LANGUAGE AS THE PARAMETER lang of the QueryItem AND ALSO THE LANGUAGE OF THE DOCUMENT (for example if the doc is in french, the query must be in french, if the docs are in english and french you should do search_files(queries=[{{"query": "information sur le paiement", "lang": "french"}}, {{"query": "billing information", "lang": "english"}}]))
+- **Parameters**:
+  - `queries` (List[QueryItem]): List of search queries
+  - Each QueryItem has:
+    - `query` (string): The search term
+    - `lang` (string): Language - "french", "english", or "spanish" the language of the query
+- **Example usage**:
+  - Customer asks about billing in French docs are in english
+  - You call: search_files(queries=[{{"query": "billing information", "lang": "english"}}])
+
+## Workflow Process
+
+1. **First**: Always try `find_answers` with the customer's exact question
+2. **If find_answers provides sufficient information**: Use that information to help the customer
+3. **If find_answers doesn't provide enough information**: Then use `search_files` with relevant search terms
+4. **Always respond in the customer's language** regardless of which tool you use
+
+## Examples
+
+**Example 1 - French Customer:**
+- Customer: "Comment puis-je changer mon mot de passe ?"
+- You: Use find_answers(question="Comment puis-je changer mon mot de passe ?")
+- Respond in French with the answer
+
+**Example 2 - English Customer:**
+- Customer: "What are your business hours?"
+- You: Use find_answers(question="What are your business hours?")
+- If not enough info, use search_files(queries=[{{"query": "business hours", "lang": "english"}}])
+- Respond in English
+
+**Example 3 - Spanish Customer:**
+- Customer: "¿Cómo puedo contactar soporte técnico?"
+- You: Use find_answers(question="¿Cómo puedo contactar soporte técnico?")
+- Respond in Spanish
+
+## Important Guidelines
+
+- Be friendly, professional, and helpful
+- Always prioritize find_answers over search_files
+- Only use search_files when find_answers doesn't provide enough information
+- Detect and match the customer's language
+- Provide clear, accurate, and complete answers
+- If you cannot find the answer, politely explain that you need to escalate to a human agent
+- Keep responses concise but comprehensive
+"""
 def get_user_credentials_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
     from app.db.session import get_db
     try:
@@ -207,19 +275,22 @@ def save_incoming_message_to_db(extracted_message: Dict[str, Any], user_info: Di
                 }
             }
         elif extracted_message.get('message_type') in ['text', 'audio']:
+            content = extracted_message.get('content')
+            logger.info(f"🔍 DEBUG save_incoming_message_to_db - extracted_message: {extracted_message}")
+            logger.info(f"🔍 DEBUG save_incoming_message_to_db - content to save: '{content}'")
             message_data = {
                 'conversation_id': conversation_id,
                 'external_message_id': extracted_message.get('message_id'),
                 'direction': 'inbound',
                 'message_type': extracted_message.get('message_type'),
-                'content': extracted_message.get('content'),
+                'content': content,
                 'sender_id': extracted_message.get('message_from'),
                 'storage_object_name': None,
                 'media_type': extracted_message.get('media_type', None),
                 'status': 'received',
                 'metadata': {
                     'role': 'user',
-                    'content': extracted_message.get('content'),
+                    'content': content,
                     'token_count': extracted_message.get('token_count')
                 }
             }
@@ -349,9 +420,12 @@ async def extract_message_content(message: Dict[str, Any], user_credentials: Dic
         return None
     message_type = message.get('type', 'text')
     if message_type == 'text':
+        content = message.get('text', {}).get('body', '')
+        logger.info(f"🔍 DEBUG extract_message_content - message: {message}")
+        logger.info(f"🔍 DEBUG extract_message_content - content extracted: '{content}'")
         return {
-            'content': message.get('text', {}).get('body', ''),
-            'token_count': len(enc.encode(message.get('text', {}).get('body', ''))),
+            'content': content,
+            'token_count': len(enc.encode(content)),
             'message_type': message_type,
             'message_id': message.get('id'),
             'message_from': message.get('from')
@@ -444,12 +518,28 @@ async def get_media_content(media_id: str, access_token: str) -> bytes:
 
 async def generate_smart_response(messages: HumanMessage, user_id: str, ai_settings: Dict[str, Any], conversation_id: str) -> Optional[Dict[str, Any]]:
     from app.services.rag_agent import create_rag_agent
-    system_prompt = ai_settings.get('system_prompt', '')
+    # system_prompt = ai_settings.get('system_prompt', '')
+    doc_lang = ai_settings.get('doc_lang', ["french"])
+    if isinstance(doc_lang, list):
+        doc_lang = ", ".join(doc_lang)
+    local_system_prompt = system_prompt.format(doc_lang=doc_lang)
     # model_name = ai_settings.get('ai_model', 'gpt-4o-mini')
-    model_name = 'google/gemini-2.5-flash'
-    agent = create_rag_agent(user_id, model_name=model_name, system_prompt=system_prompt)
-    response = agent.invoke(messages, conversation_id)
-    return response
+    model_name = 'x-ai/grok-4-fast:free'
+    
+    logger.info(f"🔍 DEBUG generate_smart_response - messages: {messages}")
+    logger.info(f"🔍 DEBUG generate_smart_response - user_id: {user_id}")
+    logger.info(f"🔍 DEBUG generate_smart_response - conversation_id: {conversation_id}")
+    
+    agent = create_rag_agent(user_id, model_name=model_name, system_prompt=local_system_prompt)
+    
+    try:
+        response = agent.invoke(messages, conversation_id="123")
+        logger.info(f"🔍 DEBUG generate_smart_response - response type: {type(response)}")
+        logger.info(f"🔍 DEBUG generate_smart_response - response: {response}")
+        return response
+    except Exception as e:
+        logger.error(f"🔍 DEBUG generate_smart_response - Exception: {e}")
+        return {"error": str(e)}
 
 
 def get_user_credentials_by_platform_account(platform: str, account_id: str) -> Optional[Dict[str, Any]]:

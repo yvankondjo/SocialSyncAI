@@ -11,8 +11,6 @@ app/
   │   ├─ layout.tsx        # <Sidebar/> + <AuthGuard/> + {children}
   │   ├─ page.tsx          # Dashboard principal
   │   ├─ inbox/page.tsx
-  │   ├─ calendar/page.tsx
-  │   ├─ media/page.tsx
   │   ├─ social-accounts/page.tsx
   │   └─ ai-studio/
   │       ├─ layout.tsx
@@ -22,8 +20,8 @@ app/
   │       └─ qa-examples/page.tsx
 components/
   ├─ sidebar/Sidebar.tsx, NavItem.tsx
-  ├─ dashboard-page.tsx, inbox-page.tsx, calendar-page.tsx, media-page.tsx,
-  ├─ social-accounts-page.tsx, design-studio-page.tsx
+  ├─ dashboard-page.tsx, inbox-page.tsx,
+  ├─ social-accounts-page.tsx
 hooks/
   ├─ useAuth.ts, useSidebarStore.ts
 lib/

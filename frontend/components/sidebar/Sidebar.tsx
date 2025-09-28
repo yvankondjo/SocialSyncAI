@@ -30,42 +30,57 @@ import {
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard,
-  Inbox,
-  Calendar,
-  ImageIcon,
-  Users,
-  Palette,
-  Megaphone,
-  Sparkles,
+  MessageSquare,
+  Database,
+  Play,
+  BarChart3,
+  Link,
+  Settings,
   ChevronLeft,
   ChevronRight,
   LogOut,
   User,
-  Settings,
   Menu,
   ChevronDown,
+  Activity,
+  FileText,
+  HelpCircle,
+  GitCompare,
+  Bot,
+  MessageCircle,
+  Globe,
 } from 'lucide-react'
 
 const mainNavItems = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
-  { icon: Inbox, label: 'Inbox', href: '/dashboard/inbox' },
-  { icon: Calendar, label: 'Calendar', href: '/dashboard/calendar' },
-  { icon: ImageIcon, label: 'Media', href: '/dashboard/media' },
-  { icon: Users, label: 'Social Accounts', href: '/dashboard/social-accounts' },
-  { icon: Palette, label: 'Design Studio', href: '/dashboard/design' },
-  { icon: Megaphone, label: 'Ads', href: '/dashboard/ads' },
 ]
 
-const aiStudioSubItems = [
-  { icon: Sparkles, label: 'Prompt Tuning', href: '/dashboard/ai-studio/prompt-tuning' },
-  { icon: Sparkles, label: 'Data', href: '/dashboard/ai-studio/data' },
-  { icon: Sparkles, label: 'Q&A Examples', href: '/dashboard/ai-studio/qa-examples', isNew: false },
+const activitySubItems = [
+  { icon: MessageSquare, label: 'Chat', href: '/dashboard/activity/chat' },
+]
+
+const sourcesSubItems = [
+  { icon: Database, label: 'Data', href: '/dashboard/sources/data' },
+  { icon: HelpCircle, label: 'FAQ', href: '/dashboard/sources/faq' },
+]
+
+const playgroundSubItems = [
+  { icon: GitCompare, label: 'Compare', href: '/dashboard/playground/compare' },
+]
+
+const settingsSubItems = [
+  { icon: Bot, label: 'AI', href: '/dashboard/settings/ai' },
+  { icon: MessageCircle, label: 'Chat Interfaces', href: '/dashboard/settings/chat-interfaces' },
+  { icon: Globe, label: 'Custom Domain', href: '/dashboard/settings/custom-domain' },
 ]
 
 export function Sidebar() {
   const { user, signOut } = useAuth()
   const { isCollapsed, toggleCollapsed } = useSidebarStore()
-  const [aiStudioExpanded, setAiStudioExpanded] = useState(true)
+  const [activityExpanded, setActivityExpanded] = useState(true)
+  const [sourcesExpanded, setSourcesExpanded] = useState(true)
+  const [playgroundExpanded, setPlaygroundExpanded] = useState(true)
+  const [settingsExpanded, setSettingsExpanded] = useState(true)
 
   const handleSignOut = async () => {
     await signOut()
@@ -110,56 +125,234 @@ export function Sidebar() {
             />
           ))}
 
-          {/* AI Studio Section */}
+          {/* Activity Section */}
           <div className="pt-4">
             <div
               className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer hover:bg-sidebar-accent',
                 isCollapsed && 'justify-center px-2'
               )}
-              onClick={() => setAiStudioExpanded(!aiStudioExpanded)}
+              onClick={() => setActivityExpanded(!activityExpanded)}
             >
-              <Sparkles className={cn(
+              <Activity className={cn(
                 'w-5 h-5 flex-shrink-0 transition-all duration-200',
                 isCollapsed ? 'w-6 h-6' : 'w-5 h-5'
               )} />
               
               {!isCollapsed && (
                 <>
-                  <span className="flex-1 text-sidebar-foreground">AI Studio</span>
+                  <span className="flex-1 text-sidebar-foreground">Activity</span>
                   <ChevronDown className={cn(
                     'w-4 h-4 text-sidebar-foreground transition-transform duration-200',
-                    aiStudioExpanded ? 'rotate-180' : ''
+                    activityExpanded ? 'rotate-180' : ''
                   )} />
                 </>
               )}
             </div>
 
-            {/* AI Studio Sub Items */}
-            {(!isCollapsed && aiStudioExpanded) && (
+            {/* Activity Sub Items */}
+            {(!isCollapsed && activityExpanded) && (
               <div className="ml-4 mt-1 space-y-1 border-l border-sidebar-border pl-4">
-                {aiStudioSubItems.map((item) => (
+                {activitySubItems.map((item) => (
                   <NavItem
                     key={item.href}
                     icon={item.icon}
                     label={item.label}
                     href={item.href}
-                    isNew={item.isNew}
                   />
                 ))}
               </div>
             )}
 
-            {/* AI Studio collapsed tooltips */}
+            {/* Activity collapsed tooltips */}
             {isCollapsed && (
               <div className="space-y-1 mt-1">
-                {aiStudioSubItems.map((item) => (
+                {activitySubItems.map((item) => (
                   <NavItem
                     key={item.href}
                     icon={item.icon}
                     label={item.label}
                     href={item.href}
-                    isNew={item.isNew}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Sources Section */}
+          <div className="pt-2">
+            <div
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer hover:bg-sidebar-accent',
+                isCollapsed && 'justify-center px-2'
+              )}
+              onClick={() => setSourcesExpanded(!sourcesExpanded)}
+            >
+              <Database className={cn(
+                'w-5 h-5 flex-shrink-0 transition-all duration-200',
+                isCollapsed ? 'w-6 h-6' : 'w-5 h-5'
+              )} />
+              
+              {!isCollapsed && (
+                <>
+                  <span className="flex-1 text-sidebar-foreground">Sources</span>
+                  <ChevronDown className={cn(
+                    'w-4 h-4 text-sidebar-foreground transition-transform duration-200',
+                    sourcesExpanded ? 'rotate-180' : ''
+                  )} />
+                </>
+              )}
+            </div>
+
+            {/* Sources Sub Items */}
+            {(!isCollapsed && sourcesExpanded) && (
+              <div className="ml-4 mt-1 space-y-1 border-l border-sidebar-border pl-4">
+                {sourcesSubItems.map((item) => (
+                  <NavItem
+                    key={item.href}
+                    icon={item.icon}
+                    label={item.label}
+                    href={item.href}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Sources collapsed tooltips */}
+            {isCollapsed && (
+              <div className="space-y-1 mt-1">
+                {sourcesSubItems.map((item) => (
+                  <NavItem
+                    key={item.href}
+                    icon={item.icon}
+                    label={item.label}
+                    href={item.href}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Playground Section */}
+          <div className="pt-2">
+            <div
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer hover:bg-sidebar-accent',
+                isCollapsed && 'justify-center px-2'
+              )}
+              onClick={() => setPlaygroundExpanded(!playgroundExpanded)}
+            >
+              <Play className={cn(
+                'w-5 h-5 flex-shrink-0 transition-all duration-200',
+                isCollapsed ? 'w-6 h-6' : 'w-5 h-5'
+              )} />
+              
+              {!isCollapsed && (
+                <>
+                  <span className="flex-1 text-sidebar-foreground">Playground</span>
+                  <ChevronDown className={cn(
+                    'w-4 h-4 text-sidebar-foreground transition-transform duration-200',
+                    playgroundExpanded ? 'rotate-180' : ''
+                  )} />
+                </>
+              )}
+            </div>
+
+            {/* Playground Sub Items */}
+            {(!isCollapsed && playgroundExpanded) && (
+              <div className="ml-4 mt-1 space-y-1 border-l border-sidebar-border pl-4">
+                {playgroundSubItems.map((item) => (
+                  <NavItem
+                    key={item.href}
+                    icon={item.icon}
+                    label={item.label}
+                    href={item.href}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Playground collapsed tooltips */}
+            {isCollapsed && (
+              <div className="space-y-1 mt-1">
+                {playgroundSubItems.map((item) => (
+                  <NavItem
+                    key={item.href}
+                    icon={item.icon}
+                    label={item.label}
+                    href={item.href}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Analytics Section */}
+          <div className="pt-2">
+            <NavItem
+              icon={BarChart3}
+              label="Analytics"
+              href="/dashboard/analytics"
+            />
+          </div>
+
+          {/* Connect Section */}
+          <div className="pt-2">
+            <NavItem
+              icon={Link}
+              label="Connect"
+              href="/dashboard/connect"
+            />
+          </div>
+
+          {/* Settings Section */}
+          <div className="pt-2">
+            <div
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer hover:bg-sidebar-accent',
+                isCollapsed && 'justify-center px-2'
+              )}
+              onClick={() => setSettingsExpanded(!settingsExpanded)}
+            >
+              <Settings className={cn(
+                'w-5 h-5 flex-shrink-0 transition-all duration-200',
+                isCollapsed ? 'w-6 h-6' : 'w-5 h-5'
+              )} />
+              
+              {!isCollapsed && (
+                <>
+                  <span className="flex-1 text-sidebar-foreground">Settings</span>
+                  <ChevronDown className={cn(
+                    'w-4 h-4 text-sidebar-foreground transition-transform duration-200',
+                    settingsExpanded ? 'rotate-180' : ''
+                  )} />
+                </>
+              )}
+            </div>
+
+            {/* Settings Sub Items */}
+            {(!isCollapsed && settingsExpanded) && (
+              <div className="ml-4 mt-1 space-y-1 border-l border-sidebar-border pl-4">
+                {settingsSubItems.map((item) => (
+                  <NavItem
+                    key={item.href}
+                    icon={item.icon}
+                    label={item.label}
+                    href={item.href}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Settings collapsed tooltips */}
+            {isCollapsed && (
+              <div className="space-y-1 mt-1">
+                {settingsSubItems.map((item) => (
+                  <NavItem
+                    key={item.href}
+                    icon={item.icon}
+                    label={item.label}
+                    href={item.href}
                   />
                 ))}
               </div>
@@ -324,28 +517,130 @@ export function Sidebar() {
                 />
               ))}
 
+              {/* Activity Section */}
               <div className="pt-4">
                 <div
                   className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium cursor-pointer hover:bg-sidebar-accent"
-                  onClick={() => setAiStudioExpanded(!aiStudioExpanded)}
+                  onClick={() => setActivityExpanded(!activityExpanded)}
                 >
-                  <Sparkles className="w-5 h-5 flex-shrink-0" />
-                  <span className="flex-1 text-sidebar-foreground">AI Studio</span>
+                  <Activity className="w-5 h-5 flex-shrink-0" />
+                  <span className="flex-1 text-sidebar-foreground">Activity</span>
                   <ChevronDown className={cn(
                     'w-4 h-4 text-sidebar-foreground transition-transform duration-200',
-                    aiStudioExpanded ? 'rotate-180' : ''
+                    activityExpanded ? 'rotate-180' : ''
                   )} />
                 </div>
 
-                {aiStudioExpanded && (
+                {activityExpanded && (
                   <div className="ml-4 mt-1 space-y-1 border-l border-sidebar-border pl-4">
-                    {aiStudioSubItems.map((item) => (
+                    {activitySubItems.map((item) => (
                       <NavItem
                         key={item.href}
                         icon={item.icon}
                         label={item.label}
                         href={item.href}
-                        isNew={item.isNew}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Sources Section */}
+              <div className="pt-2">
+                <div
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium cursor-pointer hover:bg-sidebar-accent"
+                  onClick={() => setSourcesExpanded(!sourcesExpanded)}
+                >
+                  <Database className="w-5 h-5 flex-shrink-0" />
+                  <span className="flex-1 text-sidebar-foreground">Sources</span>
+                  <ChevronDown className={cn(
+                    'w-4 h-4 text-sidebar-foreground transition-transform duration-200',
+                    sourcesExpanded ? 'rotate-180' : ''
+                  )} />
+                </div>
+
+                {sourcesExpanded && (
+                  <div className="ml-4 mt-1 space-y-1 border-l border-sidebar-border pl-4">
+                    {sourcesSubItems.map((item) => (
+                      <NavItem
+                        key={item.href}
+                        icon={item.icon}
+                        label={item.label}
+                        href={item.href}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Playground Section */}
+              <div className="pt-2">
+                <div
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium cursor-pointer hover:bg-sidebar-accent"
+                  onClick={() => setPlaygroundExpanded(!playgroundExpanded)}
+                >
+                  <Play className="w-5 h-5 flex-shrink-0" />
+                  <span className="flex-1 text-sidebar-foreground">Playground</span>
+                  <ChevronDown className={cn(
+                    'w-4 h-4 text-sidebar-foreground transition-transform duration-200',
+                    playgroundExpanded ? 'rotate-180' : ''
+                  )} />
+                </div>
+
+                {playgroundExpanded && (
+                  <div className="ml-4 mt-1 space-y-1 border-l border-sidebar-border pl-4">
+                    {playgroundSubItems.map((item) => (
+                      <NavItem
+                        key={item.href}
+                        icon={item.icon}
+                        label={item.label}
+                        href={item.href}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Analytics Section */}
+              <div className="pt-2">
+                <NavItem
+                  icon={BarChart3}
+                  label="Analytics"
+                  href="/dashboard/analytics"
+                />
+              </div>
+
+              {/* Connect Section */}
+              <div className="pt-2">
+                <NavItem
+                  icon={Link}
+                  label="Connect"
+                  href="/dashboard/connect"
+                />
+              </div>
+
+              {/* Settings Section */}
+              <div className="pt-2">
+                <div
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium cursor-pointer hover:bg-sidebar-accent"
+                  onClick={() => setSettingsExpanded(!settingsExpanded)}
+                >
+                  <Settings className="w-5 h-5 flex-shrink-0" />
+                  <span className="flex-1 text-sidebar-foreground">Settings</span>
+                  <ChevronDown className={cn(
+                    'w-4 h-4 text-sidebar-foreground transition-transform duration-200',
+                    settingsExpanded ? 'rotate-180' : ''
+                  )} />
+                </div>
+
+                {settingsExpanded && (
+                  <div className="ml-4 mt-1 space-y-1 border-l border-sidebar-border pl-4">
+                    {settingsSubItems.map((item) => (
+                      <NavItem
+                        key={item.href}
+                        icon={item.icon}
+                        label={item.label}
+                        href={item.href}
                       />
                     ))}
                   </div>

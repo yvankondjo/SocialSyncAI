@@ -51,7 +51,7 @@ async def send_text_message(
     Utilise les credentials de l'utilisateur connecté depuis la BDD
     """
     try:
-        user_credentials = await get_user_credentials_by_user_id(current_user_id)
+        user_credentials = get_user_credentials_by_user_id(current_user_id)
         
         if not user_credentials:
             raise HTTPException(
@@ -96,7 +96,7 @@ async def send_template_message(
     Utilise les credentials de l'utilisateur connecté
     """
     try:
-        user_credentials = await get_user_credentials_by_user_id(current_user_id)
+        user_credentials = get_user_credentials_by_user_id(current_user_id)
         
         if not user_credentials:
             raise HTTPException(
@@ -333,7 +333,7 @@ async def process_webhook_entry_with_user_routing(entry: dict):
     phone_number_id = entry.get("changes")[0].get("value").get("metadata").get("phone_number_id") 
     changes = entry.get("changes", [])
     
-    user_info = await get_user_by_phone_number_id(phone_number_id)
+    user_info = get_user_by_phone_number_id(phone_number_id)
     
     if not user_info:
         logger.warning(f"Aucun utilisateur trouvé pour phone_number_id: {phone_number_id}")

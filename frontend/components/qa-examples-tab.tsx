@@ -17,7 +17,6 @@ import {
   MessageSquare,
   Tag,
   Globe,
-  Calendar,
   ToggleLeft,
   ToggleRight,
 } from "lucide-react"
@@ -285,8 +284,9 @@ export function QAExamplesTab() {
 
                       <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                         <div className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          {formatDate(example.updated_at || example.created_at)}
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(example.updated_at || example.created_at)}
+                          </span>
                         </div>
                         {example.context && Array.isArray(example.context) && example.context.length > 0 && (
                           <div className="flex items-center gap-1">

@@ -4,7 +4,7 @@ import logging
 
 from app.db.session import get_authenticated_db
 from app.schemas.conversation import (
-    Conversation, Message, ConversationListResponse, MessageListResponse,
+ Message, ConversationListResponse, MessageListResponse,
     SendMessageRequest, ConversationQueryParams
 )
 from app.services.conversation_service import ConversationService

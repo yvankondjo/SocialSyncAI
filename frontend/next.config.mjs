@@ -15,6 +15,7 @@ const nextConfig = {
   compiler: {
     removeConsole: process.env.NODE_ENV === 'production',
   },
+  transpilePackages: ['lucide-react'],
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-dialog'],
   },

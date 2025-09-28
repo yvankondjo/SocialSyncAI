@@ -16,7 +16,6 @@ declare module "lucide-react" {
   export const ChevronLeft: any
   export const ChevronRight: any
   export const Menu: any
-  export const CalendarIcon: any
   export const RefreshCw: any
   export const Unlink: any
   export const AlertCircle: any
@@ -46,16 +45,7 @@ declare module "lucide-react" {
 }
 declare module "react-select/creatable" { const x: any; export default x }
 
-declare module "@fullcalendar/react" { const x: any; export default x }
-declare module "@fullcalendar/daygrid" { const x: any; export default x }
-declare module "@fullcalendar/timegrid" { const x: any; export default x }
-declare module "@fullcalendar/interaction" { const x: any; export default x }
-declare module "@fullcalendar/core" {
-  export type EventInput = any
-  export type DateSelectArg = any
-  export type EventDropArg = any
-  export type EventClickArg = any
-}
+
 
 declare namespace JSX {
   interface IntrinsicElements {

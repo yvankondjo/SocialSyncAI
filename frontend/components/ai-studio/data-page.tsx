@@ -1,14 +1,14 @@
 "use client"
 
-import { useState, useCallback, useEffect, useRef } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { useAuth } from "@/hooks/useAuth"
 import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   File,
-  UploadCloud,
-  CheckCircle2,
+  Upload as UploadIcon,
+  CheckCircle,
   XCircle,
   Loader2,
   Download,
@@ -23,7 +23,7 @@ type FileStatus = "processing" | "indexed" | "failed"
 
 const statusIcons: Record<FileStatus, React.ReactNode> = {
   processing: <Loader2 className="h-4 w-4 animate-spin text-blue-500" />,
-  indexed: <CheckCircle2 className="h-4 w-4 text-green-500" />,
+  indexed: <CheckCircle className="h-4 w-4 text-green-500" />,
   failed: <XCircle className="h-4 w-4 text-red-500" />,
 }
 
@@ -34,9 +34,9 @@ const statusText: Record<FileStatus, string> = {
 }
 
 function FileUploadArea({ onUpload }: { onUpload: (files: File[]) => void }) {
-  const onDrop = useCallback((acceptedFiles: File[]) => {
+  const onDrop = (acceptedFiles: File[]) => {
     onUpload(acceptedFiles)
-  }, [onUpload])
+  }
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -55,7 +55,7 @@ function FileUploadArea({ onUpload }: { onUpload: (files: File[]) => void }) {
       className={`border-2 border-dashed border-muted-foreground/30 rounded-lg p-8 text-center bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer ${isDragActive ? 'border-primary bg-primary/10' : ''}`}
     >
       <input {...getInputProps()} />
-      <UploadCloud className="mx-auto h-12 w-12 text-muted-foreground" />
+      <UploadIcon className="mx-auto h-12 w-12 text-muted-foreground" />
       <p className="mt-4 text-sm text-muted-foreground">
         {isDragActive ?
           "Drop the files here ..." :
@@ -465,7 +465,7 @@ export function DataSourcesPage() {
             <p className="text-sm text-muted-foreground">Manage the knowledge base for your AI assistant.</p>
           </div>
           <Button>
-            <UploadCloud className="w-4 h-4 mr-2" />
+            <UploadIcon className="w-4 h-4 mr-2" />
             Add Document
           </Button>
         </CardHeader>

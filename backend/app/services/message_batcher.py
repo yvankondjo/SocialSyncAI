@@ -181,7 +181,10 @@ class MessageBatcher:
                 for msg_raw in messages_raw:
                     try:
                         msg_data = json.loads(msg_raw)
+                        # Le contenu est directement dans message_data car on a stocké metadata comme message_data
                         content = msg_data.get("message_data", {}).get("content", "")
+                        logger.info(f"🔍 DEBUG message_batcher - msg_data: {msg_data}")
+                        logger.info(f"🔍 DEBUG message_batcher - content extracted: '{content}'")
                         if image_in_messages:
                             if msg_data.get("message_type") == "image":
                                 storage_object_name_list.append(msg_data.get("message_data", {}).get("storage_object_name"))

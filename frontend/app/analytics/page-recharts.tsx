@@ -7,6 +7,21 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Progress } from "@/components/ui/progress"
 import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts"
+import {
   Bot,
   User,
   Clock,
@@ -22,6 +37,46 @@ const kpiData = {
   resolutionRate: { value: "94.2%", trend: 3.1, isPositive: true },
   satisfaction: { value: "4.8/5", trend: 2.4, isPositive: true },
 }
+
+const conversationData = [
+  { date: "Jan 1", conversations: 45 },
+  { date: "Jan 2", conversations: 52 },
+  { date: "Jan 3", conversations: 48 },
+  { date: "Jan 4", conversations: 61 },
+  { date: "Jan 5", conversations: 55 },
+  { date: "Jan 6", conversations: 67 },
+  { date: "Jan 7", conversations: 58 },
+  { date: "Jan 8", conversations: 72 },
+  { date: "Jan 9", conversations: 69 },
+  { date: "Jan 10", conversations: 75 },
+  { date: "Jan 11", conversations: 81 },
+  { date: "Jan 12", conversations: 78 },
+  { date: "Jan 13", conversations: 85 },
+  { date: "Jan 14", conversations: 92 },
+]
+
+const responseTimeData = [
+  { hour: "00h", avgTime: 180 },
+  { hour: "04h", avgTime: 120 },
+  { hour: "08h", avgTime: 95 },
+  { hour: "12h", avgTime: 154 },
+  { hour: "16h", avgTime: 187 },
+  { hour: "20h", avgTime: 165 },
+]
+
+const sentimentData = [
+  { name: "Positive", value: 65, color: "#10b981" },
+  { name: "Neutral", value: 25, color: "#f59e0b" },
+  { name: "Negative", value: 10, color: "#ef4444" },
+]
+
+const topicsData = [
+  { topic: "Account Issues", count: 245 },
+  { topic: "Product Questions", count: 189 },
+  { topic: "Technical Support", count: 167 },
+  { topic: "Billing", count: 134 },
+  { topic: "Feature Requests", count: 98 },
+]
 
 const topQuestions = [
   { question: "How do I reset my password?", count: 89 },
@@ -53,6 +108,13 @@ const recentActivity = [
     time: "1 hour ago",
     status: "escalated",
   },
+  {
+    id: "4",
+    type: "conversation",
+    title: "New conversation from mike.johnson@startup.io",
+    time: "2 hours ago",
+    status: "active",
+  },
 ]
 
 export default function AnalyticsPage() {
@@ -65,6 +127,7 @@ export default function AnalyticsPage() {
   }
 
   const handleExport = () => {
+    // Export functionality
     console.log("Exporting analytics data...")
   }
 
@@ -187,65 +250,93 @@ export default function AnalyticsPage() {
         </Card>
       </div>
 
-      {/* Simplified Charts Placeholder */}
+      {/* Charts Grid */}
       <div className="grid gap-4 md:grid-cols-2">
+        {/* Conversations Over Time */}
         <Card>
           <CardHeader>
             <CardTitle>Conversations Over Time</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px] bg-muted rounded-lg flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <Bot className="w-12 h-12 mx-auto mb-4" />
-                <p>Graphique Recharts sera ajouté</p>
-                <p className="text-sm">Icônes temporaires - à corriger</p>
-              </div>
-            </div>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={conversationData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip />
+                <Line 
+                  type="monotone" 
+                  dataKey="conversations" 
+                  stroke="#8884d8" 
+                  strokeWidth={2}
+                  dot={{ fill: "#8884d8", strokeWidth: 2, r: 4 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
+        {/* Response Times */}
         <Card>
           <CardHeader>
-            <CardTitle>Response Times</CardTitle>
+            <CardTitle>Average Response Times by Hour</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px] bg-muted rounded-lg flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <Clock className="w-12 h-12 mx-auto mb-4" />
-                <p>Graphique Recharts sera ajouté</p>
-                <p className="text-sm">Icônes temporaires - à corriger</p>
-              </div>
-            </div>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={responseTimeData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="hour" />
+                <YAxis />
+                <Tooltip formatter={(value) => [`${value}s`, "Avg Time"]} />
+                <Bar dataKey="avgTime" fill="#82ca9d" />
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
+        {/* Sentiment Distribution */}
         <Card>
           <CardHeader>
             <CardTitle>Sentiment Distribution</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px] bg-muted rounded-lg flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <User className="w-12 h-12 mx-auto mb-4" />
-                <p>Graphique Recharts sera ajouté</p>
-                <p className="text-sm">Icônes temporaires - à corriger</p>
-              </div>
-            </div>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={sentimentData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {sentimentData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
+        {/* Top Topics */}
         <Card>
           <CardHeader>
-            <CardTitle>Top Topics</CardTitle>
+            <CardTitle>Top Discussion Topics</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px] bg-muted rounded-lg flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <Plus className="w-12 h-12 mx-auto mb-4" />
-                <p>Graphique Recharts sera ajouté</p>
-                <p className="text-sm">Icônes temporaires - à corriger</p>
-              </div>
-            </div>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={topicsData} layout="horizontal">
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" />
+                <YAxis dataKey="topic" type="category" width={100} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#ffc658" />
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>

@@ -286,4 +286,26 @@ Le nouveau système offre une expérience utilisateur moderne, des fonctionnalit
 ### 🚀 Résultat Final
 Un système complet, moderne et fonctionnel prêt pour la production, avec toutes les fonctionnalités demandées implémentées selon les spécifications exactes du design Social-Sync-AI.
 
-**STATUT: ✅ MIGRATION COMPLÈTE - AUCUNE ERREUR**
+**STATUT: ✅ MIGRATION COMPLÈTE - FONCTIONNELLE**
+
+## ⚠️ NOTES IMPORTANTES
+
+### Icônes Temporaires
+- **Problème**: Incompatibilité avec certaines icônes lucide-react
+- **Solution temporaire**: Icônes basiques utilisées (Bot, User, Plus, X, Clock, Search)
+- **À corriger**: Remplacer par les vraies icônes (MessageSquare, BarChart3, TrendingUp, etc.)
+- **Impact**: Aucun sur les fonctionnalités, juste visuel
+
+### Graphiques Analytics  
+- **Problème**: Recharts a des problèmes de build
+- **Solution temporaire**: Placeholders avec message informatif
+- **À corriger**: Réactiver les vrais graphiques Recharts
+- **Impact**: Structure complète, juste les graphiques en placeholder
+
+### Démarrage
+```bash
+cd /workspace/frontend
+npm run dev
+```
+
+**URLs de test**: http://localhost:3000 et http://localhost:3000/test-new-ui

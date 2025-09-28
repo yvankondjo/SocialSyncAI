@@ -7,34 +7,26 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useSidebarStore } from '@/hooks/useSidebarStore'
 import {
-  Play,
-  Activity,
-  Circle,
-  Database,
-  HelpCircle,
-  BarChart3,
-  Link2,
-  Settings,
   Bot,
-  MessageCircle,
-  Globe,
-  Menu,
+  User,
   Search,
-  ChevronLeft,
+  Plus,
+  X,
+  Clock,
 } from "lucide-react"
 
 const navigation = [
-  { name: "Playground", href: "/playground", icon: Play },
-  { name: "Activity", href: "/activity", icon: Activity },
-  { name: "Chat", href: "/activity/chat", icon: Circle },
-  { name: "Data", href: "/sources/data", icon: Database },
-  { name: "FAQ", href: "/sources/faq", icon: HelpCircle },
-  { name: "Analytics", href: "/analytics", icon: BarChart3 },
-  { name: "Connect", href: "/connect", icon: Link2 },
+  { name: "Playground", href: "/playground", icon: Bot },
+  { name: "Activity", href: "/activity", icon: User },
+  { name: "Chat", href: "/activity/chat", icon: Bot },
+  { name: "Data", href: "/sources/data", icon: Plus },
+  { name: "FAQ", href: "/sources/faq", icon: User },
+  { name: "Analytics", href: "/analytics", icon: Clock },
+  { name: "Connect", href: "/connect", icon: Plus },
   { name: "AI", href: "/settings/ai", icon: Bot },
-  { name: "Chat Interface", href: "/settings/chat-interface", icon: MessageCircle },
-  { name: "Custom Domains", href: "/settings/custom-domains", icon: Globe },
-  { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Chat Interface", href: "/settings/chat-interface", icon: Bot },
+  { name: "Custom Domains", href: "/settings/custom-domains", icon: User },
+  { name: "Settings", href: "/settings", icon: User },
 ]
 
 export function Sidebar() {
@@ -64,7 +56,7 @@ export function Sidebar() {
           onClick={toggleCollapsed}
           className="text-sidebar-foreground hover:bg-sidebar-accent"
         >
-          {isCollapsed ? <Menu className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          {isCollapsed ? <Plus className="w-4 h-4" /> : <X className="w-4 h-4" />}
         </Button>
       </div>
 

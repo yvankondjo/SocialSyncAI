@@ -17,16 +17,9 @@ import {
   Send,
   Bot,
   User,
-  Circle,
-  Edit3,
-  Trash2,
+  X,
   Clock,
-  CheckCircle,
-  AlertCircle,
   Plus,
-  Filter,
-  MoreHorizontal,
-  RefreshCw,
 } from "lucide-react"
 import { logos } from "@/lib/logos"
 
@@ -258,10 +251,8 @@ export default function ActivityChatPage() {
     if (!editContent.trim()) return
 
     try {
-      // Sauvegarder l'édition (à implémenter côté API)
       console.log("Saving edit:", editContent)
       
-      // Mettre à jour les messages localement
       setMessages(prev => prev.map(msg => 
         msg.id === editingMessage 
           ? { ...msg, content: editContent, is_edited: true }
@@ -318,7 +309,7 @@ export default function ActivityChatPage() {
           <Input
             placeholder="Search conversations..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
             className="pl-10"
           />
         </div>
@@ -351,7 +342,7 @@ export default function ActivityChatPage() {
         </Select>
 
         <Button variant="outline" onClick={loadConversations} disabled={loadingConversations}>
-          <RefreshCw className={`w-4 h-4 ${loadingConversations ? 'animate-spin' : ''}`} />
+          <Bot className={`w-4 h-4 ${loadingConversations ? 'animate-spin' : ''}`} />
         </Button>
       </div>
 
@@ -380,7 +371,7 @@ export default function ActivityChatPage() {
               </div>
             ) : filteredConversations.length === 0 ? (
               <div className="p-4 text-center text-muted-foreground">
-                <Circle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <Bot className="w-12 h-12 mx-auto mb-4 opacity-50" />
                 <p>No conversations found</p>
                 <p className="text-sm">Try adjusting your filters or check back later for new conversations.</p>
               </div>
@@ -430,9 +421,9 @@ export default function ActivityChatPage() {
                             {getPlatformDisplayName(conversation.channel)}
                           </Badge>
                           {conversation.unread_count > 0 ? (
-                            <AlertCircle className="w-3 h-3 text-yellow-400" />
+                            <X className="w-3 h-3 text-yellow-400" />
                           ) : (
-                            <CheckCircle className="w-3 h-3 text-green-400" />
+                            <Bot className="w-3 h-3 text-green-400" />
                           )}
                         </div>
                       </div>
@@ -474,7 +465,7 @@ export default function ActivityChatPage() {
                       <Label className="text-sm">Auto-reply</Label>
                       <Switch
                         checked={conversationAutoReply[selectedConv.id] || false}
-                        onCheckedChange={(checked) =>
+                        onCheckedChange={(checked: boolean) =>
                           setConversationAutoReply((prev) => ({
                             ...prev,
                             [selectedConv.id]: checked,
@@ -483,7 +474,7 @@ export default function ActivityChatPage() {
                       />
                     </div>
                     <Button variant="outline" size="sm">
-                      <MoreHorizontal className="w-4 h-4" />
+                      <Bot className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>
@@ -506,7 +497,7 @@ export default function ActivityChatPage() {
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="text-center text-muted-foreground mt-8">
-                    <Circle className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                    <Bot className="w-16 h-16 mx-auto mb-4 opacity-50" />
                     <h3 className="text-lg font-semibold mb-2">No messages yet</h3>
                     <p>Start the conversation by sending a message below.</p>
                   </div>
@@ -543,7 +534,7 @@ export default function ActivityChatPage() {
                                 onClick={() => handleEditMessage(msg.id, msg.content)}
                                 className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0"
                               >
-                                <Edit3 className="w-3 h-3" />
+                                <Bot className="w-3 h-3" />
                               </Button>
                             )}
                           </div>
@@ -580,10 +571,10 @@ export default function ActivityChatPage() {
                   <div className="flex-1 relative">
                     <Input
                       value={message}
-                      onChange={(e) => setMessage(e.target.value)}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMessage(e.target.value)}
                       placeholder="Type your message..."
                       className="pr-12"
-                      onKeyPress={(e) => {
+                      onKeyPress={(e: React.KeyboardEvent) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault()
                           handleSendMessage()
@@ -610,7 +601,7 @@ export default function ActivityChatPage() {
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground">
               <div className="text-center">
-                <Circle className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <Bot className="w-16 h-16 mx-auto mb-4 opacity-50" />
                 <h3 className="text-lg font-semibold mb-2">Select a conversation</h3>
                 <p>Choose a conversation from the list to view its details and messages.</p>
               </div>
@@ -628,7 +619,7 @@ export default function ActivityChatPage() {
           <div className="space-y-4">
             <Textarea
               value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setEditContent(e.target.value)}
               placeholder="Edit the AI response..."
               className="min-h-[120px]"
             />

@@ -17,7 +17,7 @@ import {
   Send,
   Bot,
   User,
-  MessageSquare,
+  MessageCircle,
   Edit3,
   Trash2,
   Clock,
@@ -380,7 +380,7 @@ export default function ActivityChatPage() {
               </div>
             ) : filteredConversations.length === 0 ? (
               <div className="p-4 text-center text-muted-foreground">
-                <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <MessageCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
                 <p>No conversations found</p>
                 <p className="text-sm">Try adjusting your filters or check back later for new conversations.</p>
               </div>
@@ -506,7 +506,7 @@ export default function ActivityChatPage() {
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="text-center text-muted-foreground mt-8">
-                    <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                    <MessageCircle className="w-16 h-16 mx-auto mb-4 opacity-50" />
                     <h3 className="text-lg font-semibold mb-2">No messages yet</h3>
                     <p>Start the conversation by sending a message below.</p>
                   </div>
@@ -610,7 +610,7 @@ export default function ActivityChatPage() {
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground">
               <div className="text-center">
-                <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <MessageCircle className="w-16 h-16 mx-auto mb-4 opacity-50" />
                 <h3 className="text-lg font-semibold mb-2">Select a conversation</h3>
                 <p>Choose a conversation from the list to view its details and messages.</p>
               </div>

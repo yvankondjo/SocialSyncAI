@@ -7,16 +7,15 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useSidebarStore } from '@/hooks/useSidebarStore'
 import {
-  PlayCircle,
+  Play,
   Activity,
-  MessageSquare,
+  MessageCircle,
   Database,
   HelpCircle,
   BarChart3,
-  LinkIcon,
+  Link2,
   Settings,
   Bot,
-  MessageCircle,
   Globe,
   Menu,
   Search,
@@ -24,13 +23,13 @@ import {
 } from "lucide-react"
 
 const navigation = [
-  { name: "Playground", href: "/playground", icon: PlayCircle },
+  { name: "Playground", href: "/playground", icon: Play },
   { name: "Activity", href: "/activity", icon: Activity },
-  { name: "Chat", href: "/activity/chat", icon: MessageSquare },
+  { name: "Chat", href: "/activity/chat", icon: MessageCircle },
   { name: "Data", href: "/sources/data", icon: Database },
   { name: "FAQ", href: "/sources/faq", icon: HelpCircle },
   { name: "Analytics", href: "/analytics", icon: BarChart3 },
-  { name: "Connect", href: "/connect", icon: LinkIcon },
+  { name: "Connect", href: "/connect", icon: Link2 },
   { name: "AI", href: "/settings/ai", icon: Bot },
   { name: "Chat Interface", href: "/settings/chat-interface", icon: MessageCircle },
   { name: "Custom Domains", href: "/settings/custom-domains", icon: Globe },

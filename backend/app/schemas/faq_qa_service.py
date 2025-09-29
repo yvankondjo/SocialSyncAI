@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from uuid import UUID
 from datetime import datetime
 
@@ -8,10 +8,8 @@ class FAQQA(BaseModel):
     id: UUID
     user_id: UUID
     title: Optional[str] = None
-    question: str
+    questions: List[str] = Field(default_factory=list)
     answer: str
-    tsconfig: str = "pg_catalog.simple"
-    lang_code: str = "simple"
     metadata: Dict[str, Any] = Field(default_factory=dict)
     is_active: bool = True
     created_at: datetime
@@ -23,24 +21,32 @@ class FAQQA(BaseModel):
 
 class FAQQACreate(BaseModel):
     title: Optional[str] = None
-    question: str = Field(..., min_length=1)
+    questions: List[str] = Field(..., min_items=1, description="Liste des formulations de questions")
     answer: str = Field(..., min_length=1)
-    lang_code: str = "simple"
-    tsconfig: str = "pg_catalog.simple"
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class FAQQAUpdate(BaseModel):
     title: Optional[str] = None
-    question: Optional[str] = None
+    questions: Optional[List[str]] = None
     answer: Optional[str] = None
-    lang_code: Optional[str] = "simple"
-    tsconfig: Optional[str] = "pg_catalog.simple"
     metadata: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
 
 
-class FAQQASearch(BaseModel):
-    query: str = Field(..., min_length=1)
-    limit: int = 10
-    offset: int = 0
+class FAQQuestionsAddRequest(BaseModel):
+    items: List[str] = Field(..., min_items=1, description="Questions à ajouter")
+
+
+class FAQQuestionsUpdateRequest(BaseModel):
+    updates: List[Dict[str, Any]] = Field(..., description="Liste des mises à jour {index: int, value: str}")
+
+
+class FAQQuestionsDeleteRequest(BaseModel):
+    indexes: List[int] = Field(..., min_items=1, description="Indexes des questions à supprimer")
+
+
+
+
+
+

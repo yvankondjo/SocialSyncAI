@@ -3,7 +3,10 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from supabase import Client
 from uuid import UUID
 from typing import List
-from app.schemas.faq_qa_service import FAQQA, FAQQACreate, FAQQAUpdate, FAQQASearch
+from app.schemas.faq_qa_service import (
+    FAQQA, FAQQACreate,
+    FAQQuestionsAddRequest, FAQQuestionsUpdateRequest, FAQQuestionsDeleteRequest
+)
 from app.core.security import get_current_user_id
 
 router = APIRouter(prefix="/faq-qa", tags=["FAQ Q&A"])
@@ -69,10 +72,8 @@ async def create_faq_qa(
         data = {
             "user_id": current_user_id,
             "title": faq_data.title,
-            "question": faq_data.question,
+            "questions": faq_data.questions,
             "answer": faq_data.answer,
-            "lang_code": faq_data.lang_code,
-            "tsconfig": faq_data.tsconfig,
             "metadata": metadata
         }
 
@@ -85,82 +86,6 @@ async def create_faq_qa(
         print(f"Type d'erreur: {type(e)}")
         raise HTTPException(status_code=400, detail=f"Erreur lors de la création de la FAQ: {str(e)}")
 
-
-@router.put("/{faq_id}", response_model=FAQQA)
-async def update_faq_qa(
-    faq_id: UUID,
-    faq_data: FAQQAUpdate,
-    request: Request,
-    db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
-):
-    """Met à jour une FAQ Q&A"""
-    print(f"Mise à jour de la FAQ {faq_id} pour l'utilisateur: {current_user_id}")
-    try:
-        existing = db.table("faq_qa").select("*").eq("id", faq_id).single().execute()
-        if not existing.data:
-            print(f"FAQ {faq_id} non trouvée")
-            raise HTTPException(status_code=404, detail="FAQ non trouvée")
-
-        update_data = {k: v for k, v in faq_data.model_dump().items() if v is not None}
-        print(f"Données de mise à jour: {update_data}")
-
-        if hasattr(faq_data, 'language') and faq_data.language is not None:
-            update_data["lang_code"] = faq_data.lang_code
-            update_data["tsconfig"] = faq_data.tsconfig
-
-        if "metadata" in update_data and update_data["metadata"]:
-            metadata = update_data["metadata"]
-            if "context" in metadata and isinstance(metadata["context"], list):
-                tags = metadata["context"]
-                print(f"Tags lors de la mise à jour: {tags}")
-        
-        update_data["updated_at"] = "now()"
-
-        result = db.table("faq_qa").update(update_data).eq("id", faq_id).execute()
-        print(f"FAQ {faq_id} mise à jour avec succès")
-        return FAQQA(**result.data[0])
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Erreur lors de la mise à jour de la FAQ {faq_id}: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Erreur lors de la mise à jour de la FAQ: {str(e)}")
-
-
-@router.patch("/{faq_id}", response_model=FAQQA)
-async def patch_faq_qa(
-    faq_id: UUID,
-    faq_data: FAQQAUpdate,
-    request: Request,
-    db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
-):
-    """Met à jour partiellement une FAQ Q&A"""
-    try:
-        existing = db.table("faq_qa").select("*").eq("id", faq_id).single().execute()
-        if not existing.data:
-            raise HTTPException(status_code=404, detail="FAQ non trouvée")
-
-        update_data = {k: v for k, v in faq_data.model_dump().items() if v is not None}
-        if hasattr(faq_data, 'language') and faq_data.language is not None:
-            update_data["lang_code"] = faq_data.lang_code
-            update_data["tsconfig"] = faq_data.tsconfig
-
-
-        if "metadata" in update_data and update_data["metadata"]:
-            metadata = update_data["metadata"]
-            if "context" in metadata and isinstance(metadata["context"], list):
-                tags = metadata["context"]
-               
-
-        update_data["updated_at"] = "now()"
-
-        result = db.table("faq_qa").update(update_data).eq("id", faq_id).execute()
-        return FAQQA(**result.data[0])
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erreur lors de la mise à jour partielle de la FAQ: {str(e)}")
 
 
 @router.patch("/{faq_id}/toggle")
@@ -221,4 +146,118 @@ async def delete_faq_qa(
     except Exception as e:
         print(f"Erreur lors de la suppression de la FAQ {faq_id}: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Erreur lors de la suppression de la FAQ: {str(e)}")
+
+
+# Nouvelles routes pour la gestion des questions selon PRD2
+@router.post("/{faq_id}/questions:add")
+async def add_faq_questions(
+    faq_id: UUID,
+    request: FAQQuestionsAddRequest,
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """Ajoute des questions à une FAQ existante"""
+    try:
+        # Vérifier que la FAQ existe et appartient à l'utilisateur
+        existing = db.table("faq_qa").select("*").eq("id", faq_id).single().execute()
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="FAQ non trouvée")
+        
+        current_questions = existing.data.get("questions", [])
+        updated_questions = current_questions + request.items
+        
+        result = db.table("faq_qa").update({
+            "questions": updated_questions,
+            "updated_at": "now()"
+        }).eq("id", faq_id).execute()
+        
+        return {"message": f"{len(request.items)} questions ajoutées avec succès", "questions": updated_questions}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erreur lors de l'ajout des questions: {str(e)}")
+
+
+@router.post("/{faq_id}/questions:update")
+async def update_faq_questions(
+    faq_id: UUID,
+    request: FAQQuestionsUpdateRequest,
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """Met à jour des questions spécifiques par index"""
+    try:
+        # Vérifier que la FAQ existe
+        existing = db.table("faq_qa").select("*").eq("id", faq_id).single().execute()
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="FAQ non trouvée")
+        
+        current_questions = existing.data.get("questions", [])
+        updated_questions = current_questions.copy()
+        
+        # Appliquer les mises à jour
+        for update in request.updates:
+            index = update.get("index")
+            value = update.get("value")
+            
+            if index is None or value is None:
+                raise HTTPException(status_code=400, detail="Chaque update doit contenir 'index' et 'value'")
+            
+            if not (0 <= index < len(updated_questions)):
+                raise HTTPException(status_code=400, detail=f"Index {index} hors limites")
+            
+            updated_questions[index] = value
+        
+        result = db.table("faq_qa").update({
+            "questions": updated_questions,
+            "updated_at": "now()"
+        }).eq("id", faq_id).execute()
+        
+        return {"message": f"{len(request.updates)} questions mises à jour", "questions": updated_questions}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erreur lors de la mise à jour des questions: {str(e)}")
+
+
+@router.post("/{faq_id}/questions:delete")
+async def delete_faq_questions(
+    faq_id: UUID,
+    request: FAQQuestionsDeleteRequest,
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """Supprime des questions par index"""
+    try:
+        # Vérifier que la FAQ existe
+        existing = db.table("faq_qa").select("*").eq("id", faq_id).single().execute()
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="FAQ non trouvée")
+        
+        current_questions = existing.data.get("questions", [])
+        
+        # Valider les indexes
+        for index in request.indexes:
+            if not (0 <= index < len(current_questions)):
+                raise HTTPException(status_code=400, detail=f"Index {index} hors limites")
+        
+        # Supprimer les questions (en ordre décroissant pour éviter les problèmes d'index)
+        updated_questions = current_questions.copy()
+        for index in sorted(request.indexes, reverse=True):
+            updated_questions.pop(index)
+        
+        # Vérifier qu'il reste au moins une question
+        if not updated_questions:
+            raise HTTPException(status_code=400, detail="Une FAQ doit avoir au moins une question")
+        
+        result = db.table("faq_qa").update({
+            "questions": updated_questions,
+            "updated_at": "now()"
+        }).eq("id", faq_id).execute()
+        
+        return {"message": f"{len(request.indexes)} questions supprimées", "questions": updated_questions}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erreur lors de la suppression des questions: {str(e)}")
 

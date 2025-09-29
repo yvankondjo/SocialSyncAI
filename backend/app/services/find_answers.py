@@ -1,10 +1,10 @@
-import sys
-from pathlib import Path
-backend_path = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(backend_path))
+# import sys
+# from pathlib import Path
+# backend_path = Path(__file__).parent.parent.parent
+# sys.path.insert(0, str(backend_path))
 
 from pydantic import BaseModel, Field, ValidationError
-from typing import Optional, TypeAlias, Literal
+from typing import Optional, TypeAlias, Literal, List
 from datetime import datetime
 from app.db.session import get_db
 import logging
@@ -17,7 +17,7 @@ from httpx import HTTPError
 logger = logging.getLogger(__name__)
 class QuestionAnswer(BaseModel):
     question_id: str
-    question: str
+    questions: List[str]
     answer: str
 
 class ReferencedAnswer(BaseModel):

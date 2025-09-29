@@ -5,25 +5,13 @@ config:
 ---
 graph TD;
 	__start__([<p>__start__</p>]):::first
-	history_manager(history_manager)
 	llm(llm)
-	search_files(search_files)
-	find_answers(find_answers)
-	summary_node(summary_node)
-	error_handler(error_handler)
+	handle_tool_call(handle_tool_call)
 	__end__([<p>__end__</p>]):::last
-	__start__ --> history_manager;
-	find_answers --> llm;
-	history_manager -. &nbsp;error&nbsp; .-> error_handler;
-	history_manager -.-> llm;
-	history_manager -. &nbsp;summary&nbsp; .-> summary_node;
+	__start__ --> llm;
+	handle_tool_call --> llm;
 	llm -. &nbsp;end&nbsp; .-> __end__;
-	llm -. &nbsp;error&nbsp; .-> error_handler;
-	llm -.-> find_answers;
-	llm -.-> search_files;
-	search_files --> llm;
-	summary_node --> llm;
-	error_handler --> __end__;
+	llm -.-> handle_tool_call;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc

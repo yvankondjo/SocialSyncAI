@@ -7,6 +7,7 @@ from app.schemas.conversation import (
  Message, ConversationListResponse, MessageListResponse,
     SendMessageRequest, ConversationQueryParams
 )
+from app.schemas.conversation import ConversationAIModeRequest
 from app.services.conversation_service import ConversationService
 from app.core.security import get_current_user_id
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
@@ -172,4 +173,45 @@ async def mark_conversation_as_read(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erreur lors du marquage comme lu: {str(e)}"
+        )
+
+
+# Nouvelle route pour contrôler l'IA par conversation selon PRD2
+@router.patch("/{conversation_id}/ai_mode")
+async def update_conversation_ai_mode(
+    conversation_id: str,
+    request: ConversationAIModeRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    db = Depends(get_authenticated_db)
+):
+    """Met à jour le mode IA d'une conversation (ON/OFF)"""
+    try:
+        # Valider le mode
+        if request.mode not in ["ON", "OFF"]:
+            raise HTTPException(status_code=400, detail="Le mode doit être 'ON' ou 'OFF'")
+        
+        # Vérifier que la conversation existe et appartient à l'utilisateur
+        conversation_check = db.table("conversations").select("id").eq("id", conversation_id).execute()
+        if not conversation_check.data:
+            raise HTTPException(status_code=404, detail="Conversation non trouvée")
+        
+        # Mettre à jour le mode IA
+        result = db.table("conversations").update({
+            "ai_mode": request.mode,
+            "updated_at": "now()"
+        }).eq("id", conversation_id).execute()
+        
+        return {
+            "message": f"Mode IA mis à jour vers {request.mode}",
+            "conversation_id": conversation_id,
+            "ai_mode": request.mode
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erreur lors de la mise à jour du mode IA: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors de la mise à jour du mode IA: {str(e)}"
         )

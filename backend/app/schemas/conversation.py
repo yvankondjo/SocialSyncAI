@@ -84,3 +84,12 @@ class ConversationQueryParams(BaseModel):
     status: Optional[str] = None
     limit: int = Field(default=50, le=100)
     offset: int = Field(default=0, ge=0)
+
+
+class ConversationAIModeRequest(BaseModel):
+    mode: str = Field(..., description="Mode IA: ON ou OFF")
+
+    class Config:
+        schema_extra = {
+            "example": {"mode": "OFF"}
+        }

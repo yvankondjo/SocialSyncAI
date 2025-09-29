@@ -87,9 +87,9 @@ export default function HomePage() {
               <p className="text-muted-foreground">
                 Accédez à l'interface principale avec authentification
               </p>
-              <Link href="/dashboard">
+              <Link href="/playground">
                 <Button className="w-full">
-                  Aller au Dashboard
+                  Aller au Playground
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </Link>

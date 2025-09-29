@@ -1,11 +1,5 @@
-'use client'
+import { redirect } from "next/navigation"
 
-import { InboxPage } from '@/components/inbox-page'
-
-export default function Activity() {
-  return (
-    <div className="flex-1 overflow-auto bg-muted/30">
-      <InboxPage />
-    </div>
-  )
+export default function ActivityPage() {
+  redirect("/dashboard/activity/chat")
 }

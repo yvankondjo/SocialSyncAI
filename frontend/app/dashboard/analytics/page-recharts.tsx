@@ -9,7 +9,6 @@ import { Progress } from "@/components/ui/progress"
 import {
   LineChart,
   Line,
-  BarChart,
   Bar,
   PieChart,
   Pie,
@@ -22,12 +21,13 @@ import {
   ResponsiveContainer,
 } from "recharts"
 import {
-  Bot,
+  ChevronUp,
   User,
   Clock,
   Plus,
   X,
   Search,
+  RotateCcw,
 } from "lucide-react"
 
 // Mock data for analytics
@@ -153,7 +153,7 @@ export default function AnalyticsPage() {
             </SelectContent>
           </Select>
           <Button variant="outline" onClick={handleRefresh} disabled={isLoading}>
-            <Bot className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            <RotateCcw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
           <Button onClick={handleExport}>
@@ -210,7 +210,7 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Resolution Rate</CardTitle>
-            <Bot className="h-4 w-4 text-muted-foreground" />
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{kpiData.resolutionRate.value}</div>
@@ -258,21 +258,13 @@ export default function AnalyticsPage() {
             <CardTitle>Conversations Over Time</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={conversationData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Line 
-                  type="monotone" 
-                  dataKey="conversations" 
-                  stroke="#8884d8" 
-                  strokeWidth={2}
-                  dot={{ fill: "#8884d8", strokeWidth: 2, r: 4 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <div className="h-[300px] bg-muted rounded-lg flex items-center justify-center">
+              <div className="text-center text-muted-foreground">
+                <ChevronUp className="w-12 h-12 mx-auto mb-4" />
+                <p>Graphique de conversations</p>
+                <p className="text-sm">Bientôt disponible</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -283,13 +275,13 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={responseTimeData}>
+              <div className="hidden"><BarChart data={responseTimeData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="hour" />
                 <YAxis />
                 <Tooltip formatter={(value) => [`${value}s`, "Avg Time"]} />
                 <Bar dataKey="avgTime" fill="#82ca9d" />
-              </BarChart>
+              </BarChart></div>
             </ResponsiveContainer>
           </CardContent>
         </Card>
@@ -301,7 +293,7 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
+              <div className="hidden"><PieChart>
                 <Pie
                   data={sentimentData}
                   cx="50%"
@@ -317,7 +309,7 @@ export default function AnalyticsPage() {
                   ))}
                 </Pie>
                 <Tooltip />
-              </PieChart>
+              </PieChart></div>
             </ResponsiveContainer>
           </CardContent>
         </Card>
@@ -329,13 +321,13 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={topicsData} layout="horizontal">
+              <div className="hidden"><BarChart data={topicsData} layout="horizontal">
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" />
                 <YAxis dataKey="topic" type="category" width={100} />
                 <Tooltip />
                 <Bar dataKey="count" fill="#ffc658" />
-              </BarChart>
+              </BarChart></div>
             </ResponsiveContainer>
           </CardContent>
         </Card>

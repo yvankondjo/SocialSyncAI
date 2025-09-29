@@ -1,8 +1,10 @@
 'use client'
 
 import { AuthGuard } from '@/components/AuthGuard'
-import { Sidebar } from '@/components/sidebar/Sidebar'
+import { Sidebar } from '@/components/sidebar-new'
+import { Header } from '@/components/header'
 import { useSidebarStore } from '@/hooks/useSidebarStore'
+import { cn } from '@/lib/utils'
 
 export default function DashboardLayout({
   children,
@@ -13,15 +15,19 @@ export default function DashboardLayout({
 
   return (
     <AuthGuard>
-      <div className="h-screen bg-background">
+      <div className="flex h-screen bg-background">
         <Sidebar />
-        <main 
-          className={`h-screen flex flex-col overflow-hidden transition-all duration-300 ease-in-out ml-0 ${
-            isCollapsed ? 'lg:ml-[72px]' : 'lg:ml-[280px]'
-          }`}
+        <div
+          className={cn(
+            "flex-1 flex flex-col transition-all duration-300",
+            isCollapsed ? "ml-16" : "ml-64"
+          )}
         >
-          {children}
-        </main>
+          <Header />
+          <div className="flex-1 p-6 space-y-6 overflow-auto">
+            {children}
+          </div>
+        </div>
       </div>
     </AuthGuard>
   )

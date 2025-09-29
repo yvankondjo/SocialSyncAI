@@ -11,7 +11,6 @@ import {
   Sparkles,
   Clock,
   Send,
-  Bot,
   TrendingUp,
   MessageSquare,
 } from "lucide-react"
@@ -325,7 +324,7 @@ export function DashboardPage() {
         className="fixed bottom-6 right-6 h-14 px-6 bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg hover:shadow-xl transition-all duration-200 hover-lift z-50"
         size="lg"
       >
-        <Bot className="w-5 h-5 mr-2" />
+        <MessageSquare className="w-5 h-5 mr-2" />
         Ask SocialSync AI
       </Button>
     </div>

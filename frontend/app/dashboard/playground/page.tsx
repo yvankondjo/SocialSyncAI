@@ -158,10 +158,10 @@ export default function PlaygroundPage() {
   }
 
   return (
-    <div className="flex-1 p-6">
-      <div className="flex h-[calc(100vh-120px)] gap-6">
+    <div className="flex-1 p-3 sm:p-4 lg:p-6">
+      <div className="flex flex-col lg:flex-row h-[calc(100vh-120px)] gap-3 sm:gap-4 lg:gap-6">
         {/* Configuration Panel */}
-        <div className="w-96 space-y-4">
+        <div className="w-full lg:w-96 space-y-3 sm:space-y-4">
           {/* Agent Status */}
           <Card>
             <CardContent className="pt-6">
@@ -277,7 +277,7 @@ export default function PlaygroundPage() {
         </div>
 
         {/* Chat Interface */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-h-[400px] lg:min-h-0">
           <Card className="flex-1 flex flex-col">
             {/* Chat Header */}
             <CardHeader className="pb-4">

@@ -230,8 +230,8 @@ export function InboxPage() {
   const selectedConv = conversations.find(conv => conv.id === selectedConversation)
 
   return (
-    <div className="flex h-full bg-white">
-      <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
+    <div className="flex flex-col lg:flex-row h-full bg-white">
+      <div className="w-full lg:w-64 bg-white border-r border-gray-200 flex flex-col lg:min-h-0">
         <div className="px-6 py-6">
           <div className="mb-6">
             <div className="flex items-center justify-between mb-4">

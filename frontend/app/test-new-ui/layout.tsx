@@ -6,7 +6,7 @@ import { Header } from '@/components/header'
 import { useSidebarStore } from '@/hooks/useSidebarStore'
 import { cn } from '@/lib/utils'
 
-export default function DashboardLayout({
+export default function TestNewUILayout({
   children,
 }: {
   children: React.ReactNode
@@ -17,16 +17,14 @@ export default function DashboardLayout({
     <AuthGuard>
       <div className="flex h-screen bg-background">
         <Sidebar />
-        <div
+        <div 
           className={cn(
             "flex-1 flex flex-col transition-all duration-300",
             isCollapsed ? "ml-16" : "ml-64"
           )}
         >
           <Header />
-          <div className="flex-1 p-6 space-y-6 overflow-auto">
-            {children}
-          </div>
+          {children}
         </div>
       </div>
     </AuthGuard>

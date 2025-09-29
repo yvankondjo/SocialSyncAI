@@ -11,7 +11,6 @@ import { SocialAccountsService, ConversationsService, type SocialAccount, type C
 import {
   Search,
   Send,
-  Bot,
   User,
   ChevronDown,
   ChevronRight,
@@ -513,9 +512,6 @@ export function InboxPage() {
                       </div>
                       <p className="text-xs text-gray-500 mt-2 px-1">
                         {formatTime(msg.created_at)}
-                        {msg.is_from_agent && (
-                          <Bot className="inline w-3 h-3 ml-1" />
-                        )}
                       </p>
                     </div>
 
@@ -523,7 +519,7 @@ export function InboxPage() {
                       <div className="relative order-2">
                         <Avatar className="w-8 h-8">
                           <AvatarFallback className="bg-emerald-100 text-emerald-700">
-                            {msg.is_from_agent ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                            <User className="w-4 h-4" />
                           </AvatarFallback>
                         </Avatar>
                       </div>

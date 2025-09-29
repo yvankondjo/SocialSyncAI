@@ -17,7 +17,7 @@ export default function DashboardLayout({
     <AuthGuard>
       <div className="flex h-screen bg-background">
         <Sidebar />
-        <div
+        <div 
           className={cn(
             "flex-1 flex flex-col transition-all duration-300",
             isCollapsed ? "ml-16" : "ml-64"

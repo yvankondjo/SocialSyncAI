@@ -17,6 +17,7 @@ class Conversation(BaseModel):
     last_message_at: Optional[datetime] = None
     unread_count: int = 0
     automation_disabled: bool = False
+    ai_mode: Optional[str] = "ON"
     created_at: datetime
     updated_at: datetime
 
@@ -34,7 +35,7 @@ class Message(BaseModel):
     direction: str = Field(..., description="inbound or outbound")
     message_type: str = "text"
     content: str
-    media_url: Optional[str] = None
+    media_url: Optional[str] = None  # Now maps to storage_object_name in DB
     media_type: Optional[str] = None
     sender_id: Optional[str] = None
     sender_name: Optional[str] = None
@@ -90,6 +91,6 @@ class ConversationAIModeRequest(BaseModel):
     mode: str = Field(..., description="Mode IA: ON ou OFF")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {"mode": "OFF"}
         }

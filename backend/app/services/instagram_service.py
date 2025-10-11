@@ -38,43 +38,82 @@ class InstagramService:
         url = f'/{self.page_id}/messages'
         payload = {'recipient': {'id': recipient_ig_id}, 'message': {'text': text}, 'access_token': self.access_token}
         logger.info(f'Envoi DM Instagram vers {recipient_ig_id}: {text[:50]}...')
-        return await self._send_with_retry(url, payload)
-
-    async def publish_feed_post(self, image_url: str, caption: str = '') -> Dict[str, Any]:
-        container_data = {'image_url': image_url, 'caption': caption, 'access_token': self.access_token}
-        url = f'/{self.page_id}/media'
-        logger.info(f'Création container média Instagram: {image_url}')
         try:
-            resp = await self.client.post(url, json=container_data)
-            resp.raise_for_status()
-            container_result = resp.json()
-            container_id = container_result['id']
-            publish_data = {'creation_id': container_id, 'access_token': self.access_token}
-            publish_url = f'/{self.page_id}/media_publish'
-            resp = await self.client.post(publish_url, json=publish_data)
-            resp.raise_for_status()
-            return resp.json()
+            result = await self._send_with_retry(url, payload)
+            return {'success': True, 'message_id': result.get('id'), 'result': result}
         except Exception as e:
-            logger.error(f'Erreur publication Instagram: {e}')
-            raise HTTPException(status_code=500, detail=f'Erreur publication: {str(e)}')
+            logger.error(f'Erreur envoi DM Instagram: {e}')
+            return {'success': False, 'error': str(e)}
 
-    async def publish_story(self, image_url: str) -> Dict[str, Any]:
-        container_data = {'image_url': image_url, 'media_type': 'STORIES', 'access_token': self.access_token}
-        url = f'/{self.page_id}/media'
-        logger.info(f'Création story Instagram: {image_url}')
+    async def send_typing_indicator(self, recipient_ig_id: str, action: str = "typing_on") -> Dict[str, Any]:
+        """
+        Envoie un indicateur de frappe ou marque comme lu via Instagram Messaging API
+
+        Args:
+            recipient_ig_id: ID Instagram du destinataire
+            action: "typing_on", "typing_off", ou "mark_seen"
+
+        Returns:
+            Dict avec success et détails
+        """
+        if action not in ["typing_on", "typing_off", "mark_seen"]:
+            return {'success': False, 'error': f'Action non supportée: {action}'}
+
+        url = f'/{self.page_id}/messages'
+        payload = {
+            'recipient': {'id': recipient_ig_id},
+            'sender_action': action,
+            'access_token': self.access_token
+        }
+
+        logger.info(f'Envoi action "{action}" Instagram vers {recipient_ig_id}')
+
         try:
-            resp = await self.client.post(url, json=container_data)
-            resp.raise_for_status()
-            container_result = resp.json()
-            container_id = container_result['id']
-            publish_data = {'creation_id': container_id, 'access_token': self.access_token}
-            publish_url = f'/{self.page_id}/media_publish'
-            resp = await self.client.post(publish_url, json=publish_data)
-            resp.raise_for_status()
-            return resp.json()
+            result = await self._send_with_retry(url, payload)
+            return {'success': True, 'action': action, 'result': result}
         except Exception as e:
-            logger.error(f'Erreur story: {e}')
-            raise HTTPException(status_code=500, detail=f'Erreur story: {str(e)}')
+            logger.error(f'Erreur envoi action "{action}" Instagram: {e}')
+            return {'success': False, 'error': str(e), 'action': action}
+
+    async def send_typing_and_mark_read(self, recipient_ig_id: str, last_message_id: str) -> Dict[str, Any]:
+        """
+        send typing_on et mark_seen in sequence optimized for Instagram
+
+        Args:
+            recipient_ig_id: ID Instagram of the recipient
+            last_message_id: ID of the last message (used for logging)
+
+        Returns:
+            Dict with results of the two actions
+        """
+        logger.info(f'Envoi typing_on + mark_seen Instagram vers {recipient_ig_id}')
+
+        results = {}
+
+        try:
+            typing_result = await self.send_typing_indicator(recipient_ig_id, "typing_on")
+            results['typing'] = typing_result
+
+            seen_result = await self.send_typing_indicator(recipient_ig_id, "mark_seen")
+            results['mark_seen'] = seen_result
+
+            success = typing_result.get('success', False) or seen_result.get('success', False)
+
+            return {
+                'success': success,
+                'recipient_id': recipient_ig_id,
+                'results': results,
+                'message': f'Sender actions envoyés: typing={typing_result.get("success")}, seen={seen_result.get("success")}'
+            }
+
+        except Exception as e:
+            logger.error(f'Erreur envoi typing+seen Instagram vers {recipient_ig_id}: {e}')
+            return {
+                'success': False,
+                'error': str(e),
+                'recipient_id': recipient_ig_id,
+                'results': results
+            }
 
     async def get_conversations(self, limit: int = 25) -> Dict[str, Any]:
         try:
@@ -89,8 +128,13 @@ class InstagramService:
     async def reply_to_comment(self, comment_id: str, message: str) -> Dict[str, Any]:
         url = f'/{comment_id}/replies'
         payload = {'message': message, 'access_token': self.access_token}
-        logger.info(f'Réponse au commentaire {comment_id}: {message[:50]}...')
-        return await self._send_with_retry(url, payload)
+        logger.info(f'Response to comment {comment_id}: {message[:50]}...')
+        try:
+            result = await self._send_with_retry(url, payload)
+            return {'success': True, 'reply_id': result.get('id'), 'result': result}
+        except Exception as e:
+            logger.error(f'Erreur réponse commentaire Instagram: {e}')
+            return {'success': False, 'error': str(e)}
 
     async def _send_with_retry(self, url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         backoff = 0.5

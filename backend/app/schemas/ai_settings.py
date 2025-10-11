@@ -3,11 +3,17 @@ from typing import Optional, Literal, List
 from datetime import datetime
 
 AIModelType = Literal[
-    "anthropic/claude-3.5-haiku",
+    "x-ai/grok-4",
+    "x-ai/grok-4-fast",
     "openai/gpt-4o",
-    "openai/gpt-4o-mini", 
+    "openai/gpt-4o-mini",
+    "openai/gpt-5",
+    "openai/gpt-5-mini",
+    "anthropic/claude-3.5-sonnet",
+    "anthropic/claude-sonnet-4",
+    "anthropic/claude-sonnet-4.5",
     "google/gemini-2.5-flash",
-    "x-ai/grok-2"
+    "google/gemini-2.5-pro"
 ]
 
 ToneType = Literal[
@@ -26,7 +32,7 @@ LangType = Literal[
 
 class AISettingsBase(BaseModel):
     system_prompt: str = Field(..., min_length=10, max_length=5000)
-    ai_model: AIModelType = "anthropic/claude-3.5-haiku"
+    ai_model: AIModelType = "openai/gpt-4o"
     temperature: float = Field(default=0.20, ge=0.0, le=2.0)
     top_p: float = Field(default=1.00, ge=0.0, le=1.0)
     lang: LangType = "en"
@@ -57,10 +63,15 @@ class AISettings(AISettingsBase):
         from_attributes = True
 
 class AITestRequest(BaseModel):
+    thread_id: str = Field(..., min_length=1, max_length=1000)
     message: str = Field(..., min_length=1, max_length=1000)
     settings: AISettingsBase
 
 class AITestResponse(BaseModel):
     response: str
     response_time: float
+    confidence: float
+class AIResponse(BaseModel):
+    """Json format for the response"""
+    response: str
     confidence: float

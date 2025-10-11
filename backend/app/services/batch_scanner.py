@@ -112,7 +112,7 @@ class BatchScanner:
         conversation_key = conv_info["conversation_key"]
         conversation_id = conv_info["conversation_id"]
 
-        # ⏱️ Mesure du temps de traitement pour les métriques
+        # ⏱️ Measure the processing time for the metrics
         start_time = asyncio.get_event_loop().time()
 
         try:
@@ -169,7 +169,7 @@ class BatchScanner:
 
             logger.info("-" * 60)
             
-            user_credentials = get_user_credentials_by_platform_account(platform, account_id)
+            user_credentials = await get_user_credentials_by_platform_account(platform, account_id)
             if not user_credentials:
                 logger.error(f"Credentials not found for {platform}:{account_id}")
                 return
@@ -179,7 +179,7 @@ class BatchScanner:
             
             
             automation_service = AutomationService()
-            automation_check = automation_service.should_auto_reply(user_id=user_id)
+            automation_check = automation_service.should_auto_reply(user_id=user_id, conversation_id=conversation_id)
             ai_settings = automation_check.get("ai_settings", {})
             
             if conversation_id and user_id:
@@ -203,14 +203,14 @@ class BatchScanner:
                 logger.info(f"📝 Typing indicator + read receipt sent for {platform}:{account_id}:{contact_id}")
             else:
                 logger.warning(f"No valid message ID found for typing indicator: {message_ids}")
-            
-            content = self._format_messages(messages)
-            logger.info(f"🔍 DEBUG - About to call generate_smart_response with content: {content}")
-            logger.info(f"🔍 DEBUG - Content type: {type(content)}")
-            logger.info(f"🔍 DEBUG - Content content: '{content.content}'")
-            
+
+            content_message = self._format_messages(messages)
+            logger.info(f"🔍 DEBUG - About to call generate_smart_response with content: {content_message}")
+            logger.info(f"🔍 DEBUG - Content type: {type(content_message)}")
+            logger.info(f"🔍 DEBUG - Content content: '{content_message[0].content if content_message else 'No content'}'")
+
             try:
-                response_result = await generate_smart_response(content, user_id, ai_settings, conversation_id)
+                response_result = await generate_smart_response(content_message, user_id, ai_settings, conversation_id)
             except Exception as e:
                 logger.error(f"🔍 DEBUG - Exception in generate_smart_response: {e}")
                 logger.error(f"🔍 DEBUG - Exception type: {type(e)}")
@@ -218,14 +218,52 @@ class BatchScanner:
                 logger.error(f"🔍 DEBUG - Traceback: {traceback.format_exc()}")
                 raise e
 
-            # Vérifier si la réponse est une chaîne (succès) ou un dictionnaire (erreur)
+            # Vérifier si la réponse est un succès ou une erreur
             if isinstance(response_result, dict):
-                logger.error(f"❌ Error in RAG agent: {response_result.get('last_error', 'Unknown error')}")
-                logger.info("=" * 60)
-                # 📊 Métriques
-                self.metrics['conversations_failed'] += 1
-                self.metrics['errors_total'] += 1
-                return
+                if 'error' in response_result:
+                    # Erreur dans l'agent RAG
+                    logger.error(f"❌ Error in RAG agent: {response_result['error']}")
+                    logger.info("=" * 60)
+                    # 📊 Métriques
+                    self.metrics['conversations_failed'] += 1
+                    self.metrics['errors_total'] += 1
+                    return
+                elif 'messages' in response_result:
+                    # Réponse réussie - extraire le contenu du dernier message AI
+                    messages = response_result['messages']
+                    ai_message = None
+                    for msg in reversed(messages):
+                        if hasattr(msg, 'type') and msg.type == 'ai':
+                            ai_message = msg
+                            break
+                        elif msg.__class__.__name__ == 'AIMessage':
+                            ai_message = msg
+                            break
+
+                    if ai_message and hasattr(ai_message, 'content'):
+                        # Essayer de parser le JSON dans le contenu
+                        try:
+                            import json
+                            content_data = json.loads(ai_message.content)
+                            response_content = content_data.get("response", ai_message.content)
+                            response_confidence = content_data.get("confidence", 1.0)
+                        except (json.JSONDecodeError, KeyError):
+                            response_content = ai_message.content
+                            response_confidence = 1.0
+                    else:
+                        logger.warning(f"❌ No AI message found in response for {platform}:{account_id}:{contact_id}")
+                        logger.info("=" * 60)
+                        # 📊 Métriques
+                        self.metrics['conversations_failed'] += 1
+                        self.metrics['errors_total'] += 1
+                        return
+                else:
+                    logger.error(f"❌ Unexpected dict response format: {response_result}")
+                    logger.info("=" * 60)
+                    # 📊 Métriques
+                    self.metrics['conversations_failed'] += 1
+                    self.metrics['errors_total'] += 1
+                    return
             elif not response_result:
                 logger.warning(f"❌ No response generated for {platform}:{account_id}:{contact_id}")
                 logger.info("=" * 60)
@@ -233,18 +271,27 @@ class BatchScanner:
                 self.metrics['conversations_failed'] += 1
                 self.metrics['errors_total'] += 1
                 return
-            
-            response_content = response_result
+            else:
+                # Réponse sous forme de chaîne (ancien format)
+                response_content = response_result
+                response_confidence = None
+
+            if not response_content:
+                logger.warning(f"❌ Empty response generated for {platform}:{account_id}:{contact_id}")
+                return
             logger.info(f"✅ Response generated successfully for {platform}:{account_id}:{contact_id}")
             logger.info(f"🔑 Response content: {response_content}")
             logger.info("=" * 60)
-            
+
             response_sent = await send_response(platform, user_credentials, contact_id, response_content)
-            
+
             if response_sent:
                 # Save the response to the DB
                 message_assistant_group_id = save_response_to_db(
-                    conversation_id, response_content, user_credentials.get("user_id")
+                    conversation_id,
+                    response_content,
+                    user_credentials.get("user_id"),
+                    confidence=response_confidence,
                 )
 
                 logger.info(f"Response sent for {platform}:{account_id}:{contact_id}")
@@ -282,15 +329,16 @@ class BatchScanner:
             self.metrics['conversations_failed'] += 1
             self.metrics['errors_total'] += 1
     
-    def _format_messages(self, messages: Dict[str, Any]) -> HumanMessage:
+    def _format_messages(self, messages: Dict[str, Any]) -> List[HumanMessage]:
         """
         Format the messages for the agent
         """
         logger.info(f"🔍 DEBUG _format_messages - Input messages: {messages}")
         
         # La structure peut être soit:
-        # 1. {"message_data": {"content": "...", "role": "user"}} (ancienne structure)
-        # 2. {"content": "...", "role": "user"} (nouvelle structure)
+        # 1. {"message_data": {"content": "...", "role": "user"}} (ancienne structure texte)
+        # 2. {"message_data": {"content": [{"type": "text"}, {"type": "image_url"}], "role": "user"}} (structure multimédia)
+        # 3. {"content": "...", "role": "user"} (nouvelle structure)
         
         if isinstance(messages, dict) and "message_data" in messages:
             # Ancienne structure
@@ -302,10 +350,14 @@ class BatchScanner:
             content = messages.get("content", "")
             logger.info(f"🔍 DEBUG _format_messages - content from messages: '{content}'")
         
-        # Nettoyer le contenu (supprimer les espaces en début/fin)
-        content = content.strip()
-        logger.info(f"🔍 DEBUG _format_messages - Final content (cleaned): '{content}'")
-        return HumanMessage(content=content)
+        # Nettoyer le contenu uniquement si c'est une chaîne
+        if isinstance(content, str):
+            content = content.strip()
+            logger.info(f"🔍 DEBUG _format_messages - Final content (cleaned): '{content}'")
+        else:
+            logger.info(f"🔍 DEBUG _format_messages - Final content (complex): {type(content)}")
+        
+        return [HumanMessage(content=content)]
 
     # 📊 Méthodes de monitoring
     def get_metrics(self) -> Dict[str, Any]:

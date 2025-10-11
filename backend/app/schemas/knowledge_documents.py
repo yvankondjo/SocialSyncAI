@@ -8,8 +8,8 @@ class KnowledgeDocument(BaseModel):
     title: str
     storage_object_id: UUID
     user_id: UUID
-    bucket_name: Optional[str] = None  # Direct bucket reference (optional for backward compatibility)
-    object_key: Optional[str] = None   # Direct object path (optional for backward compatibility)
+    bucket_id: str
+    object_name: str
     tsconfig: str
     lang_code: str
     status: str

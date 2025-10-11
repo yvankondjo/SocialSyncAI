@@ -1,5 +1,5 @@
 from pydantic import BaseModel, HttpUrl
-from typing import Optional
+from typing import Optional, Any, Dict
 from datetime import datetime
 
 class SocialAccountBase(BaseModel):
@@ -33,4 +33,6 @@ class TokenData(BaseModel):
     user_id: int
     
 class AuthURL(BaseModel):
-    authorization_url: HttpUrl 
+    authorization_url: Optional[HttpUrl] = None
+    type: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None

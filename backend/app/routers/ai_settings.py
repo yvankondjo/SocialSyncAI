@@ -1,13 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from supabase import Client
 from app.db.session import get_authenticated_db
-from app.schemas.ai_settings import AISettings, AISettingsCreate, AISettingsUpdate, AITestRequest, AITestResponse
+from app.schemas.ai_settings import AISettings, AISettingsCreate, AISettingsUpdate, AITestRequest, AITestResponse, AIResponse
 from app.core.security import get_current_user_id
 import time
 import random
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
+from app.services.rag_agent import RAGAgent
+from app.deps.runtime_test import CHECKPOINTER_REDIS
+from langchain_core.messages import HumanMessage
 load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL","https://openrouter.ai/api/v1")
@@ -69,7 +72,7 @@ async def get_ai_settings(
             default_settings = {
                 "user_id": current_user_id,
                 "system_prompt": PROMPT_TEMPLATES["social"],
-                "ai_model": "anthropic/claude-3.5-haiku",
+                "ai_model": "openai/gpt-4o",
                 "temperature": 0.20,
                 "top_p": 1.00,
                 "lang": "en",
@@ -124,25 +127,81 @@ async def test_ai_response(
     current_user_id: str = Depends(get_current_user_id)
 ):
     try:
+        print("=== AI TEST REQUEST DEBUG ===")
+        print(f"User ID: {current_user_id}")
+        print(f"Thread ID: {test_request.thread_id}")
+        print(f"Message: {test_request.message}")
+        print(f"Settings: {test_request.settings.model_dump()}")
+
         start_time = time.time()
-        response = client.chat.completions.create(
-            model=test_request.settings.ai_model,
-            messages=[{"role": "system", "content": test_request.settings.system_prompt}, {"role": "user", "content": test_request.message}],
-            temperature=test_request.settings.temperature,
-            top_p=test_request.settings.top_p,
-            max_tokens=150
+        print(f"Creating RAGAgent with model: {test_request.settings.ai_model}")
+
+        agent = RAGAgent(
+            user_id=current_user_id,
+            model_name=test_request.settings.ai_model,
+            system_prompt=test_request.settings.system_prompt,
+            checkpointer=CHECKPOINTER_REDIS,
+            test_mode=True
         )
-        
+        print("RAGAgent created successfully")
+
+        config = {
+            "configurable": {
+                "thread_id": test_request.thread_id,
+                "user_id": current_user_id,
+                "checkpoint_ns": f"user:{current_user_id}:test"
+            }
+        }
+        print(f"Invoking graph with config: {config}")
+
+        messages = agent.graph.invoke(
+            {"messages": [HumanMessage(content=test_request.message)]},
+            config=config
+        )
+
+        print(f"Graph invocation completed. Messages keys: {list(messages.keys())}")
+        print(f"Messages type: {type(messages)}")
+
         response_time = time.time() - start_time
-        confidence = round(random.uniform(0.85, 0.98), 2)
-        
-        return AITestResponse(
-            response=response.choices[0].message.content,
+        print(f"Response time: {response_time}s")
+
+        messages_list = messages.get("messages", [])
+        print(f"Messages list length: {len(messages_list)}")
+
+        if not messages_list:
+            print("ERROR: No messages in response")
+            raise HTTPException(status_code=400, detail="No messages returned from AI agent")
+
+        reponse = messages_list[-1]
+        print(f"Last message type: {type(reponse)}")
+        print(f"Last message content preview: {reponse.content[:100]}")
+
+       
+        try:
+            ai_response = AIResponse.model_validate_json(reponse.content)
+            response_text = ai_response.response
+            confidence = ai_response.confidence
+            print(f"Parsed JSON response - confidence: {confidence}")
+        except Exception as json_error:
+            print(f"Failed to parse as JSON: {json_error}, using raw content")
+            response_text = reponse.content
+            confidence = getattr(reponse, 'confidence', 0.8)
+
+        result = AITestResponse(
+            response=response_text,
             response_time=response_time,
             confidence=confidence
         )
-        
+        print(f"Returning result: response_length={len(result.response)}, confidence={result.confidence}")
+        return result
+
+    except HTTPException:
+        print("HTTPException caught, re-raising")
+        raise
     except Exception as e:
+        print(f"Unexpected error in test_ai_response: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/templates")

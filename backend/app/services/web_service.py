@@ -15,16 +15,17 @@ _web_widget_service: Optional['WebWidgetService'] = None
 class WebWidgetService:
     """Service pour générer et gérer les widgets de chat IA intégrables"""
 
-    def __init__(self):
+    def __init__(self, supabase_client: Optional[Any] = None):
         self.api_base_url = os.getenv('API_BASE_URL', 'http://localhost:8000')
         self.widget_cdn_url = os.getenv('WIDGET_CDN_URL', f'{self.api_base_url}/static/widget')
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
         self.anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+        self.supabase = supabase_client
 
     async def create_widget_config(self, user_id: str, website_url: str, widget_settings: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Créer une configuration de widget pour un utilisateur
+        Créer une configuration de widget pour un utilisateur et persister en DB
         
         Args:
             user_id: ID de l'utilisateur
@@ -33,34 +34,40 @@ class WebWidgetService:
         """
         try:
             widget_id = str(uuid.uuid4())
-            api_key = f'wgt_{uuid.uuid4().hex[:24]}'
-            config = {
-                'widget_id': widget_id,
-                'api_key': api_key,
+            widget_key = f'wgt_{uuid.uuid4().hex[:24]}'
+            
+            widget_data = {
+                'id': widget_id,
                 'user_id': user_id,
-                'website_url': website_url,
-                'created_at': '2024-01-01T00:00:00Z',
-                'status': 'active',
-                'settings': {
-                    'theme': widget_settings.get('theme', 'light'),
-                    'primary_color': widget_settings.get('primary_color', '#007bff'),
-                    'position': widget_settings.get('position', 'bottom-right'),
-                    'widget_size': widget_settings.get('widget_size', 'medium'),
-                    'welcome_message': widget_settings.get('welcome_message', 'Bonjour ! Comment puis-je vous aider ?'),
-                    'placeholder_text': widget_settings.get('placeholder_text', 'Tapez votre message...'),
-                    'offline_message': widget_settings.get('offline_message', 'Nous reviendrons vers vous bientôt !'),
-                    'collect_name': widget_settings.get('collect_name', False),
-                    'ai_enabled': widget_settings.get('ai_enabled', False),
-                    'ai_provider': widget_settings.get('ai_provider', 'openai')
-                }
+                'name': widget_settings.get('company_name', 'Widget Chat'),
+                'widget_key': widget_key,
+                'allowed_domains': widget_settings.get('allowed_domains', []),
+                'settings': widget_settings,
+                'is_active': True,
+                'branding_enabled': False,
+                'branding_text': 'Powered by CustomersAI'
             }
+            
+            if self.supabase:
+                result = self.supabase.table('web_widgets').insert(widget_data).execute()
+                logger.info(f'Widget sauvegardé en DB: {widget_id}')
+            
             logger.info(f'Widget créé: {widget_id} pour {user_id}')
+            
             return {
                 'success': True,
                 'widget_id': widget_id,
-                'api_key': api_key,
-                'config': config,
-                'embed_code': self._generate_embed_code(widget_id, api_key),
+                'api_key': widget_key,
+                'config': {
+                    'widget_id': widget_id,
+                    'api_key': widget_key,
+                    'user_id': user_id,
+                    'website_url': website_url,
+                    'created_at': widget_data.get('created_at', ''),
+                    'status': 'active',
+                    'settings': widget_settings
+                },
+                'embed_code': self._generate_embed_code(widget_id, widget_key),
                 'setup_instructions': self._generate_setup_instructions(widget_id)
             }
         except Exception as e:
@@ -426,6 +433,92 @@ class WebWidgetService:
             return 'Vous pouvez nous contacter via ce chat ou consulter notre page de contact pour plus d\'options.'
         return 'Je comprends votre question. Un de nos agents vous répondra dans les plus brefs délais. En attendant, puis-je vous aider avec autre chose ?'
 
+    async def get_widget_from_db(self, widget_id: str) -> Optional[Dict[str, Any]]:
+        """Récupérer un widget depuis la base de données"""
+        if not self.supabase:
+            logger.warning("Client Supabase non disponible")
+            return None
+        
+        try:
+            result = self.supabase.table('web_widgets').select('*').eq('id', widget_id).single().execute()
+            return result.data if result.data else None
+        except Exception as e:
+            logger.error(f'Erreur récupération widget {widget_id}: {e}')
+            return None
+    
+    async def get_widget_by_key(self, widget_key: str) -> Optional[Dict[str, Any]]:
+        """Récupérer un widget depuis la base de données par sa clé"""
+        if not self.supabase:
+            logger.warning("Client Supabase non disponible")
+            return None
+        
+        try:
+            result = self.supabase.table('web_widgets').select('*').eq('widget_key', widget_key).single().execute()
+            return result.data if result.data else None
+        except Exception as e:
+            logger.error(f'Erreur récupération widget par clé {widget_key}: {e}')
+            return None
+    
+    async def update_widget_settings(self, widget_id: str, new_settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Mettre à jour les paramètres d'un widget dans la DB"""
+        if not self.supabase:
+            raise HTTPException(status_code=500, detail="Base de données non disponible")
+        
+        try:
+            self.supabase.table('web_widgets').update({
+                'settings': new_settings,
+                'updated_at': datetime.now().isoformat()
+            }).eq('id', widget_id).execute()
+            
+            logger.info(f'Widget {widget_id} mis à jour dans la DB')
+            return {
+                'success': True,
+                'widget_id': widget_id,
+                'message': 'Widget mis à jour avec succès',
+                'updated_settings': new_settings
+            }
+        except Exception as e:
+            logger.error(f'Erreur mise à jour widget: {e}')
+            raise HTTPException(status_code=500, detail=f'Erreur mise à jour: {str(e)}')
+    
+    async def enable_branding(self, widget_id: str, custom_text: str, payment_id: str) -> Dict[str, Any]:
+        """Activer le branding personnalisé pour un widget après paiement"""
+        if not self.supabase:
+            raise HTTPException(status_code=500, detail="Base de données non disponible")
+        
+        try:
+            from datetime import datetime, timezone
+            
+            self.supabase.table('web_widgets').update({
+                'branding_enabled': True,
+                'branding_text': custom_text,
+                'stripe_payment_id': payment_id,
+                'updated_at': datetime.now(timezone.utc).isoformat()
+            }).eq('id', widget_id).execute()
+            
+            logger.info(f'Branding activé pour widget {widget_id}')
+            return {
+                'success': True,
+                'widget_id': widget_id,
+                'branding_enabled': True,
+                'branding_text': custom_text
+            }
+        except Exception as e:
+            logger.error(f'Erreur activation branding: {e}')
+            raise HTTPException(status_code=500, detail=f'Erreur activation branding: {str(e)}')
+    
+    async def get_user_widgets(self, user_id: str) -> List[Dict[str, Any]]:
+        """Récupérer tous les widgets d'un utilisateur"""
+        if not self.supabase:
+            return []
+        
+        try:
+            result = self.supabase.table('web_widgets').select('*').eq('user_id', user_id).order('created_at', desc=True).execute()
+            return result.data if result.data else []
+        except Exception as e:
+            logger.error(f'Erreur récupération widgets utilisateur {user_id}: {e}')
+            return []
+
     async def close(self):
         """Fermer le client HTTP"""
         await self.client.aclose()
@@ -439,9 +532,9 @@ class WebWidgetService:
 
 _web_widget_service: Optional[WebWidgetService] = None
 
-async def get_web_widget_service() -> WebWidgetService:
+async def get_web_widget_service(supabase_client: Optional[Any] = None) -> WebWidgetService:
     """Factory pour obtenir une instance du service Widget"""
     global _web_widget_service
-    if _web_widget_service is None:
-        _web_widget_service = WebWidgetService()
+    if _web_widget_service is None or (supabase_client and _web_widget_service.supabase is None):
+        _web_widget_service = WebWidgetService(supabase_client)
     return _web_widget_service

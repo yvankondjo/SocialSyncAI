@@ -25,7 +25,7 @@ async def get_user_conversations(
     """
     try:
         service = ConversationService(db)
-        conversations = await service.get_user_conversations(
+        conversations = service.get_user_conversations(
             user_id=current_user_id,
             channel=channel,
             limit=limit

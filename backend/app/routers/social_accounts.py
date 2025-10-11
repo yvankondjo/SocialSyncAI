@@ -6,9 +6,14 @@ from app.services.social_auth_service import social_auth_service
 from app.schemas.social_account import AuthURL, SocialAccount
 from app.core.security import get_current_user_id
 from app.core.config import get_settings, Settings
-from app.db.session import get_authenticated_db
+from app.db.session import get_authenticated_db, get_db
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
+import re
+from typing import Optional, Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/social-accounts", tags=["social-accounts"])
 
@@ -18,32 +23,75 @@ PLATFORMS = {
         "handle_callback": social_auth_service.handle_instagram_callback,
         "get_profile": social_auth_service.get_instagram_business_account,
     },
-    "reddit": {
-        "get_auth_url": social_auth_service.get_reddit_auth_url,
-        "handle_callback": social_auth_service.handle_reddit_callback,
-        "get_profile": social_auth_service.get_reddit_profile,
-    },
-    "linkedin": {
-        "get_auth_url": social_auth_service.get_linkedin_auth_url,
-        "handle_callback": social_auth_service.handle_linkedin_callback,
-        "get_profile": social_auth_service.get_linkedin_business_profile,
-    },
-    "twitter": {
-        "get_auth_url": social_auth_service.get_twitter_auth_url,
-        "handle_callback": social_auth_service.handle_twitter_callback,
-        "get_profile": social_auth_service.get_twitter_profile,
-    },
-    "tiktok": {
-        "get_auth_url": social_auth_service.get_tiktok_auth_url,
-        "handle_callback": social_auth_service.handle_tiktok_callback,
-        "get_profile": social_auth_service.get_tiktok_profile,
-    },
     "whatsapp": {
-        "get_auth_url": social_auth_service.get_whatsapp_auth_url,
+        "get_auth_url": social_auth_service.get_whatsapp_embedded_signup_url,
         "handle_callback": social_auth_service.handle_whatsapp_callback,
-        "get_profile": social_auth_service.get_whatsapp_profile,
+        "get_phone_profile": social_auth_service.get_whatsapp_phone_profile,
+        "exchange_code": social_auth_service.exchange_whatsapp_code,
+        "get_business_accounts": social_auth_service.get_whatsapp_business_accounts,
     },
 }
+
+
+async def _upsert_whatsapp_account(
+    db: Client,
+    user_id: str,
+    access_token: str,
+    expires_in: Optional[int],
+    phone_number_id: Optional[str],
+    waba_id: Optional[str],
+    display_phone: Optional[str],
+    verified_name: Optional[str],
+    business_id: Optional[str]
+) -> Dict[str, Any]:
+    profile_data: Dict[str, Any] = {}
+    if phone_number_id:
+        try:
+            profile_data = await social_auth_service.get_whatsapp_phone_profile(access_token, phone_number_id)
+            display_phone = display_phone or profile_data.get("display_phone_number")
+            verified_name = verified_name or profile_data.get("verified_name")
+        except HTTPException:
+            # continue with available data
+            profile_data = {}
+
+    username = verified_name or display_phone or phone_number_id or "whatsapp_account"
+    display_name = display_phone or verified_name or username
+
+    wa_link = None
+    if display_phone:
+        digits = re.sub(r"\D", "", display_phone)
+        if digits:
+            wa_link = f"https://wa.me/{digits}"
+
+    token_expires_at = None
+    if expires_in:
+        token_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
+
+    social_account_data = {
+        "platform": "whatsapp",
+        "account_id": phone_number_id or (waba_id or ""),
+        "username": username,
+        "display_name": display_name,
+        "profile_url": wa_link,
+        "access_token": access_token,
+        "refresh_token": waba_id,
+        "token_expires_at": token_expires_at,
+        "user_id": user_id,
+        "is_active": True,
+    }
+
+    db.table("social_accounts").upsert(
+        social_account_data,
+        on_conflict="user_id, platform"
+    ).execute()
+
+    if waba_id:
+        await social_auth_service.subscribe_whatsapp_webhooks(access_token, waba_id)
+
+    result = db.table("social_accounts").select("*").eq("user_id", user_id).eq("platform", "whatsapp").limit(1).execute()
+    if result.data:
+        return result.data[0]
+    return social_account_data
 
 @router.get("/connect/{platform}", response_model=AuthURL)
 async def get_authorization_url(
@@ -64,21 +112,31 @@ async def get_authorization_url(
         algorithm=settings.SUPABASE_JWT_ALGORITHM
     )
 
-    auth_url_func = PLATFORMS[platform]["get_auth_url"]
+    platform_config = PLATFORMS[platform]
+    auth_url_func = platform_config["get_auth_url"]
     auth_url = auth_url_func(state=state_jwt)
     return {"authorization_url": auth_url}
 
 
 @router.get("/connect/{platform}/callback")
 async def handle_oauth_callback(
-    platform: str, 
-    code: str = Query(...),
+    platform: str,
+    code: Optional[str] = Query(None),
     state: str = Query(...),
-    db: Client = Depends(get_authenticated_db),
+    error: Optional[str] = Query(None),
+    error_description: Optional[str] = Query(None),
+    db: Client = Depends(get_db),
     settings: Settings = Depends(get_settings)
 ):
     if platform not in PLATFORMS:
         raise HTTPException(status_code=404, detail="Platform not supported")
+
+    if error:
+        error_payload = urlencode({
+            "error": error_description or error,
+            "platform": platform
+        })
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard/accounts?{error_payload}")
 
     try:
         payload = jwt.decode(
@@ -92,16 +150,60 @@ async def handle_oauth_callback(
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid state parameter: JWT could not be decoded.")
 
+    if not code:
+        raise HTTPException(status_code=400, detail="Authorization code missing from callback.")
+
     try:
         platform_config = PLATFORMS.get(platform)
-        handle_callback_func = platform_config["handle_callback"]
-        token_data = await handle_callback_func(code)
-        
-        get_profile_func = platform_config["get_profile"]
+        token_data = await platform_config["handle_callback"](code)
+
+        if platform == "whatsapp":
+            logger.info("📥 WhatsApp callback - Échange du code...")
+            access_token = token_data["access_token"]
+            expires_in = token_data.get("expires_in")
+            
+            logger.info("🔍 Récupération des comptes WhatsApp Business...")
+            accounts = await platform_config["get_business_accounts"](access_token)
+            if not accounts:
+                logger.error("❌ Aucun compte WhatsApp Business trouvé")
+                raise HTTPException(status_code=400, detail="No WhatsApp Business Account accessible for this user.")
+            
+            logger.info(f"✅ {len(accounts)} compte(s) trouvé(s)")
+            account = accounts[0]
+            waba_id = account.get("id")
+            business_id = account.get("business_id")
+            phone_numbers = account.get("phone_numbers", {}).get("data", []) if isinstance(account.get("phone_numbers"), dict) else account.get("phone_numbers", [])
+            phone_entry = phone_numbers[0] if phone_numbers else {}
+            phone_number_id = phone_entry.get("phone_number_id") or phone_entry.get("id")
+            display_phone = phone_entry.get("display_phone_number")
+            verified_name = phone_entry.get("verified_name")
+            
+            logger.info(f"📋 Infos extraites - WABA: {waba_id}, Phone: {phone_number_id}, Display: {display_phone}")
+
+            logger.info("💾 Sauvegarde dans Supabase...")
+            await _upsert_whatsapp_account(
+                db=db,
+                user_id=user_id,
+                access_token=access_token,
+                expires_in=expires_in,
+                phone_number_id=phone_number_id,
+                waba_id=waba_id,
+                display_phone=display_phone,
+                verified_name=verified_name,
+                business_id=business_id,
+            )
+
+            logger.info(f"✅ Compte WhatsApp enregistré avec succès pour user {user_id}")
+            return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard/accounts?success=true&platform={platform}")
+
+        # Default OAuth flow for other platforms
+        get_profile_func = platform_config.get("get_profile")
+        if not get_profile_func:
+            raise HTTPException(status_code=500, detail="Profile retrieval not configured for this platform.")
+
         profile_data = await get_profile_func(token_data["access_token"])
-        
+
         token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=token_data.get("expires_in", 0))
-        print(profile_data)
         social_account_data = {
             "platform": platform,
             "account_id": profile_data["id"],
@@ -112,20 +214,16 @@ async def handle_oauth_callback(
             "profile_url": profile_data.get("profile_picture_url"),
             "is_active": True,
         }
-    
+
         db.table("social_accounts").upsert(
-            social_account_data, 
+            social_account_data,
             on_conflict="user_id, platform"
         ).execute()
-        
+
         return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard/accounts?success=true&platform={platform}")
 
     except HTTPException as e:
         error_message = urlencode({"error": e.detail, "platform": platform})
-        return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard/accounts?{error_message}")
-    except Exception as e:
-        print(f"Error upserting social account: {e}")
-        error_message = urlencode({"error": "An unexpected error occurred while saving the account.", "platform": platform})
         return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard/accounts?{error_message}")
 
 

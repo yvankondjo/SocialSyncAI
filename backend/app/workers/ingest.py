@@ -5,14 +5,14 @@ from app.services.ingest_helpers import (
     detect_language, split_text, parse_bytes_by_ext,
     add_context_to_chunks, embed_texts
 )
-from app.db.session import get_authenticated_db
+from app.db.session import get_db
 
 
 
 
 @celery.task(bind=True, name="app.workers.ingest.process_document")
 def process_document_task(self, document_id: str):
-    db = get_authenticated_db()
+    db = get_db()
 
     doc = db.table("knowledge_documents").select(
         "id,title,bucket_id,object_name"

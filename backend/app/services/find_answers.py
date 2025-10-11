@@ -120,7 +120,7 @@ class FindAnswers:
                     details={"user_id": self.user_id}
                 )
             
-            question_answers = self.db.table("faq_qa").select("id, question, answer").eq("user_id", self.user_id).eq("is_active", True).execute()
+            question_answers = self.db.table("faq_qa").select("id, questions, answer").eq("user_id", self.user_id).eq("is_active", True).execute()
             
             if not question_answers.data:
                 logger.warning(f"No question answers found for user {self.user_id}")
@@ -130,8 +130,8 @@ class FindAnswers:
             for item in question_answers.data:
                 try:
                     qa = QuestionAnswer(
-                        question_id=item["id"], 
-                        question=item["question"], 
+                        question_id=item["id"],
+                        questions=item["questions"] if isinstance(item["questions"], list) else [item["questions"]],
                         answer=item["answer"]
                     )
                     result.append(qa)

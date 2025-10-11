@@ -62,20 +62,23 @@ def parse_bytes_by_ext(data: bytes, ext: str) -> str:
 async def add_context_to_chunks(chunks: List[Tuple[str, int, int]], document_text: str, model: str = 'google/gemini-2.5-flash', timeout_s: float = 30.0, concurrency: int = 8) -> List[Tuple[str, int, int]]:
     if len(document_text) > 700000:
         document_text = document_text[:700000]
-    
+
     client = AsyncOpenAI(base_url=os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1'), api_key=os.getenv('OPENROUTER_API_KEY'))
     sem = asyncio.Semaphore(max(1, concurrency))
 
     async def one(c: Tuple[str, int, int]) -> Tuple[str, int, int]:
         chunk_text = c[0]
         messages = [
-            {'role': 'system', 'content': 'You are a retrieval assistant. Given a chunk from the user, return a concise 1-4 sentence context label that situates the chunk within the cached document. Be specific, no fluff. YOU MUST USE THE SAME LANGUAGE AS THE DOCUMENT.'}, 
+            {'role': 'system', 'content': 'You are a retrieval assistant. Given a chunk from the user, return a concise 1-4 sentence context label that situates the chunk within the cached document. Be specific, no fluff. YOU MUST USE THE SAME LANGUAGE AS THE DOCUMENT.'},
             {'role': 'user', 'content': f'\n<document>\n{document_text}\n</document>\n<chunk>\n{chunk_text}\n</chunk>\nGive only the succinct context (same language as the document).\nYOU MUST USE THE SAME LANGUAGE AS THE DOCUMENT.'}
         ]
         async with sem:
             r = await asyncio.wait_for(client.chat.completions.create(model=model, messages=messages, temperature=0.75, max_tokens=256), timeout=timeout_s)
         ctx = (r.choices[0].message.content or '').strip()
         return (f'{ctx} {chunk_text}'.strip(), c[1], c[2])
+
+    # Traiter tous les chunks en parallèle
+    return await asyncio.gather(*[one(chunk) for chunk in chunks])
 
 def normalize_embedding(embedding: List[float]) -> List[float]:
     embedding_array = np.array(embedding)

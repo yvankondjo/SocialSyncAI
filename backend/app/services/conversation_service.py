@@ -3,8 +3,11 @@ from typing import List, Optional, Dict, Any
 from supabase import Client
 from datetime import datetime, timezone
 import logging
+import json
 from app.services.whatsapp_service import WhatsAppService
 from app.services.instagram_service import InstagramService
+from app.services.response_manager import get_signed_url
+from app.services.media_cache_service import media_cache_service
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +19,10 @@ class ConversationService:
         """Récupère les conversations d'un utilisateur"""
         try:
             query = self.supabase.table('conversations').select('''
-                id, customer_name, customer_identifier, last_message_at, unread_count, created_at, updated_at,
+                id, customer_name, customer_identifier, customer_avatar_url, ai_mode, last_message_at, unread_count, created_at, updated_at,
                 social_account_id, external_conversation_id, status, priority, assigned_to, tags, metadata,
                 social_accounts: social_account_id (
                     id, platform, account_id, access_token, user_id
-                ),
-                last_message: conversation_messages!conversation_messages_conversation_id_fkey (
-                    content, created_at, direction
                 )
             ''')
             query = query.eq('social_accounts.user_id', user_id)
@@ -37,6 +37,10 @@ class ConversationService:
             conversations = []
             for row in response.data:
                 social_account = row.get('social_accounts')
+
+                # Récupérer le vrai dernier message pour le snippet
+                last_message_content = self._get_last_message_snippet(row['id'])
+
                 conversation = {
                     'id': row['id'],
                     'social_account_id': social_account['id'],
@@ -44,6 +48,7 @@ class ConversationService:
                     'customer_identifier': row['customer_identifier'],
                     'customer_name': row.get('customer_name'),
                     'customer_avatar_url': row.get('customer_avatar_url'),
+                    'ai_mode': row.get('ai_mode', 'ON'),
                     'status': row.get('status', 'open'),
                     'priority': row.get('priority', 'normal'),
                     'assigned_to': row.get('assigned_to', {}),
@@ -52,7 +57,8 @@ class ConversationService:
                     'created_at': row['created_at'],
                     'updated_at': row['updated_at'],
                     'channel': social_account['platform'],
-                    'last_message_snippet': row.get('last_message', [{}])[0].get('content', '')
+                    'last_message_snippet': last_message_content,
+                    'last_message_at': row.get('last_message_at')
                 }
                 conversations.append(conversation)
             
@@ -74,17 +80,69 @@ class ConversationService:
         except Exception as e:
             logger.error(f'Erreur lors de la récupération des conversations pour l\'utilisateur {user_id}: {e}')
             raise
-    def get_conversation_messages(self, conversation_id: str, user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+
+    def _get_last_message_snippet(self, conversation_id: str) -> str:
+        """Récupère le snippet du dernier message d'une conversation"""
+        try:
+            # Récupérer le dernier message (inbound ou outbound)
+            response = self.supabase.table('conversation_messages').select(
+                'content, message_type, direction'
+            ).eq('conversation_id', conversation_id).order('created_at', desc=True).limit(1).execute()
+
+            if not response.data:
+                return ""
+
+            message = response.data[0]
+            content = message.get('content', '')
+
+            # Si c'est du texte simple
+            if message.get('message_type') == 'text' or not content:
+                return content[:100] + ('...' if len(content) > 100 else '')
+
+            # Si c'est du JSON (image avec texte)
+            try:
+                parsed_content = json.loads(content)
+                if isinstance(parsed_content, list):
+                    # Chercher le texte dans le contenu JSON
+                    for item in parsed_content:
+                        if item.get('type') == 'text' and item.get('text'):
+                            text = item['text']
+                            return text[:100] + ('...' if len(text) > 100 else '')
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+            # Fallback : retourner le contenu brut tronqué
+            return str(content)[:100] + ('...' if len(str(content)) > 100 else '')
+
+        except Exception as e:
+            logger.warning(f'Erreur lors de la récupération du snippet pour la conversation {conversation_id}: {e}')
+            return ""
+    async def get_conversation_messages(self, conversation_id: str, user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Récupère les messages d'une conversation"""
         try:
             response = self.supabase.table('conversation_messages').select(
-                'id, conversation_id, external_message_id, direction, message_type, content, media_url, '
+                'id, conversation_id, external_message_id, direction, message_type, content, storage_object_name, '
                 'media_type, sender_id, sender_name, sender_avatar_url, status, is_from_agent, agent_id, '
                 'reply_to_message_id, metadata, created_at, updated_at'
             ).eq('conversation_id', conversation_id).order('created_at', desc=False).limit(limit).execute()
             
             messages = []
             for row in response.data:
+                # Générer l'URL signée pour les médias si storage_object_name existe (avec cache Redis)
+                media_url = None
+                if row.get('storage_object_name'):
+                    try:
+                        # Utiliser le cache Redis pour éviter de régénérer les URLs
+                        media_url = await media_cache_service.get_cached_signed_url(
+                            storage_object_name=row['storage_object_name'],
+                            bucket_id='message',
+                            expires_in=3600*24  # 24 heures
+                        )
+                    except Exception as e:
+                        logger.warning(f"Impossible de générer l'URL signée pour {row['storage_object_name']}: {e}")
+                        # En cas d'erreur, on garde le storage_object_name comme fallback
+                        media_url = row['storage_object_name']
+
                 message = {
                     'id': row['id'],
                     'conversation_id': row['conversation_id'],
@@ -92,8 +150,9 @@ class ConversationService:
                     'direction': row['direction'],
                     'message_type': row.get('message_type', 'text'),
                     'content': row.get('content', ''),
-                    'media_url': row.get('media_url'),
+                    'media_url': media_url,
                     'media_type': row.get('media_type'),
+                    'storage_object_name': row.get('storage_object_name'),  # Garder pour référence
                     'sender_id': row.get('sender_id'),
                     'sender_name': row.get('sender_name'),
                     'sender_avatar_url': row.get('sender_avatar_url'),
@@ -164,10 +223,10 @@ class ConversationService:
             if not response.data:
                 raise ValueError('Échec de l\'enregistrement du message')
             
-            try:
-                await self.mark_conversation_as_read(conversation['id'])
-            except Exception as e:
-                logger.warning(f'Impossible de marquer la conversation comme lue: {e}')
+            # try:
+            #     await self.mark_conversation_as_read(conversation['id'], user_id)
+            # except Exception as e:
+            #     logger.warning(f'Impossible de marquer la conversation comme lue: {e}')
             
             return response.data[0]
             
@@ -196,9 +255,21 @@ class ConversationService:
             logger.error(f'Erreur Instagram: {e}')
             return False
 
-    async def mark_conversation_as_read(self, conversation_id: str) -> bool:
+    async def mark_conversation_as_read(self, conversation_id: str, user_id: str) -> bool:
         """Marque une conversation comme lue en utilisant la fonction SQL existante"""
         try:
+            conversation_check = self.supabase.table('conversations').select('id').eq('id', conversation_id).execute()
+            if not conversation_check.data:
+                logger.warning(f"Conversation {conversation_id} non trouvée")
+                return False
+            auth_check = self.supabase.table('conversations').select(
+                'social_accounts!inner(user_id)'
+            ).eq('id', conversation_id).eq('social_accounts.user_id', user_id).execute()
+
+            if not auth_check.data:
+                logger.warning(f"Utilisateur {user_id} n'a pas accès à la conversation {conversation_id}")
+                return False
+
             result = self.supabase.rpc('mark_conversation_as_read', {'conversation_uuid': conversation_id}).execute()
             return True
         except Exception as e:

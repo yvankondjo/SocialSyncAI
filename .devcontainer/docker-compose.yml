@@ -85,7 +85,7 @@ services:
       - redis
 
   redis:
-    image: redis:7-alpine
+    image: redis:8.2.1-alpine
     ports:
       - "6380:6379"
     restart: unless-stopped

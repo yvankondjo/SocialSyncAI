@@ -1,16 +1,24 @@
 import os
+from typing import Dict, List, Optional
+
 from fastapi import HTTPException
 from dotenv import load_dotenv
 from urllib.parse import urlencode
 import httpx
-
+import logging
 load_dotenv()
-
+logger = logging.getLogger(__name__)
 class SocialAuthService:
     def __init__(self):
         self.INSTAGRAM_CLIENT_ID = os.getenv('INSTAGRAM_CLIENT_ID')
         self.INSTAGRAM_CLIENT_SECRET = os.getenv('INSTAGRAM_CLIENT_SECRET')
         self.INSTAGRAM_REDIRECT_URI = os.getenv('INSTAGRAM_REDIRECT_URI')
+        self.META_APP_ID = os.getenv('META_APP_ID')
+        self.META_APP_SECRET = os.getenv('META_APP_SECRET')
+        self.META_CONFIG_ID = os.getenv('META_CONFIG_ID')
+        self.META_GRAPH_VERSION = os.getenv('META_GRAPH_VERSION', 'v24.0')
+        self.WHATSAPP_REDIRECT_URI = os.getenv('WHATSAPP_REDIRECT_URI') or os.getenv('WHATSAPP_EMBEDDED_REDIRECT_URI')
+        self.WHATSAPP_VERIFY_TOKEN = os.getenv('WHATSAPP_VERIFY_TOKEN', 'whatsapp_verify_token')
         self.REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID')
         self.REDDIT_CLIENT_SECRET = os.getenv('REDDIT_CLIENT_SECRET')
         self.REDDIT_REDIRECT_URI = os.getenv('REDDIT_REDIRECT_URI')
@@ -23,9 +31,43 @@ class SocialAuthService:
         if not self.INSTAGRAM_CLIENT_ID or not self.INSTAGRAM_REDIRECT_URI:
             raise HTTPException(status_code=500, detail='Instagram auth is not configured on the server.')
         scopes = ['instagram_business_basic', 'instagram_business_content_publish', 'instagram_business_manage_messages', 'instagram_business_manage_comments']
+        logger.info(f"🔍 DEBUG get_instagram_auth_url - scopes: {scopes}")
+        logger.info(f"🔍 DEBUG get_instagram_auth_url - client_id: {self.INSTAGRAM_CLIENT_ID}")
+        logger.info(f"🔍 DEBUG get_instagram_auth_url - redirect_uri: {self.INSTAGRAM_REDIRECT_URI}")
+        logger.info(f"🔍 DEBUG get_instagram_auth_url - state: {state}")
         params = {'client_id': self.INSTAGRAM_CLIENT_ID, 'redirect_uri': self.INSTAGRAM_REDIRECT_URI, 'scope': ','.join(scopes), 'response_type': 'code', 'state': state}
         auth_url = f'https://api.instagram.com/oauth/authorize?{urlencode(params)}'
         return auth_url
+
+    def get_whatsapp_embedded_signup_url(self, state: str, prefill: Optional[Dict[str, Dict[str, Optional[str]]]] = None) -> str:
+        """Génère l'URL hébergée par Meta pour l'Embedded Signup WhatsApp."""
+        if not self.META_APP_ID or not self.META_CONFIG_ID:
+            raise HTTPException(status_code=500, detail='WhatsApp embedded signup is not configured on the server.')
+
+        setup_data = prefill if prefill else {
+            "business": {"id": None, "name": None, "email": None, "phone": {"code": None, "number": None}, "website": None, "address": {"streetAddress1": None, "streetAddress2": None, "city": None, "state": None, "zipPostal": None, "country": None}, "timezone": None},
+            "phone": {"displayName": None, "category": None, "description": None},
+            "preVerifiedPhone": {"ids": None},
+            "solutionID": None,
+            "whatsAppBusinessAccount": {"ids": None}
+        }
+
+        extras = {
+            "setup": setup_data,
+            "featureType": "whatsapp_business_app_onboarding",
+            "sessionInfoVersion": "3",
+            "version": "v3"
+        }
+
+        import json
+        extras_encoded = urlencode({"extras": json.dumps(extras)})
+        
+        base_url = "https://business.facebook.com/messaging/whatsapp/onboard/"
+        params = f"app_id={self.META_APP_ID}&config_id={self.META_CONFIG_ID}&state={state}&{extras_encoded}"
+        
+        logger.info(f"🔗 URL Embedded Signup générée: {base_url}?{params[:200]}...")
+        
+        return f"{base_url}?{params}"
 
     async def handle_instagram_callback(self, code: str) -> dict:
         """Échange le code d'autorisation contre un token d'accès longue durée."""
@@ -50,13 +92,50 @@ class SocialAuthService:
                 print(f'An unexpected error occurred: {e}')
                 raise HTTPException(status_code=500, detail='An unexpected error occurred during Instagram authentication.')
 
+    async def exchange_whatsapp_code(self, code: str, redirect_uri: Optional[str] = None) -> dict:
+        """Échange un code Embedded Signup contre un business token WhatsApp."""
+        if not self.META_APP_ID or not self.META_APP_SECRET:
+            raise HTTPException(status_code=500, detail='WhatsApp auth is not configured on the server.')
+
+        token_endpoint = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/oauth/access_token'
+
+        params = {
+            'client_id': self.META_APP_ID,
+            'client_secret': self.META_APP_SECRET,
+            'code': code,
+        }
+
+        if redirect_uri:
+            params['redirect_uri'] = redirect_uri
+        elif self.WHATSAPP_REDIRECT_URI:
+            params['redirect_uri'] = self.WHATSAPP_REDIRECT_URI
+
+        logger.info(f"🔄 Échange du code WhatsApp avec params: {params}")
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(token_endpoint, params=params)
+                response.raise_for_status()
+                token_data = response.json()
+                logger.info(f"✅ Token obtenu: {token_data.get('access_token', 'N/A')[:20]}...")
+                if 'access_token' not in token_data:
+                    raise HTTPException(status_code=400, detail='Failed to obtain WhatsApp business token.')
+                return token_data
+            except httpx.HTTPStatusError as e:
+                logger.error(f'❌ Erreur échange code WhatsApp: {e.response.text}')
+                raise HTTPException(status_code=400, detail=f'Failed to exchange code for WhatsApp token: {e.response.text}')
+            except Exception as e:
+                logger.error(f'❌ Erreur inattendue échange code: {e}')
+                raise HTTPException(status_code=500, detail='Unexpected error during WhatsApp authentication.')
+
     async def get_instagram_user_profile(self, access_token: str) -> dict:
         """Récupère le profil utilisateur d'Instagram en utilisant le token d'accès."""
-        profile_url = f'https://graph.instagram.com/me?fields=id,username&access_token={access_token}'
+        profile_url = f'https://graph.instagram.com/v23.0/me?fields=id,username&access_token={access_token}'
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(profile_url)
                 response.raise_for_status()
+                print(f"🔍 DEBUG get_instagram_user_profile - response: {response.json()}")
                 return response.json()
             except httpx.HTTPStatusError as e:
                 print(f'Error fetching Instagram profile: {e.response.text}')
@@ -67,16 +146,19 @@ class SocialAuthService:
 
     async def get_instagram_business_account(self, access_token: str) -> dict:
         """Récupère l'ID et le nom d'utilisateur du compte Instagram Business via l'API Graph d'Instagram."""
-        url = 'https://graph.instagram.com/me?fields=id,username,account_type,profile_picture_url'
+        url = 'https://graph.instagram.com/v23.0/me?fields=id,user_id,username,account_type,profile_picture_url'
         headers = {'Authorization': f'Bearer {access_token}'}
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(url, headers=headers)
                 response.raise_for_status()
+                print(f"🔍 DEBUG get_instagram_business_account - response: {response.json()}")
                 data = response.json()
                 if data.get('account_type') not in ['BUSINESS', 'CREATOR']:
                     raise HTTPException(status_code=400, detail='The authenticated account is not an Instagram Business or Creator account.')
-                return {'id': data['id'], 'username': data['username'], 'profile_picture_url': data.get('profile_picture_url')}
+                # Utiliser user_id (IG ID) au lieu de id (app-scoped ID) pour correspondre aux webhooks
+                ig_id = data.get('user_id', data.get('id'))  # Fallback vers id si user_id n'est pas disponible
+                return {'id': ig_id, 'username': data['username'], 'profile_picture_url': data.get('profile_picture_url')}
             except httpx.HTTPStatusError as e:
                 print(f'Error fetching Instagram Business Account: {e.response.text}')
                 raise HTTPException(status_code=400, detail=f'Failed to fetch Instagram Business Account: {e.response.text}')
@@ -108,8 +190,65 @@ class SocialAuthService:
     async def get_tiktok_profile(self, access_token: str) -> dict:
         return {'id': 'tiktok_id', 'username': 'tiktok_user'}
 
-    async def get_whatsapp_profile(self, access_token: str) -> dict:
-        return {'id': 'whatsapp_id', 'username': 'whatsapp_user'}
+    async def get_whatsapp_phone_profile(self, access_token: str, phone_number_id: str) -> dict:
+        """Récupère les informations d'un numéro WhatsApp Business."""
+        async with httpx.AsyncClient() as client:
+            try:
+                url = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/{phone_number_id}'
+                response = await client.get(url, params={'fields': 'display_phone_number,verified_name'}, headers={'Authorization': f'Bearer {access_token}'})
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error('Error fetching WhatsApp phone profile: %s', e.response.text)
+                raise HTTPException(status_code=400, detail=f'Failed to fetch WhatsApp phone profile: {e.response.text}')
+            except Exception as e:
+                logger.error('Unexpected error fetching WhatsApp phone profile: %s', e)
+                raise HTTPException(status_code=500, detail='Unexpected error while fetching WhatsApp phone profile.')
+
+    async def subscribe_whatsapp_webhooks(self, access_token: str, waba_id: str, subscribed_fields: Optional[List[str]] = None) -> Optional[dict]:
+        """Souscrit l'application aux webhooks du WABA."""
+        if not waba_id:
+            return None
+
+        fields = subscribed_fields or ['messages']
+        async with httpx.AsyncClient() as client:
+            try:
+                url = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/{waba_id}/subscribed_apps'
+                response = await client.post(url, json={'subscribed_fields': fields}, headers={'Authorization': f'Bearer {access_token}'})
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.warning('WhatsApp webhook subscription failed: %s', e.response.text)
+                return {'error': e.response.text}
+            except Exception as e:
+                logger.warning('Unexpected error subscribing WhatsApp webhooks: %s', e)
+                return {'error': str(e)}
+
+    async def get_whatsapp_business_accounts(self, access_token: str) -> List[Dict[str, any]]:
+        """Récupère les comptes WhatsApp via /me/businesses."""
+        async with httpx.AsyncClient() as client:
+            try:
+                url = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/me/businesses'
+                params = {
+                    'fields': 'owned_whatsapp_business_accounts{id,name,phone_numbers{phone_number_id,display_phone_number,verified_name}}'
+                }
+                response = await client.get(url, params=params, headers={'Authorization': f'Bearer {access_token}'})
+                response.raise_for_status()
+                data = response.json()
+                businesses = data.get('data', [])
+                results: List[Dict[str, any]] = []
+                for business in businesses:
+                    waba_list = business.get('owned_whatsapp_business_accounts', {}).get('data', []) if isinstance(business.get('owned_whatsapp_business_accounts'), dict) else business.get('owned_whatsapp_business_accounts', [])
+                    for account in waba_list:
+                        account['business_id'] = business.get('id')
+                        results.append(account)
+                return results
+            except httpx.HTTPStatusError as e:
+                logger.error('Error fetching WhatsApp businesses: %s', e.response.text)
+                raise HTTPException(status_code=400, detail=f'Failed to fetch WhatsApp businesses: {e.response.text}')
+            except Exception as e:
+                logger.error('Unexpected error fetching WhatsApp businesses: %s', e)
+                raise HTTPException(status_code=500, detail='Unexpected error while fetching WhatsApp businesses.')
 
     def get_reddit_auth_url(self, state: str) -> str:
         """Construit l'URL d'autorisation pour Reddit."""
@@ -120,111 +259,9 @@ class SocialAuthService:
         auth_url = f'https://www.reddit.com/api/v1/authorize?{urlencode(params)}'
         return auth_url
 
-    async def handle_reddit_callback(self, code: str) -> dict:
-        """Échange le code d'autorisation contre un token d'accès Reddit."""
-        if not self.REDDIT_CLIENT_ID or not self.REDDIT_CLIENT_SECRET or not self.REDDIT_REDIRECT_URI:
-            raise HTTPException(status_code=500, detail='Reddit auth is not configured on the server.')
-        async with httpx.AsyncClient() as client:
-            try:
-                auth = (self.REDDIT_CLIENT_ID, self.REDDIT_CLIENT_SECRET)
-                token_url = 'https://www.reddit.com/api/v1/access_token'
-                payload = {'grant_type': 'authorization_code', 'code': code, 'redirect_uri': self.REDDIT_REDIRECT_URI}
-                headers = {'User-Agent': 'SocialSync:v1.0.0 (by /u/socialsync_app)'}
-                response = await client.post(token_url, data=payload, auth=auth, headers=headers)
-                response.raise_for_status()
-                token_data = response.json()
-                return {'access_token': token_data['access_token'], 'token_type': token_data['token_type'], 'expires_in': token_data['expires_in'], 'refresh_token': token_data.get('refresh_token'), 'scope': token_data.get('scope')}
-            except httpx.HTTPStatusError as e:
-                print(f'Error exchanging Reddit code: {e.response.text}')
-                raise HTTPException(status_code=400, detail=f'Failed to exchange code for token: {e.response.text}')
-            except Exception as e:
-                print(f'An unexpected error occurred: {e}')
-                raise HTTPException(status_code=500, detail='An unexpected error occurred during Reddit authentication.')
-
-    async def get_reddit_profile(self, access_token: str) -> dict:
-        """Récupère le profil utilisateur Reddit."""
-        async with httpx.AsyncClient() as client:
-            try:
-                headers = {'Authorization': f'Bearer {access_token}', 'User-Agent': 'SocialSync:v1.0.0 (by /u/socialsync_app)'}
-                response = await client.get('https://oauth.reddit.com/api/v1/me', headers=headers)
-                response.raise_for_status()
-                profile_data = response.json()
-                return {'id': profile_data['id'], 'username': profile_data['name'], 'profile_picture_url': profile_data.get('icon_img', '').split('?')[0] if profile_data.get('icon_img') else None}
-            except httpx.HTTPStatusError as e:
-                print(f'Error fetching Reddit profile: {e.response.text}')
-                raise HTTPException(status_code=400, detail=f'Failed to fetch Reddit profile: {e.response.text}')
-            except Exception as e:
-                print(f'An unexpected error occurred while fetching profile: {e}')
-                raise HTTPException(status_code=500, detail='An unexpected error occurred while fetching Reddit profile.')
-
-    async def refresh_reddit_token(self, refresh_token: str) -> dict:
-        """Rafraîchit le token d'accès Reddit en utilisant le refresh token."""
-        if not self.REDDIT_CLIENT_ID or not self.REDDIT_CLIENT_SECRET:
-            raise HTTPException(status_code=500, detail='Reddit auth is not configured on the server.')
-        async with httpx.AsyncClient() as client:
-            try:
-                auth = (self.REDDIT_CLIENT_ID, self.REDDIT_CLIENT_SECRET)
-                token_url = 'https://www.reddit.com/api/v1/access_token'
-                payload = {'grant_type': 'refresh_token', 'refresh_token': refresh_token}
-                headers = {'User-Agent': 'SocialSync:v1.0.0 (by /u/socialsync_app)'}
-                response = await client.post(token_url, data=payload, auth=auth, headers=headers)
-                response.raise_for_status()
-                token_data = response.json()
-                return {'access_token': token_data['access_token'], 'token_type': token_data['token_type'], 'expires_in': token_data.get('expires_in', 86400), 'refresh_token': refresh_token, 'scope': token_data.get('scope')}
-            except httpx.HTTPStatusError as e:
-                print(f'Error refreshing Reddit token: {e.response.text}')
-                raise HTTPException(status_code=400, detail=f'Failed to refresh Reddit token: {e.response.text}')
-            except Exception as e:
-                print(f'An unexpected error occurred: {e}')
-                raise HTTPException(status_code=500, detail='An unexpected error occurred during Reddit token refresh.')
-
-    def get_linkedin_auth_url(self) -> str:
-        return 'https://www.linkedin.com/oauth/v2/authorization?...'
-
-    def handle_linkedin_callback(self, code: str) -> dict:
-        return {'access_token': 'fake_linkedin_token'}
-
-    def get_twitter_auth_url(self, state: str) -> str:
-        """Construit l'URL d'autorisation pour Twitter/X OAuth 2.0 avec PKCE."""
-        if not self.TWITTER_CLIENT_ID or not self.TWITTER_REDIRECT_URI:
-            raise HTTPException(status_code=500, detail='Twitter auth is not configured on the server.')
-        scopes = ['tweet.read', 'tweet.write', 'users.read', 'offline.access']
-        params = {'response_type': 'code', 'client_id': self.TWITTER_CLIENT_ID, 'redirect_uri': self.TWITTER_REDIRECT_URI, 'scope': ' '.join(scopes), 'state': state}
-        auth_url = f'https://twitter.com/i/oauth2/authorize?{urlencode(params)}'
-        return auth_url
-
-    async def handle_twitter_callback(self, code: str) -> dict:
-        """Échange le code d'autorisation contre un token d'accès Twitter."""
-        if not self.TWITTER_CLIENT_ID or not self.TWITTER_CLIENT_SECRET or not self.TWITTER_REDIRECT_URI:
-            raise HTTPException(status_code=500, detail='Twitter auth is not configured on the server.')
-        async with httpx.AsyncClient() as client:
-            try:
-                auth = (self.TWITTER_CLIENT_ID, self.TWITTER_CLIENT_SECRET)
-                token_url = 'https://api.twitter.com/2/oauth2/token'
-                payload = {'grant_type': 'authorization_code', 'code': code, 'redirect_uri': self.TWITTER_REDIRECT_URI}
-                headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-                response = await client.post(token_url, data=payload, auth=auth, headers=headers)
-                response.raise_for_status()
-                token_data = response.json()
-                return {'access_token': token_data['access_token'], 'token_type': token_data['token_type'], 'expires_in': token_data.get('expires_in', 7200), 'refresh_token': token_data.get('refresh_token'), 'scope': token_data.get('scope')}
-            except httpx.HTTPStatusError as e:
-                print(f'Error exchanging Twitter code: {e.response.text}')
-                raise HTTPException(status_code=400, detail=f'Failed to exchange code for token: {e.response.text}')
-            except Exception as e:
-                print(f'An unexpected error occurred: {e}')
-                raise HTTPException(status_code=500, detail='An unexpected error occurred during Twitter authentication.')
-
-    def get_tiktok_auth_url(self) -> str:
-        return 'https://www.tiktok.com/v2/auth/authorize?...'
-
-    def handle_tiktok_callback(self, code: str) -> dict:
-        return {'access_token': 'fake_tiktok_token'}
-
-    def get_whatsapp_auth_url(self) -> str:
-        return 'https://www.facebook.com/v18.0/dialog/oauth?...'
-
-    def handle_whatsapp_callback(self, code: str) -> dict:
-        return {'access_token': 'fake_whatsapp_token'}
+    async def handle_whatsapp_callback(self, code: str) -> dict:
+        """Compatibilité: échange le code via le flux OAuth standard."""
+        return await self.exchange_whatsapp_code(code)
 
 
 social_auth_service = SocialAuthService()

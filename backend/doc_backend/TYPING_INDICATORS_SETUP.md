@@ -52,34 +52,67 @@ Le webhook WhatsApp reçoit les messages entrants avec :
 4. Traitement du message
 5. Envoi de la réponse
 
-## 📸 Instagram Graph API
+## 📸 Instagram Messaging API
 
-### ❌ Limitations
+### ✅ Fonctionnalités Supportées
 
 **Indicateur de Frappe :**
-- ❌ Non supporté par l'API Instagram Graph
-- ❌ Aucune fonctionnalité équivalente disponible
-- ℹ️ L'API Instagram se concentre sur la réception d'événements, pas sur les interactions temps réel
+- ✅ **SUPPORTÉ** par l'API Instagram Messaging avec Instagram Login
+- ✅ Utilise `"sender_action": "typing_on"` et `"typing_off"`
+- ✅ Combiné avec `"mark_seen"` pour marquer comme lu
+- ✅ Fonctionne avec le même endpoint `/PAGE-ID/messages`
 
 **Marquage comme Lu :**
-- ❌ Non supporté par l'API Instagram Graph
-- ❌ Aucune fonctionnalité équivalente disponible
-- ℹ️ Instagram ne fournit pas d'API pour les statuts de lecture
+- ✅ Supporté via `"sender_action": "mark_seen"`
+- ✅ Marque les messages comme lus côté destinataire
+- ✅ Utilise l'API Instagram Messaging
 
 ### 🔧 Implémentation
 
 ```python
-# Pour Instagram, les fonctions retournent True sans action
-async def send_typing_indicator(platform, user_credentials, contact_id, message_id):
-    if platform == "instagram":
-        logger.info("Indicateur de frappe non supporté pour Instagram")
-        return True  # Ne bloque pas le processus
-
-async def mark_message_as_read(platform, user_credentials, message_id):
-    if platform == "instagram":
-        logger.info("Marquage comme lu non supporté pour Instagram")
-        return True  # Ne bloque pas le processus
+# Indicateur de frappe + Marquage comme lu (EN UN SEUL APPEL OPTIMISÉ)
+result = await service.send_typing_and_mark_read(contact_id, message_id)
+# Retourne: {'success': True, 'results': {'typing': {...}, 'mark_seen': {...}}}
 ```
+
+**Méthode optimisée pour Instagram :**
+```python
+async def send_typing_and_mark_read(self, recipient_ig_id: str, last_message_id: str):
+    # Envoi typing_on puis mark_seen en séquence optimisée
+    typing_result = await self.send_typing_indicator(recipient_ig_id, "typing_on")
+    seen_result = await self.send_typing_indicator(recipient_ig_id, "mark_seen")
+    return {'success': typing_result['success'] or seen_result['success'], ...}
+```
+
+### 📋 Webhook Instagram
+
+Le webhook Instagram reçoit les messages directs avec :
+```json
+{
+  "entry": [{
+    "id": "instagram_business_account_id",
+    "changes": [{
+      "field": "messages",
+      "value": {
+        "messages": [{
+          "id": "msg_xxx",
+          "from": {"id": "user_id"},
+          "text": "Hello",
+          "timestamp": "1640995200"
+        }]
+      }
+    }]
+  }]
+}
+```
+
+**Traitement automatique :**
+1. Réception du message via webhook
+2. Marquage automatique comme lu (`mark_seen`)
+3. Envoi de l'indicateur de frappe (`typing_on`)
+4. Traitement du message par l'IA
+5. Arrêt de l'indicateur (`typing_off`) - automatique ou manuel
+6. Envoi de la réponse
 
 ### 📋 Webhook Instagram
 
@@ -132,7 +165,7 @@ async def process_incoming_message_for_user(message, user_info):
 Aucune configuration supplémentaire n'est requise. Les fonctionnalités sont automatiquement activées selon la plateforme :
 
 - **WhatsApp** : Indicateurs de frappe et marquage comme lu
-- **Instagram** : Aucune fonctionnalité (limitations API)
+- **Instagram** : Indicateurs de frappe et marquage comme lu (via Instagram Messaging API)
 
 ## 📊 Monitoring
 
@@ -146,8 +179,10 @@ INFO - Envoi indicateur de frappe vers 33612345678
 ### Logs Instagram
 
 ```
-INFO - Marquage comme lu non supporté pour Instagram
-INFO - Indicateur de frappe non supporté pour Instagram
+INFO - Envoi typing_on + mark_seen Instagram vers user_id
+INFO - Envoi action "typing_on" Instagram vers user_id
+INFO - Envoi action "mark_seen" Instagram vers user_id
+INFO - 📱 Instagram: Sender actions réussis vers user_id - Sender actions envoyés: typing=True, seen=True
 ```
 
 ## 🔄 Workflow Complet
@@ -161,15 +196,18 @@ INFO - Indicateur de frappe non supporté pour Instagram
 
 ### Instagram
 1. **Réception** → Webhook reçoit le message
-2. **Traitement** → Message traité directement
-3. **Réponse** → Réponse envoyée
+2. **Marquage** → Message marqué comme lu (`mark_seen`)
+3. **Indicateur** → Indicateur de frappe activé (`typing_on`)
+4. **Traitement** → Message traité par l'IA
+5. **Réponse** → Réponse envoyée (indicateur s'arrête automatiquement)
 
 ## ⚠️ Points d'Attention
 
 1. **WhatsApp** : L'indicateur de frappe dure maximum 25 secondes
-2. **Instagram** : Aucune indication visuelle de traitement
+2. **Instagram** : L'indicateur de frappe fonctionne comme WhatsApp via sender actions
 3. **Performance** : Les appels API supplémentaires peuvent impacter les performances
 4. **Erreurs** : Les échecs d'indicateurs n'interrompent pas le traitement principal
+5. **API Instagram** : Nécessite l'API Messaging avec Instagram Login (pas Graph API seule)
 
 ## 🛠️ Développement
 
@@ -189,7 +227,7 @@ Pour ajouter le support d'une nouvelle plateforme :
 await send_typing_indicator("whatsapp", credentials, "33612345678", "msg_id")
 await mark_message_as_read("whatsapp", credentials, "msg_id")
 
-# Test Instagram (doit retourner True)
+# Test Instagram (maintenant fonctionnel)
 await send_typing_indicator("instagram", credentials, "user_id", "msg_id")
 await mark_message_as_read("instagram", credentials, "msg_id")
 ```

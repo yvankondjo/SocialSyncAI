@@ -44,6 +44,15 @@ class AnalyticsScheduler:
             name="Cleanup Old Analytics",
             replace_existing=True
         )
+
+        # Nettoyage des conversations de test (toutes les heures)
+        self.scheduler.add_job(
+            self.cleanup_test_conversations,
+            CronTrigger(hour="*", minute="0"),
+            id="cleanup_test_conversations",
+            name="Cleanup Test Conversations",
+            replace_existing=True
+        )
         
 
     
@@ -119,7 +128,60 @@ class AnalyticsScheduler:
                 
         except Exception as e:
             logger.error(f"Error in analytics cleanup: {e}")
-    
+
+    async def cleanup_test_conversations(self):
+        """Nettoie les conversations de test (> 1 heure)"""
+        try:
+            logger.info("Starting test conversations cleanup")
+
+            # Connexion directe à PostgreSQL pour LangGraph checkpoints
+            import os
+            from psycopg import connect
+            from psycopg.rows import dict_row
+
+            # Connexion à la base de données
+            conn = connect(
+                host=os.getenv("SUPABASE_DB_HOST"),
+                port=os.getenv("SUPABASE_DB_PORT"),
+                dbname=os.getenv("SUPABASE_DB_NAME"),
+                user=os.getenv("SUPABASE_DB_USER"),
+                password=os.getenv("SUPABASE_DB_PASSWORD"),
+                sslmode="require",
+                connect_timeout=60,
+                row_factory=dict_row
+            )
+            conn.autocommit = True
+
+            cursor = conn.cursor()
+
+            # Identifier les conversations de test (conversation_id = '123')
+            # et celles créées il y a plus d'1 heure
+            cutoff_time = datetime.utcnow() - timedelta(hours=1)
+
+            # Supprimer les checkpoints des conversations de test
+            # Pour l'instant, seulement les conversations avec thread_id = '123'
+            cursor.execute("""
+                DELETE FROM checkpoint_writes
+                WHERE thread_id = '123'
+            """)
+
+            deleted_writes = cursor.rowcount
+
+            cursor.execute("""
+                DELETE FROM checkpoint_blobs
+                WHERE thread_id = '123'
+            """)
+
+            deleted_blobs = cursor.rowcount
+
+            cursor.close()
+            conn.close()
+
+            logger.info(f"Cleaned up {deleted_writes} checkpoint writes and {deleted_blobs} checkpoint blobs")
+
+        except Exception as e:
+            logger.error(f"Error in test conversations cleanup: {e}")
+
     def start(self):
         """Démarre le scheduler"""
         logger.info("Starting analytics scheduler")

@@ -1,9 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from app.routers import( social_accounts, whatsapp, instagram, 
-messaging, web_widget, conversations, automation, process, 
-knowledge_documents, faq_qa, ai_settings)
+from app.routers import (
+    social_accounts,
+    whatsapp,
+    instagram,
+    web_widget,
+    conversations,
+    automation,
+    process,
+    knowledge_documents,
+    faq_qa,
+    ai_settings,
+    media,
+    subscriptions,
+    stripe,
+)
 import logging
 import datetime
 
@@ -50,7 +62,6 @@ app.add_middleware(
 app.include_router(social_accounts.router, prefix="/api")
 app.include_router(whatsapp.router, prefix="/api")
 app.include_router(instagram.router, prefix="/api")
-app.include_router(messaging.router, prefix="/api")
 app.include_router(conversations.router, prefix="/api")
 app.include_router(automation.router, prefix="/api")
 app.include_router(web_widget.router, prefix="/api")
@@ -58,6 +69,9 @@ app.include_router(process.router, prefix="/api")
 app.include_router(knowledge_documents.router, prefix="/api")
 app.include_router(faq_qa.router, prefix="/api")
 app.include_router(ai_settings.router, prefix="/api")
+app.include_router(media.router, prefix="/api")
+app.include_router(subscriptions.router, prefix="/api")
+app.include_router(stripe.router, prefix="/api")
 
 # Nouvelles routes PRD2
 from app.routers import support

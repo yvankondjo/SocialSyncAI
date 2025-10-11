@@ -7,7 +7,7 @@ import re
 from app.services.retriever import Retriever
 from app.services.rag_agent import QueryItem
 
-retriever = Retriever(user_id="user_12345")
+retriever = Retriever(user_id="b46a7229-2c29-4a88-ada1-c21a59f4eda1")
 
 query_item = QueryItem(query="surface habitable", lang="french")
 

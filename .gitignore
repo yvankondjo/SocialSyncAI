@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 backend/migrations/
+tasks/
+wordpress-plugin/
+docs/
 
 # Distribution / packaging
 .Python
@@ -233,3 +236,6 @@ node_modules/
 # Task files
 # tasks.json
 # tasks/ 
+
+# Moat task system
+.moat/

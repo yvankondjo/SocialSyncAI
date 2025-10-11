@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { useToast } from "@/hooks/use-toast"
 import {
   Database,
   Upload,
@@ -13,92 +14,75 @@ import {
   CheckCircle,
   AlertCircle,
   Clock,
-  Settings,
   Trash2,
   Download,
   RefreshCw,
+  Loader2,
+  HardDrive,
 } from "lucide-react"
-
-// Mock data for uploaded files
-const mockFiles = [
-  {
-    id: "1",
-    name: "product-documentation.pdf",
-    size: "2.4 MB",
-    type: "PDF",
-    uploadDate: "2024-01-15T10:30:00Z",
-    status: "indexed",
-    chunks: 45,
-    lastProcessed: "2024-01-15T10:35:00Z",
-  },
-  {
-    id: "2",
-    name: "faq-database.csv",
-    size: "856 KB",
-    type: "CSV",
-    uploadDate: "2024-01-14T15:20:00Z",
-    status: "processing",
-    chunks: 0,
-    lastProcessed: null,
-  },
-  {
-    id: "3",
-    name: "user-manual.docx",
-    size: "1.8 MB",
-    type: "DOCX",
-    uploadDate: "2024-01-13T09:15:00Z",
-    status: "indexed",
-    chunks: 32,
-    lastProcessed: "2024-01-13T09:20:00Z",
-  },
-  {
-    id: "4",
-    name: "api-reference.md",
-    size: "345 KB",
-    type: "Markdown",
-    uploadDate: "2024-01-12T14:45:00Z",
-    status: "error",
-    chunks: 0,
-    lastProcessed: null,
-    error: "File format not supported",
-  },
-  {
-    id: "5",
-    name: "company-policies.txt",
-    size: "123 KB",
-    type: "TXT",
-    uploadDate: "2024-01-11T11:30:00Z",
-    status: "indexed",
-    chunks: 15,
-    lastProcessed: "2024-01-11T11:32:00Z",
-  },
-]
+import { KnowledgeDocumentsService, KnowledgeDocument, ApiClient } from "@/lib/api"
+import { formatRelativeDate, getStatusColor, getStatusLabel } from "@/lib/utils"
 
 export default function DataPage() {
+  const { toast } = useToast()
   const [searchQuery, setSearchQuery] = useState("")
   const [isUploading, setIsUploading] = useState(false)
-  const [files, setFiles] = useState(mockFiles)
+  const [isLoading, setIsLoading] = useState(true)
+  const [files, setFiles] = useState<KnowledgeDocument[]>([])
+  const [storageUsage, setStorageUsage] = useState<{
+    usedMb: number;
+    quotaMb: number;
+    availableMb: number;
+    percentageUsed: number;
+    isFull: boolean;
+  } | null>(null)
 
-  const filteredFiles = files.filter(file =>
-    file.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    file.type.toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "indexed":
-        return "bg-green-500/20 text-green-400"
-      case "processing":
-        return "bg-yellow-500/20 text-yellow-400"
-      case "error":
-        return "bg-red-500/20 text-red-400"
-      default:
-        return "bg-gray-500/20 text-gray-400"
+  // Charger les documents depuis l'API
+  const loadDocuments = async () => {
+    try {
+      setIsLoading(true)
+      const data = await KnowledgeDocumentsService.list()
+      setFiles(data)
+    } catch (error) {
+      console.error("Erreur lors du chargement des documents:", error)
+      toast({
+        title: "Erreur de chargement",
+        description: "Impossible de charger les documents.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
     }
   }
 
+  // Charger l'usage de stockage
+  const loadStorageUsage = async () => {
+    try {
+      const data = await ApiClient.get('/api/subscriptions/storage/usage')
+      setStorageUsage({
+        usedMb: data.used_mb,
+        quotaMb: data.quota_mb,
+        availableMb: data.available_mb,
+        percentageUsed: data.percentage_used,
+        isFull: data.is_full
+      })
+    } catch (error) {
+      console.error("Erreur chargement usage stockage:", error)
+    }
+  }
+
+  useEffect(() => {
+    loadDocuments()
+    loadStorageUsage()
+  }, [])
+
+  const filteredFiles = files.filter(file =>
+    file.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    file.status.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
   const getStatusIcon = (status: string) => {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case "indexed":
         return <CheckCircle className="w-4 h-4 text-green-400" />
       case "processing":
@@ -114,66 +98,326 @@ export default function DataPage() {
     return <FileText className="w-5 h-5 text-muted-foreground" />
   }
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString('fr-FR', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFiles = event.target.files
     if (!uploadedFiles) return
 
-    setIsUploading(true)
-    
-    // Simulate file upload process
-    setTimeout(() => {
-      Array.from(uploadedFiles).forEach((file, index) => {
-        const newFile = {
-          id: Date.now().toString() + index,
+    // Validation des fichiers
+    const allowedTypes = ['pdf', 'txt', 'md']
+    const maxSizeInMB = 10
+    const maxSizeInBytes = maxSizeInMB * 1024 * 1024
+
+    const validFiles: File[] = []
+    const invalidFiles: { name: string; reason: string }[] = []
+
+    for (const file of Array.from(uploadedFiles)) {
+      const fileExt = file.name.split('.').pop()?.toLowerCase()
+
+      // Vérifier le type de fichier
+      if (!fileExt || !allowedTypes.includes(fileExt)) {
+        invalidFiles.push({
           name: file.name,
-          size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-          type: file.name.split('.').pop()?.toUpperCase() || 'Unknown',
-          uploadDate: new Date().toISOString(),
-          status: "processing",
-          chunks: 0,
-          lastProcessed: null,
-        }
-        
-        setFiles(prev => [newFile, ...prev])
+          reason: `Type de fichier non supporté. Seuls PDF, TXT et MD sont acceptés.`
+        })
+        continue
+      }
+
+      // Vérifier la taille
+      if (file.size > maxSizeInBytes) {
+        invalidFiles.push({
+          name: file.name,
+          reason: `Fichier trop volumineux (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum ${maxSizeInMB} MB.`
+        })
+        continue
+      }
+
+      validFiles.push(file)
+    }
+
+    // Afficher les erreurs si il y en a
+    if (invalidFiles.length > 0) {
+      invalidFiles.forEach(({ name, reason }) => {
+        toast({
+          title: `Fichier rejeté: ${name}`,
+          description: reason,
+          variant: "destructive",
+        })
       })
+    }
+
+    // Si aucun fichier valide, arrêter
+    if (validFiles.length === 0) {
+      return
+    }
+
+    // Vérifier le quota de stockage
+    if (storageUsage) {
+      const totalFileSizeMb = validFiles.reduce((total, file) => total + (file.size / (1024 * 1024)), 0)
+
+      if (totalFileSizeMb > storageUsage.availableMb) {
+        toast({
+          title: "Quota de stockage insuffisant",
+          description: `Espace disponible: ${storageUsage.availableMb.toFixed(2)} MB, Requis: ${totalFileSizeMb.toFixed(2)} MB`,
+          variant: "destructive",
+        })
+        return
+      }
+    }
+
+    setIsUploading(true)
+    toast({
+      title: "Téléchargement en cours",
+      description: `${validFiles.length} fichier(s) en cours de traitement...`,
+    })
+
+    try {
+      for (const file of validFiles) {
+        console.log(`Uploading file: ${file.name}`)
+
+        // Créer FormData pour l'upload
+        const formData = new FormData()
+        formData.append('file', file)
+
+        // Upload via l'endpoint backend avec ApiClient
+        try {
+          const data = await ApiClient.uploadFile('/api/knowledge_documents/upload', formData)
+          console.log('Upload successful:', data)
+          toast({
+            title: "Fichier uploadé",
+            description: `${file.name} traité avec succès. Le processing automatique va commencer.`,
+          })
+        } catch (uploadError) {
+          console.error('Erreur upload:', uploadError)
+          toast({
+            title: "Erreur d'upload",
+            description: `Échec pour ${file.name}`,
+            variant: "destructive",
+          })
+        }
+      }
+
+      // Recharger la liste des documents après upload
+      await loadDocuments()
+      await loadStorageUsage()
+
+      toast({
+        title: "Téléchargement terminé",
+        description: `${validFiles.length} fichier(s) traité(s). Le traitement automatique va commencer.`,
+      })
+
+    } catch (error) {
+      console.error('Erreur générale upload:', error)
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors du téléchargement.",
+        variant: "destructive",
+      })
+    } finally {
       setIsUploading(false)
-    }, 2000)
+    }
   }
 
-  const handleDeleteFile = (fileId: string) => {
-    setFiles(prev => prev.filter(file => file.id !== fileId))
+  const handleDeleteFile = async (fileId: string) => {
+    try {
+      const { supabase } = await import('@/lib/supabase')
+
+      // Vérifier l'authentification
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast({
+          title: "Erreur d'authentification",
+          description: "Vous devez être connecté pour supprimer des fichiers.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Trouver le document dans la liste actuelle
+      const file = files.find(f => f.id === fileId)
+      if (!file) {
+        toast({
+          title: "Document non trouvé",
+          description: "Le document n'existe pas.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      toast({
+        title: "Suppression en cours",
+        description: `Suppression de ${file.title}...`,
+      })
+
+      // Supprimer le fichier du stockage si on a l'object_name
+      if (file.object_name) {
+        const { error: storageError } = await supabase.storage
+          .from('kb')
+          .remove([file.object_name])
+
+        if (storageError) {
+          console.error('Erreur suppression stockage:', storageError)
+          // Ne pas arrêter si la suppression du stockage échoue
+        }
+      }
+
+      // Supprimer l'enregistrement de la base de données
+      const { error: dbError } = await supabase
+        .from('knowledge_documents')
+        .delete()
+        .eq('id', fileId)
+
+      if (dbError) {
+        console.error('Erreur suppression base de données:', dbError)
+        toast({
+          title: "Erreur de suppression",
+          description: "Erreur lors de la suppression du document.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      toast({
+        title: "Document supprimé",
+        description: "Le document a été supprimé avec succès.",
+      })
+      await loadDocuments()
+    } catch (error) {
+      console.error("Erreur lors de la suppression du document:", error)
+      toast({
+        title: "Erreur de suppression",
+        description: "Impossible de supprimer le document.",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleReprocessFile = (fileId: string) => {
-    setFiles(prev => prev.map(file =>
-      file.id === fileId
-        ? { ...file, status: "processing", error: undefined }
-        : file
-    ))
-    
-    // Simulate reprocessing
+  const handleExport = () => {
+    try {
+      // Créer un objet d'export avec les métadonnées des documents
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        totalDocuments: files.length,
+        documents: files.map(file => ({
+          id: file.id,
+          title: file.title,
+          status: file.status,
+          createdAt: file.created_at,
+          updatedAt: file.updated_at,
+          embedModel: file.embed_model,
+          langCode: file.lang_code,
+          lastIngestedAt: file.last_ingested_at,
+          lastEmbeddedAt: file.last_embedded_at
+        }))
+      }
+
+      // Créer et télécharger le fichier JSON
+      const dataStr = JSON.stringify(exportData, null, 2)
+      const dataBlob = new Blob([dataStr], { type: 'application/json' })
+
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(dataBlob)
+      link.download = `documents-export-${new Date().toISOString().split('T')[0]}.json`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      toast({
+        title: "Export réussi",
+        description: `${files.length} documents exportés au format JSON.`,
+      })
+    } catch (error) {
+      console.error('Erreur lors de l\'exportation:', error)
+      toast({
+        title: "Erreur d'export",
+        description: "Impossible d'exporter les documents.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDownloadFile = async (file: KnowledgeDocument) => {
+    try {
+      const { supabase } = await import('@/lib/supabase')
+
+      // Vérifier l'authentification
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast({
+          title: "Erreur d'authentification",
+          description: "Vous devez être connecté pour télécharger des fichiers.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (!file.object_name) {
+        toast({
+          title: "Erreur",
+          description: "Le chemin du fichier n'est pas disponible.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      toast({
+        title: "Téléchargement en cours",
+        description: `Téléchargement de ${file.title}...`,
+      })
+
+      // Télécharger directement avec l'object_name
+      const { data: fileData, error: downloadError } = await supabase.storage
+        .from('kb')
+        .download(file.object_name)
+
+      if (downloadError) {
+        console.error('Erreur download:', downloadError)
+        toast({
+          title: "Erreur de téléchargement",
+          description: "Impossible de télécharger le fichier.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Créer un lien de téléchargement
+      const blob = new Blob([fileData])
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = file.title
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+
+      toast({
+        title: "Téléchargement réussi",
+        description: `${file.title} a été téléchargé.`,
+      })
+
+    } catch (error) {
+      console.error('Erreur lors du téléchargement:', error)
+      toast({
+        title: "Erreur de téléchargement",
+        description: "Une erreur inattendue s'est produite.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleReprocessFile = async (fileId: string) => {
+    // Pour le moment, simulation d'un reprocessing
+    toast({
+      title: "Reprocessing en cours",
+      description: "Le document est en cours de reprocessing...",
+    })
+
     setTimeout(() => {
-      setFiles(prev => prev.map(file =>
-        file.id === fileId
-          ? { 
-              ...file, 
-              status: "indexed", 
-              chunks: Math.floor(Math.random() * 50) + 10,
-              lastProcessed: new Date().toISOString()
-            }
-          : file
-      ))
+      toast({
+        title: "Reprocessing terminé",
+        description: "Le document a été reprocessé avec succès.",
+      })
+      loadDocuments()
     }, 3000)
   }
 
@@ -181,34 +425,36 @@ export default function DataPage() {
   const indexedFiles = files.filter(f => f.status === "indexed").length
   const processingFiles = files.filter(f => f.status === "processing").length
   const errorFiles = files.filter(f => f.status === "error").length
-  const totalChunks = files.reduce((sum, file) => sum + file.chunks, 0)
+  // Pour l'instant, pas d'information sur les chunks dans le schéma actuel
 
   return (
     <div className="flex-1 p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Data Sources</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Sources de données</h1>
           <p className="text-muted-foreground">
-            Upload and manage files to train your AI chatbot
+            Téléchargez et gérez les fichiers pour entraîner votre chatbot IA
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline">
+          <Button variant="outline" className="cursor-pointer" onClick={handleExport}>
             <Download className="w-4 h-4 mr-2" />
-            Export
+            Exporter
           </Button>
-          <label htmlFor="file-upload">
-            <Button disabled={isUploading} className="cursor-pointer">
-              <Upload className="w-4 h-4 mr-2" />
-              {isUploading ? "Uploading..." : "Upload Files"}
-            </Button>
-          </label>
+          <Button 
+            disabled={isUploading} 
+            className="cursor-pointer"
+            onClick={() => document.getElementById('file-upload')?.click()}
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            {isUploading ? "Téléchargement..." : "Télécharger des fichiers"}
+          </Button>
           <input
             id="file-upload"
             type="file"
             multiple
-            accept=".pdf,.doc,.docx,.txt,.csv,.md"
+            accept=".pdf,.txt,.md"
             onChange={handleFileUpload}
             className="hidden"
           />
@@ -219,53 +465,71 @@ export default function DataPage() {
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Files</CardTitle>
+            <CardTitle className="text-sm font-medium">Total fichiers</CardTitle>
             <Database className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalFiles}</div>
             <p className="text-xs text-muted-foreground">
-              Files uploaded
+              Fichiers téléchargés
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Indexed</CardTitle>
+            <CardTitle className="text-sm font-medium">Indexés</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-400">{indexedFiles}</div>
             <p className="text-xs text-muted-foreground">
-              Ready for AI training
+              Prêts pour l'entraînement IA
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Processing</CardTitle>
+            <CardTitle className="text-sm font-medium">En traitement</CardTitle>
             <Clock className="h-4 w-4 text-yellow-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-yellow-400">{processingFiles}</div>
             <p className="text-xs text-muted-foreground">
-              Currently processing
+              Actuellement en traitement
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Knowledge Chunks</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Stockage</CardTitle>
+            <HardDrive className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalChunks}</div>
-            <p className="text-xs text-muted-foreground">
-              Indexed chunks
-            </p>
+            {storageUsage ? (
+              <>
+                <div className="text-2xl font-bold">
+                  {storageUsage.usedMb.toFixed(1)} MB
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {storageUsage.availableMb.toFixed(1)} MB disponibles sur {storageUsage.quotaMb} MB
+                </p>
+                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full ${
+                      storageUsage.percentageUsed > 90 ? 'bg-red-500' :
+                      storageUsage.percentageUsed > 70 ? 'bg-orange-500' :
+                      'bg-green-500'
+                    }`}
+                    style={{ width: `${Math.min(storageUsage.percentageUsed, 100)}%` }}
+                  ></div>
+                </div>
+              </>
+            ) : (
+              <div className="text-2xl font-bold">--</div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -275,9 +539,9 @@ export default function DataPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search files..."
+            placeholder="Rechercher des documents..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
             className="pl-10"
           />
         </div>
@@ -286,21 +550,29 @@ export default function DataPage() {
       {/* Files List */}
       <Card>
         <CardHeader>
-          <CardTitle>Uploaded Files</CardTitle>
+          <CardTitle>Documents analysés</CardTitle>
         </CardHeader>
         <CardContent>
-          {filteredFiles.length === 0 ? (
+          {isLoading ? (
+            <div className="text-center py-12">
+              <Loader2 className="w-12 h-12 mx-auto mb-4 text-muted-foreground animate-spin" />
+              <h3 className="text-lg font-semibold mb-2">Chargement des documents...</h3>
+              <p className="text-muted-foreground">
+                Veuillez patienter pendant le chargement des données.
+              </p>
+            </div>
+          ) : filteredFiles.length === 0 ? (
             <div className="text-center py-12">
               <Database className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="text-lg font-semibold mb-2">No files found</h3>
+              <h3 className="text-lg font-semibold mb-2">Aucun document trouvé</h3>
               <p className="text-muted-foreground mb-4">
-                {searchQuery ? "Try adjusting your search terms" : "Upload your first file to get started"}
+                {searchQuery ? "Essayez d'ajuster vos termes de recherche" : "Téléchargez votre premier document pour commencer"}
               </p>
               {!searchQuery && (
                 <label htmlFor="file-upload-empty">
-                  <Button className="cursor-pointer">
+                  <Button className="cursor-pointer" disabled={isUploading}>
                     <Upload className="w-4 h-4 mr-2" />
-                    Upload Files
+                    {isUploading ? "Téléchargement..." : "Télécharger des fichiers"}
                   </Button>
                 </label>
               )}
@@ -308,7 +580,7 @@ export default function DataPage() {
                 id="file-upload-empty"
                 type="file"
                 multiple
-                accept=".pdf,.doc,.docx,.txt,.csv,.md"
+                accept=".pdf,.txt,.md"
                 onChange={handleFileUpload}
                 className="hidden"
               />
@@ -322,55 +594,63 @@ export default function DataPage() {
                 >
                   <div className="flex items-center gap-4">
                     <div className="flex-shrink-0">
-                      {getFileIcon(file.type)}
+                      {getFileIcon("document")}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium truncate">{file.name}</h3>
+                        <h3 className="font-medium truncate">{file.title}</h3>
                         <Badge variant="outline" className={getStatusColor(file.status)}>
                           <div className="flex items-center gap-1">
                             {getStatusIcon(file.status)}
-                            {file.status}
+                            {getStatusLabel(file.status)}
                           </div>
                         </Badge>
                       </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span>{file.type}</span>
-                        <span>{file.size}</span>
-                        <span>Uploaded {formatDate(file.uploadDate)}</span>
-                        {file.status === "indexed" && (
-                          <span>{file.chunks} chunks</span>
+                        <span>Modèle: {file.embed_model}</span>
+                        <span>Langue: {file.lang_code}</span>
+                        <span>Créé {formatRelativeDate(file.created_at)}</span>
+                        {file.last_ingested_at && (
+                          <span>Ingesté {formatRelativeDate(file.last_ingested_at)}</span>
                         )}
                       </div>
-                      {file.error && (
-                        <p className="text-sm text-red-400 mt-1">{file.error}</p>
+                      {file.status === "error" && (
+                        <p className="text-sm text-red-400 mt-1">Erreur de traitement du document</p>
                       )}
-                      {file.lastProcessed && (
+                      {file.last_embedded_at && (
                         <p className="text-sm text-muted-foreground mt-1">
-                          Last processed: {formatDate(file.lastProcessed)}
+                          Embedding {formatRelativeDate(file.last_embedded_at)}
                         </p>
                       )}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDownloadFile(file)}
+                      className="cursor-pointer"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Télécharger
+                    </Button>
                     {file.status === "error" && (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => handleReprocessFile(file.id)}
+                        className="cursor-pointer"
                       >
                         <RefreshCw className="w-4 h-4 mr-2" />
-                        Retry
+                        Réessayer
                       </Button>
                     )}
-                    <Button variant="outline" size="sm">
-                      <Settings className="w-4 h-4" />
-                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleDeleteFile(file.id)}
+                      className="cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -391,9 +671,9 @@ export default function DataPage() {
                 <RefreshCw className="w-5 h-5" />
               </div>
               <div className="flex-1">
-                <p className="font-medium">Uploading files...</p>
+                <p className="font-medium">Téléchargement des fichiers...</p>
                 <p className="text-sm text-muted-foreground">
-                  Please wait while we process your files
+                  Veuillez patienter pendant le traitement de vos fichiers
                 </p>
               </div>
             </div>

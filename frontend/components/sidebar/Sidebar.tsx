@@ -49,6 +49,7 @@ import {
   Bot,
   MessageCircle,
   Globe,
+  CreditCard,
 } from 'lucide-react'
 
 const mainNavItems = [
@@ -72,6 +73,7 @@ const settingsSubItems = [
   { icon: Bot, label: 'AI', href: '/dashboard/settings/ai' },
   { icon: MessageCircle, label: 'Chat Interfaces', href: '/dashboard/settings/chat-interfaces' },
   { icon: Globe, label: 'Custom Domain', href: '/dashboard/settings/custom-domain' },
+  { icon: CreditCard, label: 'Facturation', href: '/dashboard/settings/billing' },
 ]
 
 export function Sidebar() {
@@ -109,7 +111,7 @@ export function Sidebar() {
               </div>
             </div>
           ) : (
-            <h1 className="text-xl font-bold text-sidebar-foreground">SocialSync</h1>
+            <h1 className="text-xl font-bold text-sidebar-foreground">ConversAI</h1>
           )}
         </div>
 
@@ -504,7 +506,7 @@ export function Sidebar() {
           </SheetTrigger>
           <SheetContent side="left" className="w-[280px] p-0">
             <SheetHeader className="p-6 border-b border-sidebar-border">
-              <SheetTitle className="text-left">SocialSync</SheetTitle>
+              <SheetTitle className="text-left">ConversAI</SheetTitle>
             </SheetHeader>
             
             <nav className="flex-1 p-4 space-y-1 overflow-y-auto">

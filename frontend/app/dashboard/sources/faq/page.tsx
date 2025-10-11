@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useToast } from "@/hooks/use-toast"
 import {
   HelpCircle,
   Plus,
@@ -21,134 +22,100 @@ import {
   XCircle,
   X,
   Save,
+  Loader2,
+  MoreHorizontal,
+  HardDrive,
 } from "lucide-react"
-
-interface FAQ {
-  id: string
-  questions: string[]
-  answer: string
-  tags: string[]
-  isActive: boolean
-  updatedAt: string
-  source: "manual" | "chat_edit" | "import"
-}
-
-// Mock data for FAQs
-const mockFAQs: FAQ[] = [
-  {
-    id: "1",
-    questions: [
-      "How do I reset my password?",
-      "I forgot my password, what should I do?",
-      "Can you help me reset my account password?",
-      "Password reset procedure"
-    ],
-    answer: "To reset your password, go to the login page and click 'Forgot Password'. Enter your email address and follow the instructions sent to your email.",
-    tags: ["account", "password", "security"],
-    isActive: true,
-    updatedAt: "2024-01-15T10:30:00Z",
-    source: "manual",
-  },
-  {
-    id: "2",
-    questions: [
-      "What payment methods do you accept?",
-      "How can I pay for my subscription?",
-      "Do you accept credit cards?"
-    ],
-    answer: "We accept all major credit cards (Visa, MasterCard, American Express), PayPal, and bank transfers for annual subscriptions.",
-    tags: ["billing", "payment", "subscription"],
-    isActive: true,
-    updatedAt: "2024-01-14T15:20:00Z",
-    source: "chat_edit",
-  },
-  {
-    id: "3",
-    questions: [
-      "How do I upgrade my plan?",
-      "Can I change my subscription tier?",
-      "Upgrade to premium account"
-    ],
-    answer: "You can upgrade your plan anytime from your account settings. Go to Billing > Change Plan and select your desired tier.",
-    tags: ["billing", "upgrade", "plans"],
-    isActive: true,
-    updatedAt: "2024-01-13T09:15:00Z",
-    source: "manual",
-  },
-  {
-    id: "4",
-    questions: [
-      "Is there a mobile app available?",
-      "Do you have an iOS/Android app?"
-    ],
-    answer: "Yes! We have mobile apps for both iOS and Android. You can download them from the App Store or Google Play Store.",
-    tags: ["mobile", "app", "download"],
-    isActive: false,
-    updatedAt: "2024-01-12T14:45:00Z",
-    source: "import",
-  },
-]
+import { FAQQAService, FAQQA, FAQQACreate, ApiClient } from "@/lib/api"
+import { formatRelativeDate, getStatusColor, getStatusLabel } from "@/lib/utils"
 
 export default function FAQPage() {
-  const [faqs, setFaqs] = useState<FAQ[]>(mockFAQs)
+  const { toast } = useToast()
+  const [faqs, setFaqs] = useState<FAQQA[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isCreating, setIsCreating] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [editingFAQ, setEditingFAQ] = useState<FAQ | null>(null)
+  const [editingFAQ, setEditingFAQ] = useState<FAQQA | null>(null)
   const [isAddingFAQ, setIsAddingFAQ] = useState(false)
-  const [newFAQ, setNewFAQ] = useState<Partial<FAQ>>({
+  const [newFAQ, setNewFAQ] = useState<Partial<FAQQA>>({
     questions: [""],
     answer: "",
-    tags: [],
-    isActive: true,
-    source: "manual"
+    context: [],
+    is_active: true
   })
   const [newTag, setNewTag] = useState("")
+  const [managingQuestionsFAQ, setManagingQuestionsFAQ] = useState<FAQQA | null>(null)
+  const [newQuestion, setNewQuestion] = useState("")
+  const [storageUsage, setStorageUsage] = useState<{
+    usedMb: number;
+    quotaMb: number;
+    availableMb: number;
+    percentageUsed: number;
+    isFull: boolean;
+  } | null>(null)
+
+  // Charger les FAQ depuis l'API
+  const loadFAQs = async () => {
+    try {
+      setIsLoading(true)
+      const data = await FAQQAService.list()
+      setFaqs(data)
+    } catch (error) {
+      console.error("Erreur lors du chargement des FAQ:", error)
+      toast({
+        title: "Erreur de chargement",
+        description: "Impossible de charger les FAQ.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Charger l'usage de stockage
+  const loadStorageUsage = async () => {
+    try {
+      const data = await ApiClient.get('/api/subscriptions/storage/usage')
+      setStorageUsage({
+        usedMb: data.used_mb,
+        quotaMb: data.quota_mb,
+        availableMb: data.available_mb,
+        percentageUsed: data.percentage_used,
+        isFull: data.is_full
+      })
+    } catch (error) {
+      console.error("Erreur chargement usage stockage:", error)
+    }
+  }
+
+  useEffect(() => {
+    loadFAQs()
+    loadStorageUsage()
+  }, [])
 
   const filteredFAQs = faqs.filter(faq => {
     const matchesSearch = 
       faq.questions.some(q => q.toLowerCase().includes(searchQuery.toLowerCase())) ||
       faq.answer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      faq.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
+      (faq.context || []).some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
     
     const matchesStatus = statusFilter === "all" || 
-      (statusFilter === "active" && faq.isActive) ||
-      (statusFilter === "inactive" && !faq.isActive)
+      (statusFilter === "active" && faq.is_active) ||
+      (statusFilter === "inactive" && !faq.is_active)
 
     return matchesSearch && matchesStatus
   })
 
-  const getSourceColor = (source: string) => {
-    switch (source) {
-      case "manual":
-        return "bg-blue-500/20 text-blue-400"
-      case "chat_edit":
-        return "bg-green-500/20 text-green-400"
-      case "import":
-        return "bg-purple-500/20 text-purple-400"
-      default:
-        return "bg-gray-500/20 text-gray-400"
-    }
-  }
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString('fr-FR', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
-
-  const handleAddQuestion = (faqData: Partial<FAQ>, setFaqData: (data: Partial<FAQ>) => void) => {
+  const handleAddQuestion = (faqData: Partial<FAQQA>, setFaqData: (data: Partial<FAQQA>) => void) => {
     setFaqData({
       ...faqData,
       questions: [...(faqData.questions || []), ""]
     })
   }
 
-  const handleRemoveQuestion = (index: number, faqData: Partial<FAQ>, setFaqData: (data: Partial<FAQ>) => void) => {
+  const handleRemoveQuestion = (index: number, faqData: Partial<FAQQA>, setFaqData: (data: Partial<FAQQA>) => void) => {
     const newQuestions = faqData.questions?.filter((_, i) => i !== index) || []
     setFaqData({
       ...faqData,
@@ -156,7 +123,7 @@ export default function FAQPage() {
     })
   }
 
-  const handleQuestionChange = (index: number, value: string, faqData: Partial<FAQ>, setFaqData: (data: Partial<FAQ>) => void) => {
+  const handleQuestionChange = (index: number, value: string, faqData: Partial<FAQQA>, setFaqData: (data: Partial<FAQQA>) => void) => {
     const newQuestions = [...(faqData.questions || [])]
     newQuestions[index] = value
     setFaqData({
@@ -165,67 +132,200 @@ export default function FAQPage() {
     })
   }
 
-  const handleAddTag = (faqData: Partial<FAQ>, setFaqData: (data: Partial<FAQ>) => void) => {
-    if (newTag.trim() && !faqData.tags?.includes(newTag.trim())) {
+  const handleAddTag = (faqData: Partial<FAQQA>, setFaqData: (data: Partial<FAQQA>) => void) => {
+    if (newTag.trim() && !(faqData.context || []).includes(newTag.trim())) {
       setFaqData({
         ...faqData,
-        tags: [...(faqData.tags || []), newTag.trim()]
+        context: [...(faqData.context || []), newTag.trim()]
       })
       setNewTag("")
     }
   }
 
-  const handleRemoveTag = (tagToRemove: string, faqData: Partial<FAQ>, setFaqData: (data: Partial<FAQ>) => void) => {
+  const handleRemoveTag = (tagToRemove: string, faqData: Partial<FAQQA>, setFaqData: (data: Partial<FAQQA>) => void) => {
     setFaqData({
       ...faqData,
-      tags: faqData.tags?.filter(tag => tag !== tagToRemove) || []
+      context: (faqData.context || []).filter(tag => tag !== tagToRemove)
     })
   }
 
-  const handleSaveFAQ = (faqData: Partial<FAQ>) => {
+  const handleSaveFAQ = async (faqData: Partial<FAQQA>) => {
     const validQuestions = faqData.questions?.filter(q => q.trim()) || []
     if (validQuestions.length === 0 || !faqData.answer?.trim()) return
 
-    const faqToSave: FAQ = {
-      id: faqData.id || Date.now().toString(),
+    // Vérifier le quota de stockage
+    if (storageUsage) {
+      // Calculer la taille de la FAQ (questions + answer)
+      let textSizeBytes = 0
+      for (const question of validQuestions) {
+        textSizeBytes += new Blob([question]).size
+      }
+      textSizeBytes += new Blob([faqData.answer || ""]).size
+      const textSizeMb = textSizeBytes / (1024 * 1024)
+
+      if (textSizeMb > storageUsage.availableMb) {
+        toast({
+          title: "Quota de stockage insuffisant",
+          description: `Espace disponible: ${storageUsage.availableMb.toFixed(2)} MB, Requis: ${textSizeMb.toFixed(2)} MB`,
+          variant: "destructive",
+        })
+        return
+      }
+    }
+
+    try {
+      setIsCreating(true)
+
+      const faqToSave: FAQQACreate = {
       questions: validQuestions,
       answer: faqData.answer,
-      tags: faqData.tags || [],
-      isActive: faqData.isActive ?? true,
-      updatedAt: new Date().toISOString(),
-      source: faqData.source || "manual"
+        context: faqData.context || []
     }
 
     if (faqData.id) {
       // Update existing FAQ
-      setFaqs(prev => prev.map(faq => faq.id === faqData.id ? faqToSave : faq))
+        await FAQQAService.update(faqData.id, faqToSave)
+        toast({
+          title: "FAQ mise à jour",
+          description: "La FAQ a été mise à jour avec succès.",
+        })
     } else {
       // Add new FAQ
-      setFaqs(prev => [faqToSave, ...prev])
-    }
+        await FAQQAService.create(faqToSave)
+        toast({
+          title: "FAQ créée",
+          description: "La nouvelle FAQ a été créée avec succès.",
+        })
+      }
+
+      // Recharger les FAQ et l'usage de stockage
+      await loadFAQs()
+      await loadStorageUsage()
 
     setEditingFAQ(null)
     setIsAddingFAQ(false)
     setNewFAQ({
       questions: [""],
       answer: "",
-      tags: [],
-      isActive: true,
-      source: "manual"
-    })
+        context: [],
+        is_active: true
+      })
+    } catch (error) {
+      console.error("Erreur lors de la sauvegarde de la FAQ:", error)
+      toast({
+        title: "Erreur de sauvegarde",
+        description: "Impossible de sauvegarder la FAQ.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsCreating(false)
+    }
   }
 
-  const handleDeleteFAQ = (faqId: string) => {
-    setFaqs(prev => prev.filter(faq => faq.id !== faqId))
+  const handleToggleFAQ = async (faqId: string) => {
+    try {
+      const result = await FAQQAService.toggle(faqId)
+      toast({
+        title: result.is_active ? "FAQ activée" : "FAQ désactivée",
+        description: result.message,
+      })
+      await loadFAQs()
+    } catch (error) {
+      console.error("Erreur lors du toggle de la FAQ:", error)
+      toast({
+        title: "Erreur",
+        description: "Impossible de changer le statut de la FAQ.",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleEditFAQ = (faq: FAQ) => {
+  const handleAddQuestionToFAQ = async (faqId: string, question: string) => {
+    if (!question.trim()) return
+
+    try {
+      await FAQQAService.addQuestions(faqId, { items: [question.trim()] })
+      toast({
+        title: "Question ajoutée",
+        description: "La question a été ajoutée avec succès.",
+      })
+      await loadFAQs()
+      setNewQuestion("")
+    } catch (error) {
+      console.error("Erreur lors de l'ajout de la question:", error)
+      toast({
+        title: "Erreur",
+        description: "Impossible d'ajouter la question.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleUpdateQuestionInFAQ = async (faqId: string, index: number, newValue: string) => {
+    if (!newValue.trim()) return
+
+    try {
+      await FAQQAService.updateQuestions(faqId, {
+        updates: [{ index, value: newValue.trim() }]
+      })
+      toast({
+        title: "Question modifiée",
+        description: "La question a été modifiée avec succès.",
+      })
+      await loadFAQs()
+    } catch (error) {
+      console.error("Erreur lors de la modification de la question:", error)
+      toast({
+        title: "Erreur",
+        description: "Impossible de modifier la question.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDeleteQuestionFromFAQ = async (faqId: string, index: number) => {
+    try {
+      await FAQQAService.deleteQuestions(faqId, { indexes: [index] })
+      toast({
+        title: "Question supprimée",
+        description: "La question a été supprimée avec succès.",
+      })
+      await loadFAQs()
+    } catch (error) {
+      console.error("Erreur lors de la suppression de la question:", error)
+      toast({
+        title: "Erreur",
+        description: "Impossible de supprimer la question.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDeleteFAQ = async (faqId: string) => {
+    try {
+      await FAQQAService.remove(faqId)
+      toast({
+        title: "FAQ supprimée",
+        description: "La FAQ a été supprimée avec succès.",
+      })
+      await loadFAQs()
+    } catch (error) {
+      console.error("Erreur lors de la suppression de la FAQ:", error)
+      toast({
+        title: "Erreur de suppression",
+        description: "Impossible de supprimer la FAQ.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleEditFAQ = (faq: FAQQA) => {
     setEditingFAQ({ ...faq })
   }
 
   const totalFAQs = faqs.length
-  const activeFAQs = faqs.filter(f => f.isActive).length
-  const inactiveFAQs = faqs.filter(f => !f.isActive).length
+  const activeFAQs = faqs.filter(f => f.is_active).length
+  const inactiveFAQs = faqs.filter(f => !f.is_active).length
   const totalQuestions = faqs.reduce((sum, faq) => sum + faq.questions.length, 0)
 
   return (
@@ -233,54 +333,56 @@ export default function FAQPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">FAQ Management</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Gestion des FAQ</h1>
           <p className="text-muted-foreground">
-            Manage frequently asked questions and answers for your AI chatbot
+            Gérez les questions fréquemment posées et leurs réponses pour votre chatbot IA
           </p>
         </div>
-        <Button onClick={() => setIsAddingFAQ(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Add FAQ
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setIsAddingFAQ(true)} className="cursor-pointer">
+            <Plus className="w-4 h-4 mr-2" />
+            Ajouter une FAQ
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total FAQs</CardTitle>
+            <CardTitle className="text-sm font-medium">Total FAQ</CardTitle>
             <HelpCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalFAQs}</div>
             <p className="text-xs text-muted-foreground">
-              FAQ entries
+              Entrées FAQ
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active</CardTitle>
+            <CardTitle className="text-sm font-medium">Actives</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-400">{activeFAQs}</div>
             <p className="text-xs text-muted-foreground">
-              Published FAQs
+              FAQ publiées
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Inactive</CardTitle>
+            <CardTitle className="text-sm font-medium">Inactives</CardTitle>
             <XCircle className="h-4 w-4 text-gray-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-400">{inactiveFAQs}</div>
             <p className="text-xs text-muted-foreground">
-              Draft FAQs
+              FAQ brouillon
             </p>
           </CardContent>
         </Card>
@@ -293,8 +395,39 @@ export default function FAQPage() {
           <CardContent>
             <div className="text-2xl font-bold">{totalQuestions}</div>
             <p className="text-xs text-muted-foreground">
-              Total questions
+              Questions totales
             </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Stockage</CardTitle>
+            <HardDrive className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {storageUsage ? (
+              <>
+                <div className="text-2xl font-bold">
+                  {storageUsage.usedMb.toFixed(1)} MB
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {storageUsage.availableMb.toFixed(1)} MB disponibles sur {storageUsage.quotaMb} MB
+                </p>
+                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full ${
+                      storageUsage.percentageUsed > 90 ? 'bg-red-500' :
+                      storageUsage.percentageUsed > 70 ? 'bg-orange-500' :
+                      'bg-green-500'
+                    }`}
+                    style={{ width: `${Math.min(storageUsage.percentageUsed, 100)}%` }}
+                  ></div>
+                </div>
+              </>
+            ) : (
+              <div className="text-sm text-muted-foreground">Chargement...</div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -304,7 +437,7 @@ export default function FAQPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search FAQs, answers, tags..."
+            placeholder="Rechercher dans les FAQ, réponses, tags..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
@@ -313,30 +446,40 @@ export default function FAQPage() {
         
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40">
-            <SelectValue placeholder="Status" />
+            <SelectValue placeholder="Statut" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="inactive">Inactive</SelectItem>
+            <SelectItem value="all">Tous les statuts</SelectItem>
+            <SelectItem value="active">Actives</SelectItem>
+            <SelectItem value="inactive">Inactives</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
       {/* FAQ List */}
       <div className="space-y-4">
-        {filteredFAQs.length === 0 ? (
+        {isLoading ? (
+          <Card>
+            <CardContent className="text-center py-12">
+              <Loader2 className="w-12 h-12 mx-auto mb-4 text-muted-foreground animate-spin" />
+              <h3 className="text-lg font-semibold mb-2">Chargement des FAQ...</h3>
+              <p className="text-muted-foreground">
+                Veuillez patienter pendant le chargement des données.
+              </p>
+            </CardContent>
+          </Card>
+        ) : filteredFAQs.length === 0 ? (
           <Card>
             <CardContent className="text-center py-12">
               <HelpCircle className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="text-lg font-semibold mb-2">No FAQs found</h3>
+              <h3 className="text-lg font-semibold mb-2">Aucune FAQ trouvée</h3>
               <p className="text-muted-foreground mb-4">
-                {searchQuery ? "Try adjusting your search terms" : "Create your first FAQ to get started"}
+                {searchQuery ? "Essayez d'ajuster vos termes de recherche" : "Créez votre première FAQ pour commencer"}
               </p>
               {!searchQuery && (
                 <Button onClick={() => setIsAddingFAQ(true)}>
                   <Plus className="w-4 h-4 mr-2" />
-                  Add FAQ
+                  Ajouter une FAQ
                 </Button>
               )}
             </CardContent>
@@ -348,15 +491,15 @@ export default function FAQPage() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1 space-y-3">
                     <div className="flex items-center gap-2 flex-wrap">
-                      {faq.isActive ? (
+                      {faq.is_active ? (
                         <CheckCircle className="w-4 h-4 text-green-400" />
                       ) : (
                         <XCircle className="w-4 h-4 text-gray-400" />
                       )}
-                      <Badge variant="outline" className={getSourceColor(faq.source)}>
-                        {faq.source}
+                      <Badge variant="outline" className={getStatusColor(faq.is_active ? 'active' : 'inactive')}>
+                        {getStatusLabel(faq.is_active ? 'active' : 'inactive')}
                       </Badge>
-                      {faq.tags.map((tag, index) => (
+                      {(faq.context || []).map((tag, index) => (
                         <Badge key={index} variant="secondary">
                           {tag}
                         </Badge>
@@ -378,13 +521,13 @@ export default function FAQPage() {
 
                     <div className="space-y-2">
                       <Label className="text-sm font-medium text-muted-foreground">
-                        Answer
+                        Réponse
                       </Label>
                       <p className="text-sm text-muted-foreground">{faq.answer}</p>
                     </div>
 
                     <div className="text-xs text-muted-foreground">
-                      Last updated: {formatDate(faq.updatedAt)}
+                      Modifié {formatRelativeDate(faq.updated_at)}
                     </div>
                   </div>
 
@@ -392,7 +535,26 @@ export default function FAQPage() {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={() => handleToggleFAQ(faq.id)}
+                      title={faq.is_active ? "Désactiver la FAQ" : "Activer la FAQ"}
+                      className="cursor-pointer"
+                    >
+                      {faq.is_active ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setManagingQuestionsFAQ(faq)}
+                      title="Gérer les questions"
+                      className="cursor-pointer"
+                    >
+                      <Tag className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => handleEditFAQ(faq)}
+                      className="cursor-pointer"
                     >
                       <Edit3 className="w-4 h-4" />
                     </Button>
@@ -400,6 +562,7 @@ export default function FAQPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => handleDeleteFAQ(faq.id)}
+                      className="cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -418,24 +581,23 @@ export default function FAQPage() {
         setNewFAQ({
           questions: [""],
           answer: "",
-          tags: [],
-          isActive: true,
-          source: "manual"
+          context: [],
+          is_active: true
         })
       }}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingFAQ ? "Edit FAQ" : "Add New FAQ"}
+              {editingFAQ ? "Modifier la FAQ" : "Ajouter une nouvelle FAQ"}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-6 py-4">
             {/* Questions Section */}
             <div className="space-y-3">
               <Label className="text-sm font-medium">
-                Questions (Multiple questions for the same answer)
+                Questions (Plusieurs formulations pour la même réponse)
               </Label>
-              {(editingFAQ?.questions || newFAQ.questions || [""]).map((question, index) => (
+              {((editingFAQ?.questions || newFAQ.questions) || [""]).map((question, index) => (
                 <div key={index} className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground w-6">{index + 1}.</span>
                   <Input
@@ -446,18 +608,19 @@ export default function FAQPage() {
                       editingFAQ || newFAQ,
                       editingFAQ ? setEditingFAQ : setNewFAQ
                     )}
-                    placeholder="Enter a question..."
+                    placeholder="Entrez une question..."
                     className="flex-1"
                   />
-                  {((editingFAQ?.questions || newFAQ.questions || []).length > 1) && (
+                  {(((editingFAQ?.questions || newFAQ.questions) || []).length > 1) && (
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleRemoveQuestion(
-                        index, 
+                        index,
                         editingFAQ || newFAQ,
                         editingFAQ ? setEditingFAQ : setNewFAQ
                       )}
+                      className="cursor-pointer"
                     >
                       <X className="w-4 h-4" />
                     </Button>
@@ -471,15 +634,16 @@ export default function FAQPage() {
                   editingFAQ || newFAQ,
                   editingFAQ ? setEditingFAQ : setNewFAQ
                 )}
+                className="cursor-pointer"
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Add Question
+                Ajouter une question
               </Button>
             </div>
 
             {/* Answer Section */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Answer</Label>
+              <Label className="text-sm font-medium">Réponse</Label>
               <Textarea
                 value={editingFAQ?.answer || newFAQ.answer || ""}
                 onChange={(e) => {
@@ -487,7 +651,7 @@ export default function FAQPage() {
                   const setFaqData = editingFAQ ? setEditingFAQ : setNewFAQ
                   setFaqData({ ...faqData, answer: e.target.value })
                 }}
-                placeholder="Enter the answer..."
+                placeholder="Entrez la réponse..."
                 className="min-h-[120px]"
               />
             </div>
@@ -496,13 +660,13 @@ export default function FAQPage() {
             <div className="space-y-3">
               <Label className="text-sm font-medium">Tags</Label>
               <div className="flex flex-wrap gap-2">
-                {(editingFAQ?.tags || newFAQ.tags || []).map((tag, index) => (
+                {((editingFAQ?.context || newFAQ.context) || []).map((tag, index) => (
                   <Badge key={index} variant="secondary" className="gap-1">
                     {tag}
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-auto p-0 hover:bg-transparent"
+                      className="h-auto p-0 hover:bg-transparent cursor-pointer"
                       onClick={() => handleRemoveTag(
                         tag,
                         editingFAQ || newFAQ,
@@ -518,7 +682,7 @@ export default function FAQPage() {
                 <Input
                   value={newTag}
                   onChange={(e) => setNewTag(e.target.value)}
-                  placeholder="Add a tag..."
+                  placeholder="Ajouter un tag..."
                   onKeyPress={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault()
@@ -535,8 +699,9 @@ export default function FAQPage() {
                     editingFAQ || newFAQ,
                     editingFAQ ? setEditingFAQ : setNewFAQ
                   )}
+                  className="cursor-pointer"
                 >
-                  Add
+                  Ajouter
                 </Button>
               </div>
             </div>
@@ -545,14 +710,14 @@ export default function FAQPage() {
             <div className="flex items-center space-x-2">
               <Switch
                 id="is-active"
-                checked={editingFAQ?.isActive ?? newFAQ.isActive ?? true}
+                checked={editingFAQ?.is_active ?? newFAQ.is_active ?? true}
                 onCheckedChange={(checked) => {
                   const faqData = editingFAQ || newFAQ
                   const setFaqData = editingFAQ ? setEditingFAQ : setNewFAQ
-                  setFaqData({ ...faqData, isActive: checked })
+                  setFaqData({ ...faqData, is_active: checked })
                 }}
               />
-              <Label htmlFor="is-active">Active (visible to AI)</Label>
+              <Label htmlFor="is-active">Active (visible à l'IA)</Label>
             </div>
           </div>
 
@@ -563,16 +728,124 @@ export default function FAQPage() {
               setNewFAQ({
                 questions: [""],
                 answer: "",
-                tags: [],
-                isActive: true,
-                source: "manual"
+                context: [],
+                is_active: true
               })
             }}>
-              Cancel
+              Annuler
             </Button>
-            <Button onClick={() => handleSaveFAQ(editingFAQ || newFAQ)}>
+            <Button onClick={() => handleSaveFAQ(editingFAQ || newFAQ)} disabled={isCreating}>
+              {isCreating ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
               <Save className="w-4 h-4 mr-2" />
-              Save FAQ
+              )}
+              {editingFAQ ? "Mettre à jour" : "Sauvegarder"} FAQ
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage Questions Dialog */}
+      <Dialog open={!!managingQuestionsFAQ} onOpenChange={() => {
+        setManagingQuestionsFAQ(null)
+        setNewQuestion("")
+      }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Gérer les questions - {managingQuestionsFAQ?.title || "FAQ"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            {/* Current Questions */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">
+                Questions actuelles ({managingQuestionsFAQ?.questions?.length || 0})
+              </Label>
+              <div className="space-y-2">
+                {managingQuestionsFAQ?.questions?.map((question, index) => (
+                  <div key={index} className="flex items-center gap-2 p-3 border rounded-lg">
+                    <span className="text-sm text-muted-foreground w-6 font-medium">
+                      {index + 1}.
+                    </span>
+                    <Input
+                      value={question}
+                      onChange={(e) => {
+                        const updatedFAQ = { ...managingQuestionsFAQ }
+                        updatedFAQ.questions = [...(updatedFAQ.questions || [])]
+                        updatedFAQ.questions[index] = e.target.value
+                        setManagingQuestionsFAQ(updatedFAQ)
+                      }}
+                      className="flex-1"
+                      placeholder="Question..."
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleUpdateQuestionInFAQ(managingQuestionsFAQ.id, index, question)}
+                      title="Sauvegarder les modifications"
+                      className="cursor-pointer"
+                    >
+                      <Save className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDeleteQuestionFromFAQ(managingQuestionsFAQ.id, index)}
+                      title="Supprimer cette question"
+                      className="cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Add New Question */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Ajouter une nouvelle question</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={newQuestion}
+                  onChange={(e) => setNewQuestion(e.target.value)}
+                  placeholder="Entrez une nouvelle question..."
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && newQuestion.trim()) {
+                      e.preventDefault()
+                      handleAddQuestionToFAQ(managingQuestionsFAQ!.id, newQuestion)
+                    }
+                  }}
+                />
+                <Button
+                  onClick={() => handleAddQuestionToFAQ(managingQuestionsFAQ!.id, newQuestion)}
+                  disabled={!newQuestion.trim()}
+                  className="cursor-pointer"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Ajouter
+                </Button>
+              </div>
+            </div>
+
+            {/* Answer Preview */}
+            {managingQuestionsFAQ?.answer && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Réponse</Label>
+                <div className="p-3 bg-muted rounded-lg">
+                  <p className="text-sm">{managingQuestionsFAQ.answer}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => {
+              setManagingQuestionsFAQ(null)
+              setNewQuestion("")
+            }}>
+              Fermer
             </Button>
           </div>
         </DialogContent>

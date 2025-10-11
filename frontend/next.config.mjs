@@ -19,6 +19,8 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-dialog'],
   },
+  // Note: Les appels API utilisent maintenant la lib/api.ts avec NEXT_PUBLIC_API_URL
+  // Plus de proxy Next.js nécessaire
 };
 
 export default nextConfig;

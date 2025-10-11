@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { Toaster } from "@/components/ui/toaster"
+import { demoEnabled, demoAnalytics } from "@/lib/demo-data"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -11,9 +12,10 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: "SocialSync - AI Studio",
-  description: "AI-powered social media management platform",
+  title: "ConversAI – AI Studio",
+  description: "Plateforme IA conversationnelle pour WhatsApp et Instagram",
   generator: "v0.app",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"),
 }
 
 export default function RootLayout({

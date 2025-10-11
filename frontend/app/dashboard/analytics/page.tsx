@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Progress } from "@/components/ui/progress"
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import {
   ChevronUp,
   User,
@@ -15,46 +16,83 @@ import {
   Search,
   RotateCcw,
 } from "lucide-react"
+import { demoAnalytics, demoEnabled } from "@/lib/demo-data"
 
 // Mock data for analytics
-const kpiData = {
-  totalConversations: { value: 2847, trend: 12.5, isPositive: true },
-  avgResponseTime: { value: "2m 34s", trend: -8.2, isPositive: true },
-  resolutionRate: { value: "94.2%", trend: 3.1, isPositive: true },
-  satisfaction: { value: "4.8/5", trend: 2.4, isPositive: true },
-}
+const metrics = demoEnabled
+  ? {
+      totalConversations: demoAnalytics.kpis.conversations,
+      avgResponseTime: demoAnalytics.kpis.avgResponseTime,
+      resolutionRate: demoAnalytics.kpis.resolutionRate,
+      satisfaction: demoAnalytics.kpis.satisfaction,
+    }
+  : {
+      totalConversations: {
+        value: 2847,
+        trend: 12.5,
+        isPositive: true,
+        trendLabel: "vs last month",
+      },
+      avgResponseTime: {
+        value: "2m 34s",
+        trend: -8.2,
+        isPositive: true,
+        trendLabel: "improvement",
+      },
+      resolutionRate: {
+        value: "94.2%",
+        trend: 3.1,
+        isPositive: true,
+        trendLabel: "vs last month",
+      },
+      satisfaction: {
+        value: "4.8/5",
+        trend: 2.4,
+        isPositive: true,
+        trendLabel: "from CSAT surveys",
+      },
+    }
 
-const topQuestions = [
-  { question: "How do I reset my password?", count: 89 },
-  { question: "What payment methods do you accept?", count: 67 },
-  { question: "How can I upgrade my plan?", count: 54 },
-  { question: "Is there a mobile app available?", count: 43 },
-  { question: "How do I cancel my subscription?", count: 38 },
-]
+const topQuestions = demoEnabled
+  ? demoAnalytics.topQuestions
+  : [
+      { question: "How do I reset my password?", count: 89 },
+      { question: "What payment methods do you accept?", count: 67 },
+      { question: "How can I upgrade my plan?", count: 54 },
+      { question: "Is there a mobile app available?", count: 43 },
+      { question: "How do I cancel my subscription?", count: 38 },
+    ]
 
-const recentActivity = [
-  {
-    id: "1",
-    type: "conversation",
-    title: "New conversation from john.doe@example.com",
-    time: "2 minutes ago",
-    status: "active",
-  },
-  {
-    id: "2",
-    type: "resolution",
-    title: "Conversation with sarah.wilson resolved",
-    time: "15 minutes ago",
-    status: "resolved",
-  },
-  {
-    id: "3",
-    type: "escalation",
-    title: "Issue escalated: Technical problem",
-    time: "1 hour ago",
-    status: "escalated",
-  },
-]
+const recentActivity = demoEnabled
+  ? demoAnalytics.recentActivity
+  : [
+      {
+        id: "1",
+        type: "conversation",
+        title: "New conversation from john.doe@example.com",
+        time: "2 minutes ago",
+        status: "active",
+      },
+      {
+        id: "2",
+        type: "resolution",
+        title: "Conversation with sarah.wilson resolved",
+        time: "15 minutes ago",
+        status: "resolved",
+      },
+      {
+        id: "3",
+        type: "escalation",
+        title: "Issue escalated: Technical problem",
+        time: "1 hour ago",
+        status: "escalated",
+      },
+    ]
+
+const conversationTrend = demoEnabled ? demoAnalytics.conversationsOverTime : []
+const responseTimeTrend = demoEnabled ? demoAnalytics.responseTimeDistribution : []
+const sentimentBreakdown = demoEnabled ? demoAnalytics.sentiment : []
+const topTopics = demoEnabled ? demoAnalytics.topTopics : []
 
 export default function AnalyticsPage() {
   const [dateRange, setDateRange] = useState("30d")
@@ -109,17 +147,17 @@ export default function AnalyticsPage() {
             <User className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{kpiData.totalConversations.value.toLocaleString()}</div>
+            <div className="text-2xl font-bold">{metrics.totalConversations.value.toLocaleString()}</div>
             <div className="flex items-center text-xs text-muted-foreground">
-              {kpiData.totalConversations.isPositive ? (
+              {metrics.totalConversations.isPositive ? (
                 <Plus className="mr-1 h-3 w-3 text-green-500" />
               ) : (
                 <X className="mr-1 h-3 w-3 text-red-500" />
               )}
-              <span className={kpiData.totalConversations.isPositive ? "text-green-500" : "text-red-500"}>
-                {Math.abs(kpiData.totalConversations.trend)}%
+              <span className={metrics.totalConversations.isPositive ? "text-green-500" : "text-red-500"}>
+                {Math.abs(metrics.totalConversations.trend)}%
               </span>
-              <span className="ml-1">from last month</span>
+              <span className="ml-1">{metrics.totalConversations.trendLabel}</span>
             </div>
           </CardContent>
         </Card>
@@ -130,17 +168,17 @@ export default function AnalyticsPage() {
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{kpiData.avgResponseTime.value}</div>
+            <div className="text-2xl font-bold">{metrics.avgResponseTime.value}</div>
             <div className="flex items-center text-xs text-muted-foreground">
-              {kpiData.avgResponseTime.isPositive ? (
+              {metrics.avgResponseTime.isPositive ? (
                 <X className="mr-1 h-3 w-3 text-green-500" />
               ) : (
                 <Plus className="mr-1 h-3 w-3 text-red-500" />
               )}
-              <span className={kpiData.avgResponseTime.isPositive ? "text-green-500" : "text-red-500"}>
-                {Math.abs(kpiData.avgResponseTime.trend)}%
+              <span className={metrics.avgResponseTime.isPositive ? "text-green-500" : "text-red-500"}>
+                {Math.abs(metrics.avgResponseTime.trend)}%
               </span>
-              <span className="ml-1">improvement</span>
+              <span className="ml-1">{metrics.avgResponseTime.trendLabel}</span>
             </div>
           </CardContent>
         </Card>
@@ -151,17 +189,17 @@ export default function AnalyticsPage() {
             <ChevronUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{kpiData.resolutionRate.value}</div>
+            <div className="text-2xl font-bold">{metrics.resolutionRate.value}</div>
             <div className="flex items-center text-xs text-muted-foreground">
-              {kpiData.resolutionRate.isPositive ? (
+              {metrics.resolutionRate.isPositive ? (
                 <Plus className="mr-1 h-3 w-3 text-green-500" />
               ) : (
                 <X className="mr-1 h-3 w-3 text-red-500" />
               )}
-              <span className={kpiData.resolutionRate.isPositive ? "text-green-500" : "text-red-500"}>
-                {Math.abs(kpiData.resolutionRate.trend)}%
+              <span className={metrics.resolutionRate.isPositive ? "text-green-500" : "text-red-500"}>
+                {Math.abs(metrics.resolutionRate.trend)}%
               </span>
-              <span className="ml-1">from last month</span>
+              <span className="ml-1">{metrics.resolutionRate.trendLabel}</span>
             </div>
           </CardContent>
         </Card>
@@ -172,51 +210,68 @@ export default function AnalyticsPage() {
             <Plus className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{kpiData.satisfaction.value}</div>
+            <div className="text-2xl font-bold">{metrics.satisfaction.value}</div>
             <div className="flex items-center text-xs text-muted-foreground">
-              {kpiData.satisfaction.isPositive ? (
+              {metrics.satisfaction.isPositive ? (
                 <Plus className="mr-1 h-3 w-3 text-green-500" />
               ) : (
                 <X className="mr-1 h-3 w-3 text-red-500" />
               )}
-              <span className={kpiData.satisfaction.isPositive ? "text-green-500" : "text-red-500"}>
-                {Math.abs(kpiData.satisfaction.trend)}%
+              <span className={metrics.satisfaction.isPositive ? "text-green-500" : "text-red-500"}>
+                {Math.abs(metrics.satisfaction.trend)}%
               </span>
-              <span className="ml-1">from last month</span>
+              <span className="ml-1">{metrics.satisfaction.trendLabel}</span>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Simplified Charts Placeholder */}
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Conversations Over Time</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="h-[300px] bg-muted rounded-lg flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <ChevronUp className="w-12 h-12 mx-auto mb-4" />
-                <p>Graphique Recharts sera ajouté</p>
-                <p className="text-sm">Icônes temporaires - à corriger</p>
-              </div>
-            </div>
+          <CardContent className="h-[260px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={conversationTrend}>
+                <defs>
+                  <linearGradient id="conversationGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#7c3aed" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="4 4" stroke="hsl(var(--muted))" opacity={0.5} />
+                <XAxis dataKey="date" axisLine={false} tickLine={false} stroke="hsl(var(--muted-foreground))" />
+                <YAxis axisLine={false} tickLine={false} stroke="hsl(var(--muted-foreground))" />
+                <Tooltip contentStyle={{ background: "hsl(var(--popover))", borderRadius: 8 }} />
+                <Line
+                  type="monotone"
+                  dataKey="conversations"
+                  stroke="#7c3aed"
+                  strokeWidth={3}
+                  dot={{ r: 5, fill: "#7c3aed", strokeWidth: 0 }}
+                  activeDot={{ r: 6 }}
+                  fill="url(#conversationGradient)"
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Response Times</CardTitle>
+            <CardTitle>Average Response Time by Hour</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="h-[300px] bg-muted rounded-lg flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <Clock className="w-12 h-12 mx-auto mb-4" />
-                <p>Graphique Recharts sera ajouté</p>
-                <p className="text-sm">Icônes temporaires - à corriger</p>
-              </div>
-            </div>
+          <CardContent className="h-[260px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={responseTimeTrend}>
+                <CartesianGrid strokeDasharray="4 4" stroke="hsl(var(--muted))" opacity={0.4} />
+                <XAxis dataKey="hour" axisLine={false} tickLine={false} stroke="hsl(var(--muted-foreground))" />
+                <YAxis axisLine={false} tickLine={false} stroke="hsl(var(--muted-foreground))" />
+                <Tooltip contentStyle={{ background: "hsl(var(--popover))", borderRadius: 8 }} />
+                <Bar dataKey="avgSeconds" radius={[8, 8, 0, 0]} fill="#6ee7b7" />
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
@@ -224,14 +279,20 @@ export default function AnalyticsPage() {
           <CardHeader>
             <CardTitle>Sentiment Distribution</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="h-[300px] bg-muted rounded-lg flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <User className="w-12 h-12 mx-auto mb-4" />
-                <p>Graphique Recharts sera ajouté</p>
-                <p className="text-sm">Icônes temporaires - à corriger</p>
-              </div>
-            </div>
+          <CardContent className="h-[260px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={sentimentBreakdown}>
+                <CartesianGrid strokeDasharray="4 4" stroke="hsl(var(--muted))" opacity={0.4} />
+                <XAxis dataKey="label" axisLine={false} tickLine={false} stroke="hsl(var(--muted-foreground))" />
+                <YAxis axisLine={false} tickLine={false} stroke="hsl(var(--muted-foreground))" />
+                <Tooltip contentStyle={{ background: "hsl(var(--popover))", borderRadius: 8 }} formatter={(value) => [`${value}%`, "Sentiment"]} />
+                <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                  {sentimentBreakdown.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
@@ -239,14 +300,16 @@ export default function AnalyticsPage() {
           <CardHeader>
             <CardTitle>Top Topics</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="h-[300px] bg-muted rounded-lg flex items-center justify-center">
-              <div className="text-center text-muted-foreground">
-                <Plus className="w-12 h-12 mx-auto mb-4" />
-                <p>Graphique Recharts sera ajouté</p>
-                <p className="text-sm">Icônes temporaires - à corriger</p>
-              </div>
-            </div>
+          <CardContent className="h-[260px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={topTopics} layout="vertical" margin={{ left: 60 }}>
+                <CartesianGrid strokeDasharray="4 4" stroke="hsl(var(--muted))" opacity={0.4} />
+                <XAxis type="number" axisLine={false} tickLine={false} stroke="hsl(var(--muted-foreground))" />
+                <YAxis dataKey="topic" type="category" axisLine={false} tickLine={false} width={120} stroke="hsl(var(--muted-foreground))" />
+                <Tooltip contentStyle={{ background: "hsl(var(--popover))", borderRadius: 8 }} />
+                <Bar dataKey="count" fill="#c084fc" radius={[0, 8, 8, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
@@ -291,7 +354,11 @@ export default function AnalyticsPage() {
                   }`} />
                   <div className="flex-1">
                     <p className="text-sm font-medium">{activity.title}</p>
-                    <p className="text-xs text-muted-foreground">{activity.time}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {demoEnabled && activity.time
+                        ? activity.time
+                        : activity.time}
+                    </p>
                   </div>
                   <Badge variant={
                     activity.status === "active" ? "default" :

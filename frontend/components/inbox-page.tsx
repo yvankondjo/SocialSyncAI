@@ -23,8 +23,8 @@ import { logos } from "@/lib/logos"
 export function InboxPage() {
   const [selectedChannel, setSelectedChannel] = useState("tous")
   const [selectedConversation, setSelectedConversation] = useState("")
-  const [aiEnabled, setAiEnabled] = useState(true)
-  const [autoReplyEnabled, setAutoReplyEnabled] = useState(false)
+  const [aiEnabled, setAiEnabled] = useState(false) // Désactivé par défaut
+  const [autoReplyEnabled, setAutoReplyEnabled] = useState(false) // Désactivé par défaut
   const [socialExpanded, setSocialExpanded] = useState(true)
   const [message, setMessage] = useState("")
   const [selectedUsers, setSelectedUsers] = useState<string[]>([])
@@ -106,6 +106,7 @@ export function InboxPage() {
       setLoadingConversations(true)
       // Charger TOUTES les conversations (sans filtre backend)
       const response = await ConversationsService.getConversations()
+      console.log('📞 Conversations loaded:', response.conversations) // Debug
       setConversations(response.conversations)
       
       // Sélectionner automatiquement la première conversation s'il n'y en a pas de sélectionnée
@@ -128,6 +129,14 @@ export function InboxPage() {
       const response = await ConversationsService.getMessages(conversationId)
       setMessages(response.messages)
       
+      // Charger l'état de la conversation (ai_mode)
+      const selectedConv = conversations.find(conv => conv.id === conversationId)
+      if (selectedConv) {
+        console.log('🔍 Conversation data:', selectedConv) // Debug
+        setAiEnabled(selectedConv.ai_mode === 'ON')
+        setAutoReplyEnabled(selectedConv.ai_mode === 'ON')
+      }
+      
       // Marquer comme lu
       await ConversationsService.markAsRead(conversationId)
     } catch (error) {
@@ -139,6 +148,52 @@ export function InboxPage() {
       })
     } finally {
       setLoadingMessages(false)
+    }
+  }
+
+  const handleToggleAI = async () => {
+    if (!selectedConversation) return
+
+    try {
+      const newMode = aiEnabled ? 'OFF' : 'ON'
+      await ConversationsService.updateAIMode(selectedConversation, newMode)
+      setAiEnabled(!aiEnabled)
+      setAutoReplyEnabled(!aiEnabled)
+      
+      toast({
+        title: "Succès",
+        description: `IA ${newMode === 'ON' ? 'activée' : 'désactivée'} pour cette conversation`,
+      })
+    } catch (error) {
+      console.error('Error toggling AI:', error)
+      toast({
+        title: "Erreur",
+        description: "Impossible de mettre à jour le mode IA",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleToggleAutoReply = async () => {
+    if (!selectedConversation) return
+
+    try {
+      const newMode = autoReplyEnabled ? 'OFF' : 'ON'
+      await ConversationsService.updateAIMode(selectedConversation, newMode)
+      setAutoReplyEnabled(!autoReplyEnabled)
+      setAiEnabled(!autoReplyEnabled)
+      
+      toast({
+        title: "Succès",
+        description: `Réponse automatique ${newMode === 'ON' ? 'activée' : 'désactivée'}`,
+      })
+    } catch (error) {
+      console.error('Error toggling auto reply:', error)
+      toast({
+        title: "Erreur",
+        description: "Impossible de mettre à jour la réponse automatique",
+        variant: "destructive",
+      })
     }
   }
 
@@ -217,14 +272,29 @@ export function InboxPage() {
   }
 
   const formatTime = (dateString: string) => {
-    const date = new Date(dateString)
-    const now = new Date()
-    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60))
+    if (!dateString) return "N/A"
     
-    if (diffInMinutes < 1) return "maintenant"
-    if (diffInMinutes < 60) return `${diffInMinutes}m`
-    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h`
-    return `${Math.floor(diffInMinutes / 1440)}j`
+    try {
+      const date = new Date(dateString)
+      
+      // Vérifier si la date est valide
+      if (isNaN(date.getTime())) {
+        console.warn('⚠️ Date invalide:', dateString)
+        return dateString // Retourner la chaîne originale si invalide
+      }
+      
+      const hours = date.getHours().toString().padStart(2, '0')
+      const minutes = date.getMinutes().toString().padStart(2, '0')
+      const day = date.getDate().toString().padStart(2, '0')
+      const month = (date.getMonth() + 1).toString().padStart(2, '0')
+      
+      const formatted = `${hours}:${minutes} ${day}/${month}`
+      console.log('📅 Date formatée:', dateString, '→', formatted)
+      return formatted
+    } catch (error) {
+      console.error('❌ Erreur formatage date:', error, dateString)
+      return dateString
+    }
   }
 
   const selectedConv = conversations.find(conv => conv.id === selectedConversation)
@@ -327,22 +397,58 @@ export function InboxPage() {
           </div>
 
           {/* Toggles section */}
-          <div className="space-y-4 pt-4 border-t border-gray-200">
+          <div className="space-y-6 pt-4 border-t border-gray-200">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-700">Réponse automatique</span>
-              <Switch
-                checked={autoReplyEnabled}
-                onCheckedChange={setAutoReplyEnabled}
-                className="data-[state=checked]:bg-emerald-500"
-              />
+              <div>
+                <span className="text-sm font-medium text-slate-700">Réponse automatique</span>
+                <p className="text-xs text-slate-500">Active/désactive pour cette conversation</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-medium ${autoReplyEnabled ? 'text-emerald-700' : 'text-red-700'}`}>
+                  {autoReplyEnabled ? 'ON' : 'OFF'}
+                </span>
+                <button
+                  onClick={handleToggleAutoReply}
+                  disabled={!selectedConversation}
+                  className={`relative inline-flex h-8 w-14 items-center rounded-full border-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                    autoReplyEnabled 
+                      ? 'bg-emerald-600 border-emerald-600 focus:ring-emerald-500' 
+                      : 'bg-red-600 border-red-600 focus:ring-red-500'
+                  } ${!selectedConversation ? 'opacity-30 cursor-not-allowed' : 'shadow-lg'}`}
+                >
+                  <span
+                    className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform duration-200 ${
+                      autoReplyEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-700">IA On/Off</span>
-              <Switch
-                checked={aiEnabled}
-                onCheckedChange={setAiEnabled}
-                className="data-[state=checked]:bg-emerald-500"
-              />
+              <div>
+                <span className="text-sm font-medium text-slate-700">IA On/Off</span>
+                <p className="text-xs text-slate-500">Contrôle général de l'IA</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-medium ${aiEnabled ? 'text-emerald-700' : 'text-red-700'}`}>
+                  {aiEnabled ? 'ON' : 'OFF'}
+                </span>
+                <button
+                  onClick={handleToggleAI}
+                  disabled={!selectedConversation}
+                  className={`relative inline-flex h-8 w-14 items-center rounded-full border-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                    aiEnabled 
+                      ? 'bg-emerald-600 border-emerald-600 focus:ring-emerald-500' 
+                      : 'bg-red-600 border-red-600 focus:ring-red-500'
+                  } ${!selectedConversation ? 'opacity-30 cursor-not-allowed' : 'shadow-lg'}`}
+                >
+                  <span
+                    className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform duration-200 ${
+                      aiEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -389,7 +495,7 @@ export function InboxPage() {
                 <div className="flex items-start gap-3">
                   <div className="relative">
                     <Avatar className="w-12 h-12">
-                      <AvatarImage src="/placeholder.svg" />
+                      <AvatarImage src={conversation.customer_avatar_url || "/placeholder.svg"} />
                       <AvatarFallback className="bg-gray-100 text-slate-700 font-medium">
                         {conversation.customer_name?.charAt(0) || "?"}
                       </AvatarFallback>

@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import React, { useState } from "react"
+import { useAISettings } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -10,126 +11,171 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { ModelDisplay } from "@/components/ui/model-display"
 import {
-  Settings,
   Save,
-  RotateCcw,
-  Shield,
-  Zap,
-  AlertTriangle,
-  DollarSign,
+  RefreshCw,
 } from "lucide-react"
+import { logos } from "@/lib/logos"
+import Image from "next/image"
 
-// Available AI models with cost indicators
+// Available AI models with cost indicators (synchronisés avec le backend)
 const aiModels = [
-  { 
-    id: "gpt-4o", 
-    name: "GPT-4o", 
-    provider: "OpenAI", 
+  {
+    id: "x-ai/grok-4",
+    name: "Grok 4",
+    provider: "xAI",
     cost: "high",
-    description: "Most capable model, best for complex tasks"
+    description: "New generation Grok 4 : quick and contextual responses, optimized for multimodal creativity.",
+    logoKey: "grok"
   },
-  { 
-    id: "gpt-4", 
-    name: "GPT-4", 
-    provider: "OpenAI", 
-    cost: "high",
-    description: "Highly capable, great reasoning"
-  },
-  { 
-    id: "gpt-3.5-turbo", 
-    name: "GPT-3.5 Turbo", 
-    provider: "OpenAI", 
+  {
+    id: "x-ai/grok-4-fast",
+    name: "Grok 4 Fast",
+    provider: "xAI",
     cost: "medium",
-    description: "Fast and efficient for most tasks"
+    description: "Fast version of Grok 4, balancing cost and speed for daily usage.",
+    logoKey: "grok"
   },
-  { 
-    id: "gemini-pro", 
-    name: "Gemini Pro", 
-    provider: "Google", 
-    cost: "medium",
-    description: "Google's advanced AI model"
-  },
-  { 
-    id: "claude-3", 
-    name: "Claude 3", 
-    provider: "Anthropic", 
+  {
+    id: "openai/gpt-4o",
+    name: "GPT-4o",
+    provider: "OpenAI",
     cost: "high",
-    description: "Excellent for analysis and writing"
+    description: "GPT-4o offers high-end OpenAI precision with advanced multimodal reasoning.",
+    logoKey: "openai"
   },
-  { 
-    id: "llama-2", 
-    name: "Llama 2", 
-    provider: "Meta", 
-    cost: "low",
-    description: "Open source, cost-effective"
+  {
+    id: "openai/gpt-4o-mini",
+    name: "GPT-4o mini",
+    provider: "OpenAI",
+    cost: "medium",
+    description: "Mini version of GPT-4o : excellent text performance at a reduced cost.",
+    logoKey: "openai"
   },
-]
-
-const answerModes = [
-  { 
-    id: "faq_only", 
-    name: "FAQ Only", 
-    description: "Only use predefined FAQ answers"
+  {
+    id: "openai/gpt-5",
+    name: "GPT-5",
+    provider: "OpenAI",
+    cost: "high",
+    description: "Featured GPT-5 : extreme contextual depth, designed for critical workloads.",
+    logoKey: "openai"
   },
-  { 
-    id: "hybrid", 
-    name: "Hybrid", 
-    description: "Use FAQ first, then AI if no match"
+  {
+    id: "openai/gpt-5-mini",
+    name: "GPT-5 mini",
+    provider: "OpenAI",
+    cost: "medium",
+    description: "Mini variant of GPT-5 : speed and robustness for massive integrations.",
+    logoKey: "openai"
   },
-  { 
-    id: "llm_only", 
-    name: "AI Only", 
-    description: "Always generate AI responses"
+  {
+    id: "anthropic/claude-3.5-sonnet",
+    name: "Claude 3.5 Sonnet",
+    provider: "Anthropic",
+    cost: "medium",
+    description: "Claude 3.5 Sonnet combines style and logic : ideal for assistants and creative content.",
+    logoKey: "claude"
   },
+  {
+    id: "anthropic/claude-sonnet-4",
+    name: "Claude 4 Sonnet",
+    provider: "Anthropic",
+    cost: "high",
+    description: "Claude 4 Sonnet provides reliable reasoning with great tone consistency.",
+    logoKey: "claude"
+  },
+  {
+    id: "anthropic/claude-sonnet-4.5",
+    name: "Claude 4.5 Sonnet",
+    provider: "Anthropic",
+    cost: "high",
+    description: "Evolution Sonnet 4.5 : best contextual responses and premium stability.",
+    logoKey: "claude"
+  },
+  {
+    id: "google/gemini-2.5-flash",
+    name: "Gemini 2.5 Flash",
+    provider: "Google",
+    cost: "medium",
+    description: "Gemini 2.5 Flash : ideal for rapid multimodal responses (text, image, audio).",
+    logoKey: "googleGemini"
+  },
+  {
+    id: "google/gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
+    provider: "Google",
+    cost: "high",
+    description: "Gemini 2.5 Pro : Google model with complete analytics and multimedia generation capabilities.",
+    logoKey: "googleGemini"
+  }
 ]
 
 export default function AISettingsPage() {
-  const [settings, setSettings] = useState({
-    defaultModel: "gpt-4o",
-    fallbackModel: "gpt-3.5-turbo",
-    temperature: [0.7],
-    maxTokens: [2048],
-    responseTimeout: [30],
-    safeReplies: true,
-    answerMode: "hybrid",
-    systemPrompt: "You are a helpful AI assistant. Provide accurate and concise answers to user questions.",
-    customInstructions: "",
-    disableAI: false, // NEW FEATURE
-  })
+  const {
+    settings: aiSettings,
+    isLoading,
+    error,
+    updateSettings,
+    fetchSettings
+  } = useAISettings()
 
+  // État local pour les modifications non sauvegardées
+  const [localSettings, setLocalSettings] = useState<any>(null)
   const [hasChanges, setHasChanges] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
+  // Initialiser les settings locaux quand les vrais settings sont chargés
+  React.useEffect(() => {
+    if (aiSettings && !localSettings) {
+      setLocalSettings({
+        ai_model: aiSettings.ai_model,
+        temperature: aiSettings.temperature,
+        system_prompt: aiSettings.system_prompt,
+        is_active: aiSettings.is_active,
+        top_p: aiSettings.top_p,
+        lang: aiSettings.lang,
+        tone: aiSettings.tone,
+        doc_lang: aiSettings.doc_lang,
+      })
+    }
+  }, [aiSettings, localSettings])
+
+  // Les settings à afficher (locaux si modifiés, sinon depuis la BD)
+  const currentSettings = localSettings || aiSettings
+
   const handleSettingChange = (key: string, value: any) => {
-    setSettings(prev => ({ ...prev, [key]: value }))
+    setLocalSettings((prev: any) => ({ ...prev, [key]: value }))
     setHasChanges(true)
   }
 
   const handleSave = async () => {
+    if (!localSettings) return
+
     setIsSaving(true)
-    // Simulate API call
-    setTimeout(() => {
-      setIsSaving(false)
+    try {
+      await updateSettings(localSettings)
       setHasChanges(false)
-      // Toast notification would be shown here
-    }, 2000)
+      // Recharger les settings depuis la BD pour s'assurer de la synchronisation
+      await fetchSettings()
+    } catch (error) {
+      console.error('Erreur lors de la sauvegarde:', error)
+      // Le toast d'erreur sera affiché par le hook useAISettings
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const handleReset = () => {
-    setSettings({
-      defaultModel: "gpt-4o",
-      fallbackModel: "gpt-3.5-turbo",
-      temperature: [0.7],
-      maxTokens: [2048],
-      responseTimeout: [30],
-      safeReplies: true,
-      answerMode: "hybrid",
-      systemPrompt: "You are a helpful AI assistant. Provide accurate and concise answers to user questions.",
-      customInstructions: "",
-      disableAI: false,
-    })
-    setHasChanges(false)
+  const handleReset = async () => {
+    try {
+      // Recharger les settings depuis la BD
+      await fetchSettings()
+      // Remettre les settings locaux à null pour utiliser les données de la BD
+      setLocalSettings(null)
+      setHasChanges(false)
+    } catch (error) {
+      console.error('Erreur lors du reset:', error)
+    }
   }
 
   const getCostColor = (cost: string) => {
@@ -147,9 +193,7 @@ export default function AISettingsPage() {
 
   const getCostIcon = (cost: string) => {
     const count = cost === "high" ? 3 : cost === "medium" ? 2 : 1
-    return Array.from({ length: count }).map((_, i) => (
-      <DollarSign key={i} className="w-3 h-3" />
-    ))
+    return "$".repeat(count)
   }
 
   const getTemperatureLabel = (value: number) => {
@@ -157,6 +201,37 @@ export default function AISettingsPage() {
     if (value <= 0.7) return "Balanced"
     if (value <= 1.2) return "Creative"
     return "Very Creative"
+  }
+
+  // Afficher un état de chargement si les données ne sont pas encore chargées
+  if (isLoading) {
+    return (
+      <div className="flex-1 p-6 space-y-6">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Chargement des paramètres IA...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Afficher une erreur si le chargement a échoué
+  if (error) {
+    return (
+      <div className="flex-1 p-6 space-y-6">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <p className="text-6xl mb-4">❌</p>
+            <p className="text-red-500 mb-4">Erreur lors du chargement des paramètres IA</p>
+            <Button onClick={fetchSettings} variant="outline">
+              Réessayer
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -171,7 +246,7 @@ export default function AISettingsPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleReset} disabled={!hasChanges}>
-            <RotateCcw className="w-4 h-4 mr-2" />
+            <RefreshCw className="w-4 h-4 mr-2" />
             Reset
           </Button>
           <Button onClick={handleSave} disabled={!hasChanges || isSaving}>
@@ -184,221 +259,142 @@ export default function AISettingsPage() {
       {/* Unsaved Changes Alert */}
       {hasChanges && (
         <Alert className="border-yellow-500/50 bg-yellow-500/10">
-          <AlertTriangle className="h-4 w-4 text-yellow-500" />
           <AlertDescription className="text-yellow-500">
-            You have unsaved changes. Don't forget to save your configuration.
+            ⚠️ You have unsaved changes. Don't forget to save your configuration.
           </AlertDescription>
         </Alert>
       )}
 
-      {/* AI Disable Toggle */}
-      {settings.disableAI && (
+      {/* AI Status Alert */}
+      {currentSettings && !currentSettings.is_active && (
         <Alert className="border-red-500/50 bg-red-500/10">
-          <AlertTriangle className="h-4 w-4 text-red-500" />
           <AlertDescription className="text-red-500">
-            AI responses are currently disabled. Your chatbot will only use predefined FAQ answers.
+            🚫 L'IA est actuellement désactivée. Aucune réponse automatique ne sera générée.
           </AlertDescription>
         </Alert>
       )}
+
+      {/* Current AI Model Display */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Modèle IA Actuel</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ModelDisplay variant="card" />
+        </CardContent>
+      </Card>
+
+      {/* AI Global Toggle */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-base font-medium">Activer l'IA</Label>
+              <p className="text-sm text-muted-foreground">
+                Active ou désactive l'IA pour toutes les conversations
+              </p>
+            </div>
+            <button
+              disabled={!currentSettings}
+              onClick={() => handleSettingChange("is_active", !currentSettings?.is_active)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                currentSettings?.is_active
+                  ? 'bg-green-500 focus:ring-green-500'
+                  : 'bg-red-500 focus:ring-red-500'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  currentSettings?.is_active ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Model Configuration */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Settings className="w-5 h-5" />
-            Model Configuration
+            ⚙️ Model Configuration
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Default Model</Label>
-              <Select 
-                value={settings.defaultModel} 
-                onValueChange={(value) => handleSettingChange("defaultModel", value)}
-                disabled={settings.disableAI}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {aiModels.map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      <div className="flex items-center justify-between w-full">
-                        <div>
-                          <div className="font-medium">{model.name}</div>
-                          <div className="text-xs text-muted-foreground">{model.provider}</div>
-                        </div>
-                        <div className="flex items-center gap-1 ml-4">
-                          <Badge variant="outline" className={getCostColor(model.cost)}>
-                            <div className="flex items-center gap-1">
-                              {getCostIcon(model.cost)}
-                            </div>
-                          </Badge>
+          <div className="space-y-2">
+            <Label>Default Model</Label>
+            <Select
+              value={currentSettings?.ai_model || ""}
+              onValueChange={(value: string) => handleSettingChange("ai_model", value)}
+              disabled={!currentSettings?.is_active}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {aiModels.map((model) => (
+                  <SelectItem 
+                    key={model.id} 
+                    value={model.id}
+                    title={model.description}
+                    className="cursor-pointer hover:bg-accent"
+                  >
+                    <div className="flex items-center justify-between w-full gap-3">
+                      <div className="flex items-center gap-3">
+                        {model.logoKey && logos[model.logoKey as keyof typeof logos] && (
+                          <div className="relative w-6 h-6 flex-shrink-0">
+                            <Image
+                              src={logos[model.logoKey as keyof typeof logos]}
+                              alt={`${model.provider} logo`}
+                              width={24}
+                              height={24}
+                              className="object-contain"
+                            />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{model.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">{model.provider}</div>
                         </div>
                       </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {aiModels.find(m => m.id === settings.defaultModel)?.description}
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Fallback Model</Label>
-              <Select 
-                value={settings.fallbackModel} 
-                onValueChange={(value) => handleSettingChange("fallbackModel", value)}
-                disabled={settings.disableAI}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {aiModels.filter(m => m.id !== settings.defaultModel).map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      <div className="flex items-center justify-between w-full">
-                        <div>
-                          <div className="font-medium">{model.name}</div>
-                          <div className="text-xs text-muted-foreground">{model.provider}</div>
-                        </div>
+                      <div className="flex items-center gap-1">
                         <Badge variant="outline" className={getCostColor(model.cost)}>
                           <div className="flex items-center gap-1">
                             {getCostIcon(model.cost)}
                           </div>
                         </Badge>
                       </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {aiModels.find(m => m.id === currentSettings?.ai_model)?.description}
+            </p>
           </div>
 
           <div className="space-y-4">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Temperature</Label>
-                <Badge variant="outline">{getTemperatureLabel(settings.temperature[0])}</Badge>
+                <Badge variant="outline">{getTemperatureLabel(currentSettings?.temperature || 0.7)}</Badge>
               </div>
               <Slider
-                value={settings.temperature}
-                onValueChange={(value) => handleSettingChange("temperature", value)}
+                value={[currentSettings?.temperature || 0.7]}
+                onValueChange={(value: number[]) => handleSettingChange("temperature", value[0])}
                 max={2}
                 min={0}
                 step={0.1}
-                disabled={settings.disableAI}
+                disabled={!currentSettings?.is_active}
                 className="w-full"
               />
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>Precise (0)</span>
-                <span>Current: {settings.temperature[0]}</span>
+                <span>Current: {currentSettings?.temperature?.toFixed(1) || "0.7"}</span>
                 <span>Creative (2)</span>
               </div>
             </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label>Max Tokens</Label>
-                <Badge variant="outline">{settings.maxTokens[0]} tokens</Badge>
-              </div>
-              <Slider
-                value={settings.maxTokens}
-                onValueChange={(value) => handleSettingChange("maxTokens", value)}
-                max={4096}
-                min={256}
-                step={256}
-                disabled={settings.disableAI}
-                className="w-full"
-              />
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>256</span>
-                <span>4096</span>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label>Response Timeout</Label>
-                <Badge variant="outline">{settings.responseTimeout[0]}s</Badge>
-              </div>
-              <Slider
-                value={settings.responseTimeout}
-                onValueChange={(value) => handleSettingChange("responseTimeout", value)}
-                max={120}
-                min={5}
-                step={5}
-                disabled={settings.disableAI}
-                className="w-full"
-              />
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>5s</span>
-                <span>120s</span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Behavior & Safety */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="w-5 h-5" />
-            Behavior & Safety
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>Disable AI Responses</Label>
-              <p className="text-sm text-muted-foreground">
-                Turn off AI completely and only use predefined FAQ answers
-              </p>
-            </div>
-            <Switch
-              checked={settings.disableAI}
-              onCheckedChange={(checked) => handleSettingChange("disableAI", checked)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Answer Mode</Label>
-            <Select 
-              value={settings.answerMode} 
-              onValueChange={(value) => handleSettingChange("answerMode", value)}
-              disabled={settings.disableAI}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {answerModes.map((mode) => (
-                  <SelectItem key={mode.id} value={mode.id}>
-                    <div>
-                      <div className="font-medium">{mode.name}</div>
-                      <div className="text-xs text-muted-foreground">{mode.description}</div>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>Safe Replies</Label>
-              <p className="text-sm text-muted-foreground">
-                Enable content filtering and safety checks
-              </p>
-            </div>
-            <Switch
-              checked={settings.safeReplies}
-              onCheckedChange={(checked) => handleSettingChange("safeReplies", checked)}
-              disabled={settings.disableAI}
-            />
           </div>
         </CardContent>
       </Card>
@@ -407,36 +403,21 @@ export default function AISettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Zap className="w-5 h-5" />
-            System Instructions
+            💬 System Instructions
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <Label>System Prompt</Label>
             <Textarea
-              value={settings.systemPrompt}
-              onChange={(e) => handleSettingChange("systemPrompt", e.target.value)}
+              value={currentSettings?.system_prompt || ""}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleSettingChange("system_prompt", (e.target as HTMLTextAreaElement).value)}
               placeholder="Enter system prompt..."
               className="min-h-[100px]"
-              disabled={settings.disableAI}
+              disabled={!currentSettings?.is_active}
             />
             <p className="text-xs text-muted-foreground">
               This prompt defines the AI's role and behavior. It's sent with every conversation.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Custom Instructions</Label>
-            <Textarea
-              value={settings.customInstructions}
-              onChange={(e) => handleSettingChange("customInstructions", e.target.value)}
-              placeholder="Enter additional instructions..."
-              className="min-h-[100px]"
-              disabled={settings.disableAI}
-            />
-            <p className="text-xs text-muted-foreground">
-              Additional instructions or context specific to your use case.
             </p>
           </div>
         </CardContent>

@@ -42,13 +42,16 @@ export function AddChannelDialog({ open, onOpenChange, onAccountAdded, connected
   const startAuth = async (platform: string) => {
     try {
       const res = await SocialAccountsService.getConnectUrl(platform)
+
       if (res.authorization_url) {
+        console.log(`🚀 Redirection vers ${platform}:`, res.authorization_url)
         window.location.href = res.authorization_url
         return
       }
+
       onOpenChange(false)
     } catch (e) {
-      console.error("add account failed", e)
+      console.error("❌ Erreur connexion:", e)
       toast({
         title: "Erreur de connexion",
         description: `Impossible de se connecter à ${platform}`,

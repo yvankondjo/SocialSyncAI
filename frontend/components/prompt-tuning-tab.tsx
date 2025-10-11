@@ -36,42 +36,83 @@ interface AIModel {
   provider: string
 }
 
-// Available AI models with official logos and OpenRouter identifiers
 const AI_MODELS: AIModel[] = [
   {
-    id: "anthropic/claude-3.5-haiku",
-    name: "Claude 3.5 Haiku",
-    logoKey: "claude",
-    description: "Fast and efficient for everyday tasks",
-    provider: "Anthropic"
+    id: "x-ai/grok-4",
+    name: "Grok 4",
+    logoKey: "grok",
+    description: "Nouvelle génération Grok 4 : réponses rapides et contextuelles, optimisées pour la créativité multimodale.",
+    provider: "xAI"
+  },
+  {
+    id: "x-ai/grok-4-fast",
+    name: "Grok 4 Fast",
+    logoKey: "grok",
+    description: "Version accélérée de Grok 4, équilibrant coût et vitesse pour un usage quotidien.",
+    provider: "xAI"
   },
   {
     id: "openai/gpt-4o",
     name: "GPT-4o",
     logoKey: "openai",
-    description: "Powerful and versatile for all types of tasks",
+    description: "GPT-4o offre la précision haut de gamme d’OpenAI avec un raisonnement avancé multimodal.",
     provider: "OpenAI"
   },
   {
     id: "openai/gpt-4o-mini",
-    name: "GPT-4o Mini", 
+    name: "GPT-4o mini",
     logoKey: "openai",
-    description: "Optimized and cost-effective version",
+    description: "Version mini de GPT-4o : excellentes performances textuelles à coût réduit.",
     provider: "OpenAI"
+  },
+  {
+    id: "openai/gpt-5",
+    name: "GPT-5",
+    logoKey: "openai",
+    description: "Modèle phare GPT-5 : profondeur contextuelle extrême, pensé pour les workloads critiques.",
+    provider: "OpenAI"
+  },
+  {
+    id: "openai/gpt-5-mini",
+    name: "GPT-5 mini",
+    logoKey: "openai",
+    description: "Variante mini de GPT-5 : rapidité et robustesse pour les intégrations massives.",
+    provider: "OpenAI"
+  },
+  {
+    id: "anthropic/claude-3.5-sonnet",
+    name: "Claude 3.5 Sonnet",
+    logoKey: "claude",
+    description: "Claude 3.5 Sonnet allie style et logique : idéal pour les assistants et contenus créatifs.",
+    provider: "Anthropic"
+  },
+  {
+    id: "anthropic/claude-sonnet-4",
+    name: "Claude 4 Sonnet",
+    logoKey: "claude",
+    description: "Claude 4 Sonnet apporte un raisonnement fiable avec une grande cohérence de ton.",
+    provider: "Anthropic"
+  },
+  {
+    id: "anthropic/claude-sonnet-4.5",
+    name: "Claude 4.5 Sonnet",
+    logoKey: "claude",
+    description: "Evolution Sonnet 4.5 : meilleures réponses contextuelles et stabilité premium.",
+    provider: "Anthropic"
   },
   {
     id: "google/gemini-2.5-flash",
     name: "Gemini 2.5 Flash",
     logoKey: "googleGemini",
-    description: "Google's latest multimodal AI model",
+    description: "Gemini 2.5 Flash : idéal pour des réponses multimodales rapides (texte, image, audio).",
     provider: "Google"
   },
   {
-    id: "x-ai/grok-2",
-    name: "Grok 2",
-    logoKey: "grok",
-    description: "Innovative model with unique approach",
-    provider: "xAI"
+    id: "google/gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
+    logoKey: "googleGemini",
+    description: "Gemini 2.5 Pro : modèle Google ultra complet pour l’analytique et la génération multimédia.",
+    provider: "Google"
   }
 ]
 
@@ -129,7 +170,7 @@ export function PromptTuningTab() {
   // Working settings state (unsaved modifications)
   const [workingSettings, setWorkingSettings] = useState<AISettings>({
     system_prompt: PROMPT_TEMPLATES.social.prompt,
-    ai_model: "anthropic/claude-3.5-haiku",
+    ai_model: "x-ai/grok-4",
     temperature: 0.20,
     top_p: 1.00,
     lang: "en",
@@ -155,7 +196,7 @@ export function PromptTuningTab() {
   }, [currentSettings])
 
   const variables = [
-    { name: "brand_name", value: "SocialSync" },
+    { name: "brand_name", value: "ConversAI" },
     { name: "lang", value: workingSettings.lang },
     { name: "tone", value: workingSettings.tone },
   ]

@@ -43,7 +43,7 @@ export default function AuthPage() {
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            SocialSync
+            ConversAI
           </h1>
           <p className="text-gray-600">
             Connectez-vous à votre compte pour gérer vos réseaux sociaux
@@ -54,7 +54,7 @@ export default function AuthPage() {
           <div className="space-y-6">
             <div className="text-center">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                Connexion à SocialSync
+                Connexion à ConversAI
               </h2>
               <p className="text-gray-600 text-sm">
                 Connectez-vous avec votre compte Google pour accéder à votre tableau de bord

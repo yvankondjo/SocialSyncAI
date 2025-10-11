@@ -173,15 +173,14 @@ export default function ChatInterfacePage() {
         {/* Configuration Panel */}
         <div className="space-y-6">
           <Tabs defaultValue="appearance">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="appearance">Appearance</TabsTrigger>
-              <TabsTrigger value="messages">Messages</TabsTrigger>
               <TabsTrigger value="behavior">Behavior</TabsTrigger>
             </TabsList>
 
             {/* Appearance Tab */}
             <TabsContent value="appearance" className="space-y-6">
-              <Card>
+              <Card className="max-w-2xl">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Palette className="w-5 h-5" />
@@ -189,45 +188,6 @@ export default function ChatInterfacePage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Theme</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {themes.map((theme) => (
-                        <button
-                          key={theme.id}
-                          onClick={() => handleConfigChange("theme", theme.id)}
-                          className={`p-3 rounded-lg border text-left transition-colors ${
-                            config.theme === theme.id 
-                              ? "border-primary bg-primary/10" 
-                              : "border-border hover:bg-muted"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <div 
-                              className="w-4 h-4 rounded-full border"
-                              style={{ backgroundColor: theme.primary }}
-                            />
-                            <span className="font-medium text-sm">{theme.name}</span>
-                          </div>
-                          <div className="flex gap-1">
-                            <div 
-                              className="w-2 h-2 rounded-full"
-                              style={{ backgroundColor: theme.primary }}
-                            />
-                            <div 
-                              className="w-2 h-2 rounded-full"
-                              style={{ backgroundColor: theme.secondary }}
-                            />
-                            <div 
-                              className="w-2 h-2 rounded-full"
-                              style={{ backgroundColor: theme.accent }}
-                            />
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
                   <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <Label>Primary Color</Label>
@@ -236,7 +196,7 @@ export default function ChatInterfacePage() {
                           type="color"
                           value={config.primaryColor}
                           onChange={(e) => handleConfigChange("primaryColor", e.target.value)}
-                          className="w-12 h-10 p-1 rounded"
+                          className="w-12 h-10 p-1 rounded cursor-pointer"
                         />
                         <Input
                           value={config.primaryColor}
@@ -253,7 +213,7 @@ export default function ChatInterfacePage() {
                           type="color"
                           value={config.secondaryColor}
                           onChange={(e) => handleConfigChange("secondaryColor", e.target.value)}
-                          className="w-12 h-10 p-1 rounded"
+                          className="w-12 h-10 p-1 rounded cursor-pointer"
                         />
                         <Input
                           value={config.secondaryColor}
@@ -270,7 +230,7 @@ export default function ChatInterfacePage() {
                           type="color"
                           value={config.accentColor}
                           onChange={(e) => handleConfigChange("accentColor", e.target.value)}
-                          className="w-12 h-10 p-1 rounded"
+                          className="w-12 h-10 p-1 rounded cursor-pointer"
                         />
                         <Input
                           value={config.accentColor}
@@ -327,28 +287,10 @@ export default function ChatInterfacePage() {
                       </Select>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            {/* Messages Tab */}
-            <TabsContent value="messages" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Message Templates</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {messageTemplates.map((template) => (
-                    <div key={template.id} className="space-y-2">
-                      <Label>{template.name}</Label>
-                      <Textarea
-                        value={config.templates[template.id as keyof typeof config.templates]}
-                        onChange={(e) => handleConfigChange(`templates.${template.id}`, e.target.value)}
-                        placeholder={template.default}
-                        className="min-h-[80px]"
-                      />
-                    </div>
-                  ))}
+                  
+                  <div className="pt-4 border-t text-center">
+                    <p className="text-xs text-muted-foreground">Powered by ConversAI</p>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -362,107 +304,73 @@ export default function ChatInterfacePage() {
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>Typing Indicator</Label>
+                      <Label className="font-semibold text-foreground">Typing Indicator</Label>
                       <p className="text-sm text-muted-foreground">Show when AI is typing</p>
                     </div>
                     <Switch
                       checked={config.showTypingIndicator}
                       onCheckedChange={(checked) => handleConfigChange("showTypingIndicator", checked)}
+                      className="data-[state=checked]:bg-primary data-[state=unchecked]:bg-gray-300"
                     />
                   </div>
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>Read Receipts</Label>
+                      <Label className="font-semibold text-foreground">Read Receipts</Label>
                       <p className="text-sm text-muted-foreground">Show when messages are read</p>
                     </div>
                     <Switch
                       checked={config.showReadReceipts}
                       onCheckedChange={(checked) => handleConfigChange("showReadReceipts", checked)}
+                      className="data-[state=checked]:bg-primary data-[state=unchecked]:bg-gray-300"
                     />
                   </div>
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>File Upload</Label>
+                      <Label className="font-semibold text-foreground">File Upload</Label>
                       <p className="text-sm text-muted-foreground">Allow users to upload files</p>
                     </div>
                     <Switch
                       checked={config.enableFileUpload}
                       onCheckedChange={(checked) => handleConfigChange("enableFileUpload", checked)}
+                      className="data-[state=checked]:bg-primary data-[state=unchecked]:bg-gray-300"
                     />
                   </div>
 
-                  {config.enableFileUpload && (
-                    <div className="ml-4 space-y-4 border-l-2 border-muted pl-4">
-                      <div className="space-y-2">
-                        <Label>Max File Size (MB)</Label>
-                        <Select value={config.maxFileSize} onValueChange={(value) => handleConfigChange("maxFileSize", value)}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="5">5 MB</SelectItem>
-                            <SelectItem value="10">10 MB</SelectItem>
-                            <SelectItem value="25">25 MB</SelectItem>
-                            <SelectItem value="50">50 MB</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Allowed File Types</Label>
-                        <div className="flex flex-wrap gap-2">
-                          {["pdf", "doc", "docx", "txt", "jpg", "png", "gif", "mp4"].map((type) => (
-                            <Badge
-                              key={type}
-                              variant={config.allowedFileTypes.includes(type) ? "default" : "outline"}
-                              className="cursor-pointer"
-                              onClick={() => {
-                                const newTypes = config.allowedFileTypes.includes(type)
-                                  ? config.allowedFileTypes.filter(t => t !== type)
-                                  : [...config.allowedFileTypes, type]
-                                handleConfigChange("allowedFileTypes", newTypes)
-                              }}
-                            >
-                              {type}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>Emojis</Label>
+                      <Label className="font-semibold text-foreground">Emojis</Label>
                       <p className="text-sm text-muted-foreground">Enable emoji picker</p>
                     </div>
                     <Switch
                       checked={config.enableEmojis}
                       onCheckedChange={(checked) => handleConfigChange("enableEmojis", checked)}
+                      className="data-[state=checked]:bg-primary data-[state=unchecked]:bg-gray-300"
                     />
                   </div>
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>Auto Expand</Label>
+                      <Label className="font-semibold text-foreground">Auto Expand</Label>
                       <p className="text-sm text-muted-foreground">Automatically expand chat on page load</p>
                     </div>
                     <Switch
                       checked={config.autoExpand}
                       onCheckedChange={(checked) => handleConfigChange("autoExpand", checked)}
+                      className="data-[state=checked]:bg-primary data-[state=unchecked]:bg-gray-300"
                     />
                   </div>
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>Sound Notifications</Label>
+                      <Label className="font-semibold text-foreground">Sound Notifications</Label>
                       <p className="text-sm text-muted-foreground">Play sound for new messages</p>
                     </div>
                     <Switch
                       checked={config.soundNotifications}
                       onCheckedChange={(checked) => handleConfigChange("soundNotifications", checked)}
+                      className="data-[state=checked]:bg-primary data-[state=unchecked]:bg-gray-300"
                     />
                   </div>
                 </CardContent>

@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useAISettings } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -10,30 +11,107 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import Image from "next/image"
+import { logos } from "@/lib/logos"
 import {
-  Settings,
+  Settings as Cog,
   Send,
-  Settings as BotIcon,
+  Bot,
   User,
-  RotateCcw,
+  RefreshCw,
   Save,
   ChevronUp as CompareIcon,
+  BarChart3,
 } from "lucide-react"
 import Link from "next/link"
+import { ApiClient } from "@/lib/api"
 
 interface Message {
   id: string
   role: "user" | "assistant"
   content: string
   timestamp: string
+  confidence?: number
 }
 
 const availableModels = [
-  { id: "gpt-4o", name: "GPT-4o", provider: "OpenAI" },
-  { id: "gpt-4", name: "GPT-4", provider: "OpenAI" },
-  { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", provider: "OpenAI" },
-  { id: "gemini-pro", name: "Gemini Pro", provider: "Google" },
-  { id: "claude-3", name: "Claude 3", provider: "Anthropic" },
+  { 
+    id: "x-ai/grok-4", 
+    name: "Grok 4", 
+    provider: "xAI", 
+    logoKey: "xai-logo.svg",
+    description: "Advanced xAI model with exceptional reasoning and creativity capabilities"
+  },
+  { 
+    id: "x-ai/grok-4-fast", 
+    name: "Grok 4 Fast", 
+    provider: "xAI", 
+    logoKey: "xai-logo.svg",
+    description: "Fast version of Grok 4, optimized for speed while maintaining high quality"
+  },
+  { 
+    id: "openai/gpt-4o", 
+    name: "GPT-4o", 
+    provider: "OpenAI", 
+    logoKey: "openai-logo.svg",
+    description: "Advanced multimodal OpenAI model with exceptional visual and text capabilities"
+  },
+  { 
+    id: "openai/gpt-4o-mini", 
+    name: "GPT-4o mini", 
+    provider: "OpenAI", 
+    logoKey: "openai-logo.svg",
+    description: "Compact and economical GPT-4o, perfect for common tasks"
+  },
+  { 
+    id: "openai/gpt-5", 
+    name: "GPT-5", 
+    provider: "OpenAI", 
+    logoKey: "openai-logo.svg",
+    description: "Latest generation of OpenAI with revolutionary reasoning and creativity capabilities"
+  },
+  { 
+    id: "openai/gpt-5-mini", 
+    name: "GPT-5 mini", 
+    provider: "OpenAI", 
+    logoKey: "openai-logo.svg",
+    description: "Lightweight version of GPT-5, optimized for efficiency and speed"
+  },
+  { 
+    id: "anthropic/claude-3.5-sonnet", 
+    name: "Claude 3.5 Sonnet", 
+    provider: "Anthropic", 
+    logoKey: "claude-logo.svg",
+    description: "Balanced Anthropic model, excellent for analysis and content generation"
+  },
+  { 
+    id: "anthropic/claude-sonnet-4", 
+    name: "Claude 4 Sonnet", 
+    provider: "Anthropic", 
+    logoKey: "claude-logo.svg",
+    description: "Advanced Anthropic model with superior reasoning and creativity capabilities"
+  },
+  { 
+    id: "anthropic/claude-sonnet-4.5", 
+    name: "Claude 4.5 Sonnet", 
+    provider: "Anthropic", 
+    logoKey: "claude-logo.svg",
+    description: "Latest version of Claude with significant improvements in precision and creativity"
+  },
+  { 
+    id: "google/gemini-2.5-flash", 
+    name: "Gemini 2.5 Flash", 
+    provider: "Google", 
+    logoKey: "google-logo.svg",
+    description: "Ultra-fast Google model, optimized for speed and efficiency"
+  },
+  { 
+    id: "google/gemini-2.5-pro", 
+    name: "Gemini 2.5 Pro", 
+    provider: "Google", 
+    logoKey: "google-logo.svg",
+    description: "Professional Google model with advanced capabilities and exceptional precision"
+  },
 ]
 
 // Instruction templates
@@ -61,6 +139,11 @@ const INSTRUCTION_TEMPLATES = {
 }
 
 export default function PlaygroundPage() {
+  const { testAIResponse, settings } = useAISettings()
+
+  // Utiliser un thread_id constant pour la session playground
+  const [playgroundThreadId, setPlaygroundThreadId] = useState(() => `playground-session-${Date.now()}`)
+
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -72,11 +155,11 @@ export default function PlaygroundPage() {
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
-  // Configuration state
-  const [model, setModel] = useState("gpt-4o")
-  const [temperature, setTemperature] = useState([0.7])
+  // Configuration state - use settings from API if available, otherwise defaults
+  const [model, setModel] = useState(settings?.ai_model || "openai/gpt-4o")
+  const [temperature, setTemperature] = useState([settings?.temperature || 0.7])
   const [systemInstruction, setSystemInstruction] = useState(
-    "You are a helpful AI assistant. Provide accurate and concise answers to user questions."
+    settings?.system_prompt || "You are a helpful AI assistant. Provide accurate and concise answers to user questions."
   )
   const [agentStatus, setAgentStatus] = useState("trained")
 
@@ -94,31 +177,61 @@ export default function PlaygroundPage() {
     setInput("")
     setIsLoading(true)
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const testRequest = {
+        thread_id: playgroundThreadId,
+        message: input.trim(),
+        settings: {
+          system_prompt: systemInstruction,
+          ai_model: model,
+          temperature: temperature[0],
+          top_p: 1.0,
+          lang: "en",
+          tone: "friendly",
+          is_active: true,
+          doc_lang: []
+        }
+      }
+
+      const response = await testAIResponse(testRequest)
+
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: generateMockResponse(input.trim()),
+        content: response.response,
+        timestamp: new Date().toISOString(),
+        confidence: response.confidence,
+      }
+
+      setMessages(prev => [...prev, aiMessage])
+    } catch (error) {
+      console.error("Error testing AI response:", error)
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "Désolé, une erreur s'est produite lors de la génération de la réponse. Veuillez réessayer.",
         timestamp: new Date().toISOString(),
       }
-      setMessages(prev => [...prev, aiMessage])
+      setMessages(prev => [...prev, errorMessage])
+    } finally {
       setIsLoading(false)
-    }, 1500)
+    }
   }
 
-  const generateMockResponse = (userInput: string): string => {
-    const responses = [
-      "I understand your question. Based on the information provided, here's what I can tell you...",
-      "That's a great question! Let me break this down for you step by step.",
-      "I'd be happy to help you with that. Here's my analysis of the situation...",
-      "Thanks for asking! From my understanding, the best approach would be...",
-      "I can see why you're asking about this. Let me provide you with some insights...",
-    ]
-    return responses[Math.floor(Math.random() * responses.length)]
-  }
+  // Synchroniser les états locaux avec les settings de l'API
+  useEffect(() => {
+    if (settings) {
+      setModel(settings.ai_model)
+      setTemperature([settings.temperature])
+      setSystemInstruction(settings.system_prompt)
+    }
+  }, [settings])
 
   const handleRefreshChat = () => {
+    // Générer un nouveau thread_id pour une nouvelle conversation
+    const newThreadId = `playground-session-${Date.now()}`
+    setPlaygroundThreadId(newThreadId)
+
     setMessages([
       {
         id: "1",
@@ -167,7 +280,7 @@ export default function PlaygroundPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                  <Settings className="w-5 h-5" />
+                  <Cog className="w-5 h-5" />
                   <span className="font-medium">Agent Status</span>
                 </div>
                 <Badge variant="secondary" className="bg-green-500/20 text-green-400">
@@ -208,9 +321,31 @@ export default function PlaygroundPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {availableModels.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            <div className="font-medium">{m.name}</div>
-                            <div className="text-xs text-muted-foreground">{m.provider}</div>
+                          <SelectItem 
+                            key={m.id} 
+                            value={m.id}
+                            title={m.description}
+                            className="cursor-pointer hover:bg-accent"
+                          >
+                            <div className="flex items-center justify-between w-full gap-3">
+                              <div className="flex items-center gap-3">
+                                {m.logoKey && logos[m.logoKey as keyof typeof logos] && (
+                                  <div className="relative w-6 h-6 flex-shrink-0">
+                                    <Image
+                                      src={logos[m.logoKey as keyof typeof logos]}
+                                      alt={`${m.provider} logo`}
+                                      width={24}
+                                      height={24}
+                                      className="object-contain"
+                                    />
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium truncate">{m.name}</div>
+                                  <div className="text-xs text-muted-foreground truncate">{m.provider}</div>
+                                </div>
+                              </div>
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -284,7 +419,7 @@ export default function PlaygroundPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2">
-                    <BotIcon className="w-5 h-5" />
+                    <Bot className="w-5 h-5" />
                     Playground Chat
                   </CardTitle>
                   <p className="text-sm text-muted-foreground mt-1">
@@ -294,7 +429,7 @@ export default function PlaygroundPage() {
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <span>{formatTime(new Date().toISOString())}</span>
                   <Button variant="outline" size="sm" onClick={handleRefreshChat}>
-                    <RotateCcw className="w-4 h-4" />
+                    <RefreshCw className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
@@ -329,7 +464,15 @@ export default function PlaygroundPage() {
                       <div className={`text-xs text-muted-foreground ${
                         message.role === "user" ? "text-right" : "text-left"
                       }`}>
-                        {formatTime(message.timestamp)}
+                        <div className="flex items-center gap-2">
+                          <span>{formatTime(message.timestamp)}</span>
+                          {message.role === "assistant" && message.confidence !== undefined && (
+                            <Badge variant="outline" className="text-xs px-2 py-0.5">
+                              <BarChart3 className="w-3 h-3 mr-1" />
+                              {(message.confidence * 100).toFixed(0)}%
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -344,7 +487,7 @@ export default function PlaygroundPage() {
                 {isLoading && (
                   <div className="flex gap-3 justify-start">
                     <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <Settings className="w-4 h-4 text-primary" />
+                      <Cog className="w-4 h-4 text-primary" />
                     </div>
                     <div className="bg-muted px-4 py-3 rounded-lg">
                       <div className="flex space-x-1">
@@ -388,7 +531,7 @@ export default function PlaygroundPage() {
               {/* Branding */}
               <div className="text-center mt-4">
                 <p className="text-xs text-muted-foreground">
-                  Powered by <span className="font-medium">SocialSync AI</span>
+                  Powered by <span className="font-medium">ConversAI</span>
                 </p>
               </div>
             </CardContent>

@@ -1,20 +1,24 @@
 "use client"
 
 import { useState } from "react"
+import { useAISettings } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import Image from "next/image"
+import { logos } from "@/lib/logos"
 import {
   Send,
   RefreshCw,
   ChevronRight,
-  Download,
+  DownloadIcon,
   User,
   Clock,
   MessageSquare,
   Hash,
+  MessageCircle,
 } from "lucide-react"
 
 interface Message {
@@ -33,18 +37,97 @@ interface Conversation {
 }
 
 const availableModels = [
-  { id: "gpt-4o", name: "GPT-4o", provider: "OpenAI" },
-  { id: "gpt-4", name: "GPT-4", provider: "OpenAI" },
-  { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", provider: "OpenAI" },
-  { id: "gemini-pro", name: "Gemini Pro", provider: "Google" },
-  { id: "claude-3", name: "Claude 3", provider: "Anthropic" },
+  { 
+    id: "x-ai/grok-4", 
+    name: "Grok 4", 
+    provider: "xAI", 
+    logoKey: "xai-logo.svg",
+    description: "Modèle avancé d'xAI avec capacités de raisonnement exceptionnelles et créativité élevée"
+  },
+  { 
+    id: "x-ai/grok-4-fast", 
+    name: "Grok 4 Fast", 
+    provider: "xAI", 
+    logoKey: "xai-logo.svg",
+    description: "Version rapide de Grok 4, optimisée pour la vitesse tout en maintenant une qualité élevée"
+  },
+  { 
+    id: "openai/gpt-4o", 
+    name: "GPT-4o", 
+    provider: "OpenAI", 
+    logoKey: "openai-logo.svg",
+    description: "Modèle multimodal avancé d'OpenAI avec capacités visuelles et textuelles exceptionnelles"
+  },
+  { 
+    id: "openai/gpt-4o-mini", 
+    name: "GPT-4o mini", 
+    provider: "OpenAI", 
+    logoKey: "openai-logo.svg",
+    description: "Version compacte et économique de GPT-4o, parfaite pour les tâches courantes"
+  },
+  { 
+    id: "openai/gpt-5", 
+    name: "GPT-5", 
+    provider: "OpenAI", 
+    logoKey: "openai-logo.svg",
+    description: "Dernière génération d'OpenAI avec des capacités de raisonnement et de créativité révolutionnaires"
+  },
+  { 
+    id: "openai/gpt-5-mini", 
+    name: "GPT-5 mini", 
+    provider: "OpenAI", 
+    logoKey: "openai-logo.svg",
+    description: "Version allégée de GPT-5, optimisée pour l'efficacité et la rapidité"
+  },
+  { 
+    id: "anthropic/claude-3.5-sonnet", 
+    name: "Claude 3.5 Sonnet", 
+    provider: "Anthropic", 
+    logoKey: "claude-logo.svg",
+    description: "Modèle équilibré d'Anthropic, excellent pour l'analyse et la génération de contenu de qualité"
+  },
+  { 
+    id: "anthropic/claude-sonnet-4", 
+    name: "Claude 4 Sonnet", 
+    provider: "Anthropic", 
+    logoKey: "claude-logo.svg",
+    description: "Modèle avancé d'Anthropic avec des capacités de raisonnement et de créativité supérieures"
+  },
+  { 
+    id: "anthropic/claude-sonnet-4.5", 
+    name: "Claude 4.5 Sonnet", 
+    provider: "Anthropic", 
+    logoKey: "claude-logo.svg",
+    description: "Dernière version de Claude avec des améliorations significatives en précision et créativité"
+  },
+  { 
+    id: "google/gemini-2.5-flash", 
+    name: "Gemini 2.5 Flash", 
+    provider: "Google", 
+    logoKey: "google-logo.svg",
+    description: "Modèle ultra-rapide de Google, optimisé pour la vitesse et l'efficacité"
+  },
+  { 
+    id: "google/gemini-2.5-pro", 
+    name: "Gemini 2.5 Pro", 
+    provider: "Google", 
+    logoKey: "google-logo.svg",
+    description: "Modèle professionnel de Google avec des capacités avancées et une précision exceptionnelle"
+  },
 ]
 
+// Fonction utilitaire pour générer un ID de session unique
+const generateSessionId = () => {
+  return `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+}
+
 export default function ComparePage() {
+  const { testAIResponse, settings } = useAISettings()
   const [input, setInput] = useState("")
-  const [leftModel, setLeftModel] = useState("gpt-4o")
-  const [rightModel, setRightModel] = useState("gpt-3.5-turbo")
+  const [leftModel, setLeftModel] = useState("openai/gpt-4o")
+  const [rightModel, setRightModel] = useState("anthropic/claude-3.5-haiku")
   const [isLoading, setIsLoading] = useState(false)
+  const [sessionId, setSessionId] = useState(generateSessionId())
   
   const [conversations, setConversations] = useState<{
     left: Conversation
@@ -79,90 +162,89 @@ export default function ComparePage() {
     setInput("")
     setIsLoading(true)
 
-    // Simulate responses from both models with different latencies
-    const leftLatency = Math.random() * 2000 + 500 // 500-2500ms
-    const rightLatency = Math.random() * 2000 + 500
-
-    const leftTokens = Math.floor(Math.random() * 100) + 50
-    const rightTokens = Math.floor(Math.random() * 100) + 50
-
-    setTimeout(() => {
-      const leftResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: generateMockResponse(input.trim(), leftModel),
-        timestamp: new Date().toISOString(),
-        latency: Math.round(leftLatency),
-        tokens: leftTokens,
+    // Create test requests for both models using the current session ID
+    const leftTestRequest = {
+      thread_id: `${sessionId}-left`,
+      message: input.trim(),
+      settings: {
+        system_prompt: settings?.system_prompt || "You are a helpful AI assistant.",
+        ai_model: leftModel,
+        temperature: settings?.temperature || 0.7,
+        top_p: settings?.top_p || 1.0,
+        lang: settings?.lang || "en",
+        tone: settings?.tone || "friendly",
+        is_active: true,
+        doc_lang: settings?.doc_lang || []
       }
-
-      setConversations(prev => ({
-        ...prev,
-        left: {
-          messages: [...prev.left.messages, leftResponse],
-          totalLatency: prev.left.totalLatency + leftLatency,
-          totalTokens: prev.left.totalTokens + leftTokens,
-        }
-      }))
-    }, leftLatency)
-
-    setTimeout(() => {
-      const rightResponse: Message = {
-        id: (Date.now() + 2).toString(),
-        role: "assistant",
-        content: generateMockResponse(input.trim(), rightModel),
-        timestamp: new Date().toISOString(),
-        latency: Math.round(rightLatency),
-        tokens: rightTokens,
-      }
-
-      setConversations(prev => ({
-        ...prev,
-        right: {
-          messages: [...prev.right.messages, rightResponse],
-          totalLatency: prev.right.totalLatency + rightLatency,
-          totalTokens: prev.right.totalTokens + rightTokens,
-        }
-      }))
-
-      setIsLoading(false)
-    }, rightLatency)
-  }
-
-  const generateMockResponse = (userInput: string, model: string): string => {
-    const responses = {
-      "gpt-4o": [
-        "As GPT-4o, I can provide you with a comprehensive analysis. Based on your question, here's my detailed response with advanced reasoning...",
-        "I understand your query completely. Let me break this down systematically with multiple perspectives...",
-        "This is an interesting question that requires careful consideration. Here's my thorough analysis...",
-      ],
-      "gpt-3.5-turbo": [
-        "Thanks for your question! Here's a quick and efficient response to help you...",
-        "I can help with that. Here's a straightforward answer based on the information provided...",
-        "That's a good question. Let me give you a clear and concise response...",
-      ],
-      "gemini-pro": [
-        "As Gemini Pro, I'll analyze this from multiple angles. Here's my comprehensive response...",
-        "I can help you with that. Let me provide you with a well-structured answer...",
-        "That's an interesting question. Here's my analysis with supporting details...",
-      ],
-      "claude-3": [
-        "I appreciate your question. As Claude, I'll provide a thoughtful and nuanced response...",
-        "Thank you for asking. Let me give you a careful and detailed analysis...",
-        "That's a thoughtful question. Here's my considered response with multiple viewpoints...",
-      ],
-      "gpt-4": [
-        "As GPT-4, I'll provide you with a detailed and well-reasoned response to your query...",
-        "I understand what you're asking. Let me give you a comprehensive answer...",
-        "That's a great question. Here's my thorough analysis of the situation...",
-      ]
     }
 
-    const modelResponses = responses[model as keyof typeof responses] || responses["gpt-3.5-turbo"]
-    return modelResponses[Math.floor(Math.random() * modelResponses.length)]
+    const rightTestRequest = {
+      thread_id: `${sessionId}-right`,
+      message: input.trim(),
+      settings: {
+        system_prompt: settings?.system_prompt || "You are a helpful AI assistant.",
+        ai_model: rightModel,
+        temperature: settings?.temperature || 0.7,
+        top_p: settings?.top_p || 1.0,
+        lang: settings?.lang || "en",
+        tone: settings?.tone || "friendly",
+        is_active: true,
+        doc_lang: settings?.doc_lang || []
+      }
+    }
+
+    // Test both models in parallel
+    const [leftResponse, rightResponse] = await Promise.all([
+      testAIResponse(leftTestRequest).catch(error => {
+        console.error("Error with left model:", error)
+        return { response: "Erreur lors de la génération de la réponse.", response_time: 0, confidence: 0 }
+      }),
+      testAIResponse(rightTestRequest).catch(error => {
+        console.error("Error with right model:", error)
+        return { response: "Erreur lors de la génération de la réponse.", response_time: 0, confidence: 0 }
+      })
+    ])
+
+    // Add responses to conversations
+    const leftMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      role: "assistant",
+      content: leftResponse.response,
+      timestamp: new Date().toISOString(),
+      latency: Math.round(leftResponse.response_time * 1000), // Convert to ms
+      tokens: Math.floor(leftResponse.confidence * 100), // Approximate tokens from confidence
+    }
+
+    const rightMessage: Message = {
+      id: (Date.now() + 2).toString(),
+      role: "assistant",
+      content: rightResponse.response,
+      timestamp: new Date().toISOString(),
+      latency: Math.round(rightResponse.response_time * 1000), // Convert to ms
+      tokens: Math.floor(rightResponse.confidence * 100), // Approximate tokens from confidence
+    }
+
+    setConversations(prev => ({
+      left: {
+        messages: [...prev.left.messages, leftMessage],
+        totalLatency: prev.left.totalLatency + leftMessage.latency!,
+        totalTokens: prev.left.totalTokens + leftMessage.tokens!,
+      },
+      right: {
+        messages: [...prev.right.messages, rightMessage],
+        totalLatency: prev.right.totalLatency + rightMessage.latency!,
+        totalTokens: prev.right.totalTokens + rightMessage.tokens!,
+      }
+    }))
+
+    setIsLoading(false)
   }
 
+
   const handleReset = () => {
+    // Générer un nouveau session ID pour une nouvelle session de comparaison
+    setSessionId(generateSessionId())
+
     setConversations({
       left: { messages: [], totalLatency: 0, totalTokens: 0 },
       right: { messages: [], totalLatency: 0, totalTokens: 0 }
@@ -333,7 +415,7 @@ export default function ComparePage() {
             Swap
           </Button>
           <Button variant="outline" onClick={handleExport}>
-            <Download className="w-4 h-4 mr-2" />
+            <DownloadIcon className="w-4 h-4 mr-2" />
             Export
           </Button>
         </div>
@@ -351,10 +433,28 @@ export default function ComparePage() {
                 </SelectTrigger>
                 <SelectContent>
                   {availableModels.filter(m => m.id !== rightModel).map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      <div>
-                        <div className="font-medium">{model.name}</div>
-                        <div className="text-xs text-muted-foreground">{model.provider}</div>
+                    <SelectItem 
+                      key={model.id} 
+                      value={model.id}
+                      title={model.description}
+                      className="cursor-pointer hover:bg-accent"
+                    >
+                      <div className="flex items-center gap-3">
+                        {model.logoKey && logos[model.logoKey as keyof typeof logos] && (
+                          <div className="relative w-6 h-6 flex-shrink-0">
+                            <Image
+                              src={logos[model.logoKey as keyof typeof logos]}
+                              alt={`${model.provider} logo`}
+                              width={24}
+                              height={24}
+                              className="object-contain"
+                            />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{model.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">{model.provider}</div>
+                        </div>
                       </div>
                     </SelectItem>
                   ))}
@@ -374,10 +474,28 @@ export default function ComparePage() {
                 </SelectTrigger>
                 <SelectContent>
                   {availableModels.filter(m => m.id !== leftModel).map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      <div>
-                        <div className="font-medium">{model.name}</div>
-                        <div className="text-xs text-muted-foreground">{model.provider}</div>
+                    <SelectItem 
+                      key={model.id} 
+                      value={model.id}
+                      title={model.description}
+                      className="cursor-pointer hover:bg-accent"
+                    >
+                      <div className="flex items-center gap-3">
+                        {model.logoKey && logos[model.logoKey as keyof typeof logos] && (
+                          <div className="relative w-6 h-6 flex-shrink-0">
+                            <Image
+                              src={logos[model.logoKey as keyof typeof logos]}
+                              alt={`${model.provider} logo`}
+                              width={24}
+                              height={24}
+                              className="object-contain"
+                            />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{model.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">{model.provider}</div>
+                        </div>
                       </div>
                     </SelectItem>
                   ))}
@@ -394,7 +512,7 @@ export default function ComparePage() {
         <Card className="flex flex-col">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
-              <MessageSquare className="w-5 h-5" />
+              <MessageCircle className="w-5 h-5" />
               {getModelDisplayName(leftModel)}
               <Badge variant="secondary">Model A</Badge>
             </CardTitle>
@@ -408,7 +526,7 @@ export default function ComparePage() {
         <Card className="flex flex-col">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
-              <MessageSquare className="w-5 h-5" />
+              <MessageCircle className="w-5 h-5" />
               {getModelDisplayName(rightModel)}
               <Badge variant="secondary">Model B</Badge>
             </CardTitle>

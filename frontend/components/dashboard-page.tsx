@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useAuth } from "@/hooks/useAuth"
 import { SocialAccountsService, ConversationsService, AnalyticsService } from "@/lib/api"
+import { demoEnabled, demoStats, demoConversations, demoAnalytics } from "@/lib/demo-data"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { logos } from "@/lib/logos"
@@ -31,14 +32,22 @@ export function DashboardPage() {
   }, [user])
 
   const loadDashboardData = async () => {
-    if (!user) return
+    if (!demoEnabled && !user) return
 
     try {
       setLoading(true)
+
+      if (demoEnabled) {
+        setAccounts([])
+        setConversations(demoConversations.list)
+        setAnalytics({ trends: demoAnalytics.conversationsOverTime })
+        return
+      }
+
       const [accountsData, conversationsData, analyticsData] = await Promise.allSettled([
         SocialAccountsService.getSocialAccounts(),
         ConversationsService.getConversations(),
-        AnalyticsService.getTrends(user.id)
+        AnalyticsService.getTrends(user!.id)
       ])
 
       if (accountsData.status === 'fulfilled') {
@@ -169,8 +178,8 @@ export function DashboardPage() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-xl font-semibold text-foreground mb-2">Welcome to SocialSync</h3>
-                  <p className="text-muted-foreground">Manage your social media presence efficiently</p>
+                  <h3 className="text-xl font-semibold text-foreground mb-2">Bienvenue sur ConversAI Studio</h3>
+                  <p className="text-muted-foreground">Orchestrez votre service client IA sur WhatsApp & Instagram</p>
                 </div>
                 <Button
                   onClick={handleConnectInstagram}
@@ -227,19 +236,21 @@ export function DashboardPage() {
 
         {/* Quick Actions Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="shadow-soft hover-lift cursor-pointer" onClick={handleConnectInstagram}>
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg border border-purple-200">
-                  <img src={logos.instagram} alt="Instagram logo" className="w-6 h-6" />
+          {!demoEnabled && (
+            <Card className="shadow-soft hover-lift cursor-pointer" onClick={handleConnectInstagram}>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg border border-purple-200">
+                    <img src={logos.instagram} alt="Instagram logo" className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-foreground">Connect Instagram</h3>
+                    <p className="text-sm text-muted-foreground">Link your Instagram account</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-foreground">Connect Instagram</h3>
-                  <p className="text-sm text-muted-foreground">Link your Instagram account</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="shadow-soft hover-lift cursor-pointer" onClick={handleScheduleContent}>
             <CardContent className="p-6">
@@ -325,7 +336,7 @@ export function DashboardPage() {
         size="lg"
       >
         <MessageSquare className="w-5 h-5 mr-2" />
-        Ask SocialSync AI
+        Ask ConversAI
       </Button>
     </div>
   )

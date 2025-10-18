@@ -16,7 +16,7 @@ const nextConfig = {
     removeConsole: process.env.NODE_ENV === 'production',
   },
   transpilePackages: ['lucide-react'],
-  optimizePackageImports: ['lucide-react', '@radix-ui/react-dialog'],
+  // Note: optimizePackageImports est géré automatiquement dans Next.js 15
   // Note: Les appels API utilisent maintenant la lib/api.ts avec NEXT_PUBLIC_API_URL
   // Plus de proxy Next.js nécessaire
 };

@@ -124,6 +124,7 @@ export function LandingPage() {
               plan={plan}
               onSelect={handleStartTrial}
               isPopular={plan.name.toLowerCase().includes('pro')}
+              selectedPlan={selectedPlan}
             />
           ))}
         </div>
@@ -171,9 +172,10 @@ interface PricingCardProps {
   plan: PricingPlan
   onSelect: (planId: string) => void
   isPopular?: boolean
+  selectedPlan: string | null
 }
 
-function PricingCard({ plan, onSelect, isPopular }: PricingCardProps) {
+function PricingCard({ plan, onSelect, isPopular, selectedPlan }: PricingCardProps) {
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',

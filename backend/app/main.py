@@ -5,7 +5,6 @@ from app.routers import (
     social_accounts,
     whatsapp,
     instagram,
-    web_widget,
     conversations,
     automation,
     process,
@@ -15,6 +14,9 @@ from app.routers import (
     media,
     subscriptions,
     stripe,
+    scheduled_posts,
+    ai_rules,
+    comments,
 )
 import logging
 import datetime
@@ -64,7 +66,6 @@ app.include_router(whatsapp.router, prefix="/api")
 app.include_router(instagram.router, prefix="/api")
 app.include_router(conversations.router, prefix="/api")
 app.include_router(automation.router, prefix="/api")
-app.include_router(web_widget.router, prefix="/api")
 app.include_router(process.router, prefix="/api")
 app.include_router(knowledge_documents.router, prefix="/api")
 app.include_router(faq_qa.router, prefix="/api")
@@ -76,9 +77,15 @@ app.include_router(stripe.router, prefix="/api")
 # Nouvelles routes PRD2
 from app.routers import support
 app.include_router(support.router, prefix="/api")
-# Servir les fichiers statiques du widget
-# TODO: Décommenter quand on implémentera le widget web intégrable
-# app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Scheduled posts feature
+app.include_router(scheduled_posts.router, prefix="/api")
+
+# AI Rules feature (simple AI control)
+app.include_router(ai_rules.router, prefix="/api")
+
+# Comments polling feature
+app.include_router(comments.router, prefix="/api")
 
 @app.get("/")
 async def root():

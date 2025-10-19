@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fsck --lost-found)",
+      "Bash(git log --all --full-history --diff-filter=D -- '.claude/*')",
+      "Read(//home/dev/.vscode-server/**)",
+      "WebSearch",
+      "Bash(find supabase/migrations -name \"*.sql\" -exec basename {})"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -5,9 +5,19 @@
       "Bash(git log --all --full-history --diff-filter=D -- '.claude/*')",
       "Read(//home/dev/.vscode-server/**)",
       "WebSearch",
-      "Bash(find supabase/migrations -name \"*.sql\" -exec basename {})"
+      "Bash(find supabase/migrations -name \"*.sql\" -exec basename {})",
+      "Bash(find /workspace/backend/app/services -name \"*.py\" -exec grep -l \"asyncio.run\\|loop.run_until_complete\" {} ;)",
+      "Bash(docker exec:*)",
+      "WebFetch(domain:developers.facebook.com)",
+      "Bash(docker logs:*)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "context7",
+    "playwright",
+    "shadcn"
+  ]
 }

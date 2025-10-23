@@ -1,4 +1,5 @@
 import os, asyncio
+import logging
 from typing import List, Dict
 from app.workers.celery_app import celery
 from app.services.ingest_helpers import (
@@ -6,6 +7,8 @@ from app.services.ingest_helpers import (
     add_context_to_chunks, embed_texts
 )
 from app.db.session import get_db
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -89,3 +92,28 @@ def process_document_task(self, document_id: str):
             "status":"failed"
         }).eq("id", document_id).execute()
         raise
+
+
+@celery.task(bind=True, name="app.workers.ingest.scan_redis_batches")
+def scan_redis_batches_task(self):
+    """
+    Celery task to scan Redis for due message batches and process them.
+
+    This replaces the asyncio loop in batch_scanner that runs in FastAPI process.
+    Executes every 0.5s via Celery Beat for robust distributed processing.
+    """
+    try:
+        # Import here to avoid circular dependencies
+        from app.services.batch_scanner import batch_scanner
+
+        logger.debug("[BATCH_SCAN] Starting Redis batch scan")
+
+        # Run the async processing function
+        asyncio.run(batch_scanner._process_due_conversations())
+
+        logger.debug("[BATCH_SCAN] Batch scan completed successfully")
+
+    except Exception as e:
+        logger.error(f"[BATCH_SCAN] Error scanning Redis batches: {e}")
+        # Don't raise - let Celery retry automatically
+        # The next scheduled task will try again in 0.5s

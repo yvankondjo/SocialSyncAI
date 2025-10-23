@@ -16,9 +16,9 @@ from app.schemas.ai_rules import (
     AIDecision,
 )
 from app.services.ai_decision_service import AIDecisionService
-from app.core.database import get_authenticated_db
+from app.db.session import get_authenticated_db
 
-router = APIRouter(prefix="/api/ai-rules", tags=["AI Rules"])
+router = APIRouter(prefix="/ai-rules", tags=["AI Rules"])
 
 
 @router.get("", response_model=Optional[AIRulesResponse])

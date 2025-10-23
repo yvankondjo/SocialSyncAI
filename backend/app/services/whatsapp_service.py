@@ -15,20 +15,22 @@ class WhatsAppService:
     def __init__(self, access_token: Optional[str] = None, phone_number_id: Optional[str] = None):
         """
         Service WhatsApp Business API
-        
+
         Args:
             access_token: Token d'accès WhatsApp (par défaut depuis .env)
             phone_number_id: ID du numéro de téléphone (par défaut depuis .env)
         """
         self.access_token = access_token or os.getenv("WHATSAPP_ACCESS_TOKEN")
         self.phone_number_id = phone_number_id or os.getenv("WHATSAPP_PHONE_NUMBER_ID")
-        
+
         if not self.access_token:
             raise RuntimeError("WHATSAPP_ACCESS_TOKEN manquant")
         if not self.phone_number_id:
             raise RuntimeError("WHATSAPP_PHONE_NUMBER_ID manquant")
-            
-        self.api_url = "https://graph.facebook.com/v23.0"
+
+        # Use META_GRAPH_VERSION from config instead of hardcoded v23.0
+        graph_version = os.getenv("META_GRAPH_VERSION", "v24.0")
+        self.api_url = f"https://graph.facebook.com/{graph_version}"
         
         self.client = httpx.AsyncClient(
             base_url=self.api_url,

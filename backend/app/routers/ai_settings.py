@@ -86,11 +86,14 @@ async def get_ai_settings(
                 return AISettings(**create_result.data[0])
             else:
                 raise HTTPException(status_code=400, detail="Failed to create default AI settings")
-                
+
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        import traceback
+        error_detail = traceback.format_exc()
+        print(f"ERROR in get_ai_settings: {error_detail}")
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
 @router.put("/", response_model=AISettings)
 async def update_ai_settings(

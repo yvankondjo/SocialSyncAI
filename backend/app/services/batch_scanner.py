@@ -181,7 +181,18 @@ class BatchScanner:
             automation_service = AutomationService()
             automation_check = automation_service.should_auto_reply(user_id=user_id, conversation_id=conversation_id)
             ai_settings = automation_check.get("ai_settings", {})
-            
+
+            # Check if AI is enabled for conversations (DM/chat messages)
+            ai_enabled_for_conversations = ai_settings.get("ai_enabled_for_conversations", True)
+
+            if not ai_enabled_for_conversations:
+                logger.info(
+                    f"🔕 AI disabled for conversations (user_id={user_id}). "
+                    f"Skipping AI processing for {platform}:{account_id}:{contact_id}"
+                )
+                # Message is saved in DB but no AI response is generated
+                return
+
             if conversation_id and user_id:
                 if not automation_check["should_reply"]:
                     logger.info(

@@ -10,19 +10,25 @@
     "vscode": {
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash",
-        "python.pythonPath": "/usr/bin/python3"
+        "python.defaultInterpreterPath": "/usr/bin/python3"  // Changed from pythonPath
       },
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
         "esbenp.prettier-vscode",
         "dbaeumer.vscode-eslint",
-        "bradlc.vscode-tailwindcss"
+        "bradlc.vscode-tailwindcss",
+        "anthropic.claude-code",  // lowercase 'a'
+        "ms-playwright.playwright"
       ]
     }
   },
 
   "mounts": [
-    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
-  ]
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    // Persist Claude Code configuration
+    "source=${localEnv:HOME}/.claude,target=/home/dev/.claude,type=bind,consistency=cached"
+  ],
+  
+  "postStartCommand": "DOCKER_GID=$(stat -c %g /var/run/docker.sock) && sudo groupadd -fg $DOCKER_GID docker || true && sudo usermod -aG docker dev"
 }

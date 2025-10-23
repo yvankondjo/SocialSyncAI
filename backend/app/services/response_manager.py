@@ -59,12 +59,12 @@ conversation_cache = RedisCache(ttl_seconds=PROFILE_CACHE_TTL_SECONDS)
 
 
 async def handle_messages_webhook_for_user(value: Dict[str, Any], user_info: Dict[str, Any]) -> None:
-   
+
     contacts_info = {}
     platform = user_info.get('platform', 'whatsapp')
 
     if platform == 'whatsapp':
-      
+        # WhatsApp: Extract contact names from 'contacts' array
         for contact in value.get('contacts', []):
             wa_id = contact.get('wa_id')
             if wa_id and 'profile' in contact:
@@ -72,10 +72,23 @@ async def handle_messages_webhook_for_user(value: Dict[str, Any], user_info: Dic
                     'name': contact['profile'].get('name'),
                     'wa_id': wa_id
                 }
+    elif platform == 'instagram':
+        # Instagram: Extract sender info from messages themselves
+        # Instagram webhooks don't have a separate 'contacts' array
+        for message in value.get('messages', []):
+            sender = message.get('sender', {})
+            sender_id = sender.get('id')
+            if sender_id:
+                # Try to get username/name from sender object
+                sender_username = sender.get('username') or sender.get('name')
+                contacts_info[sender_id] = {
+                    'name': sender_username or f'User_{sender_id[:8]}',
+                    'id': sender_id
+                }
 
 
     for message in value.get('messages', []):
-       
+
         contact_id = message.get('from')
         if contact_id and contact_id in contacts_info:
             message['_contact_info'] = contacts_info[contact_id]
@@ -129,9 +142,9 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
     user_subscription_id = str(user_info.get('user_id') or user_info.get('current_user_id'))
     if user_subscription_id and user_subscription_id != 'None':
         try:
-            from app.services.credits_service import get_credits_service
+            from app.services.credits_service import CreditsService
             from app.db.session import get_db
-            credits_service = await get_credits_service(get_db())
+            credits_service = CreditsService(get_db())
             feature_access = await credits_service.get_feature_access(user_subscription_id)
         except Exception as e:
             logger.warning(f"Impossible de récupérer les fonctionnalités pour {user_subscription_id}: {e}")
@@ -531,8 +544,13 @@ def get_signed_url(object_path: str, bucket_id: str='message', expires_in: int=3
 
 async def get_media_content(media_id: str, access_token: str) -> bytes:
     import httpx
+    import os
+
+    # Use META_GRAPH_VERSION from config instead of hardcoded v23.0
+    graph_version = os.getenv('META_GRAPH_VERSION', 'v24.0')
+
     client = httpx.AsyncClient()
-    url = f'https://graph.facebook.com/v23.0/{media_id}'
+    url = f'https://graph.facebook.com/{graph_version}/{media_id}'
     headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
     r1 = await client.get(url, headers=headers)
     r1.raise_for_status()
@@ -544,7 +562,7 @@ async def get_media_content(media_id: str, access_token: str) -> bytes:
 async def generate_smart_response(messages: List[HumanMessage], user_id: str, ai_settings: Dict[str, Any], conversation_id: str) -> Optional[Dict[str, Any]]:
     from app.services.rag_agent import create_rag_agent
     from app.deps.credit_tracker import CreditTracker, get_or_create_credit_tracker
-    from app.services.credits_service import get_credits_service
+    from app.services.credits_service import CreditsService
     from app.db.session import get_db
     
     doc_lang = ai_settings.get('doc_lang', ["french"])
@@ -552,26 +570,30 @@ async def generate_smart_response(messages: List[HumanMessage], user_id: str, ai
     if isinstance(doc_lang, list):
         doc_lang = ", ".join(doc_lang)
     local_system_prompt = system_prompt.format(doc_lang=doc_lang)
-    model_name = 'x-ai/grok-4-fast:free'
-    
+
+    # Utiliser le modèle configuré dans ai_settings, sinon fallback
+    model_name = ai_settings.get('ai_model', 'x-ai/grok-4-fast:free')
+
     logger.info(f"🔍 DEBUG generate_smart_response - messages: {messages}")
     logger.info(f"🔍 DEBUG generate_smart_response - user_id: {user_id}")
     logger.info(f"🔍 DEBUG generate_smart_response - conversation_id: {conversation_id}")
-    
+    logger.info(f"🔍 DEBUG generate_smart_response - model_name: {model_name}")
+
     db = get_db()
-    credits_service = await get_credits_service(db)
+    credits_service = CreditsService(db)
     credit_tracker = await get_or_create_credit_tracker(user_id, credits_service)
-    
+
     agent = create_rag_agent(
-        user_id, 
-        model_name=model_name, 
+        user_id,
+        conversation_id,  # ✅ AJOUTÉ - Paramètre requis
+        model_name=model_name,
         system_prompt=local_system_prompt,
         credit_tracker=credit_tracker
     )
     
     try:
         feature_access = await credits_service.get_feature_access(user_id)
-        response = agent.graph.invoke(
+        response = await agent.graph.ainvoke(
             {"messages": messages},
             config={
                 "configurable": {

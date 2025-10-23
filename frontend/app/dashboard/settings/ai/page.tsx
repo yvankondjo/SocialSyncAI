@@ -137,6 +137,7 @@ export default function AISettingsPage() {
         lang: aiSettings.lang,
         tone: aiSettings.tone,
         doc_lang: aiSettings.doc_lang,
+        ai_enabled_for_conversations: aiSettings.ai_enabled_for_conversations ?? true,
       })
     }
   }, [aiSettings, localSettings])
@@ -309,6 +310,29 @@ export default function AISettingsPage() {
                 }`}
               />
             </button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* AI for Conversations (DMs/Chats) Toggle */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Conversation AI Controls</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-base font-medium">AI auto-replies for DMs/Chats</Label>
+              <p className="text-sm text-muted-foreground">
+                Enable AI to automatically respond to direct messages and chat conversations (WhatsApp, Instagram DMs)
+              </p>
+            </div>
+            <Switch
+              checked={currentSettings?.ai_enabled_for_conversations ?? true}
+              onCheckedChange={(checked) => handleSettingChange("ai_enabled_for_conversations", checked)}
+              disabled={!currentSettings?.is_active}
+              aria-label="Enable AI auto-replies for conversations"
+            />
           </div>
         </CardContent>
       </Card>

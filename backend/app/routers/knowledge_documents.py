@@ -8,7 +8,6 @@ import uuid as uuid_lib
 from app.schemas.knowledge_documents import KnowledgeDocument
 from app.core.security import get_current_user_id
 from app.services.storage_service import get_storage_service
-from app.services.credits_service import get_credits_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/knowledge_documents", tags=["Knowledge Documents"])

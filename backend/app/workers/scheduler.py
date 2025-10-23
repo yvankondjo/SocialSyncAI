@@ -6,15 +6,15 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
-from app.workers.celery_app import celery_app
-from app.core.database import get_supabase_client
+from app.workers.celery_app import celery
+from app.db.session import get_db
 from app.services.whatsapp_service import WhatsAppService
 from app.services.instagram_service import InstagramService
 
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name="app.workers.scheduler.enqueue_due_posts")
+@celery.task(name="app.workers.scheduler.enqueue_due_posts")
 def enqueue_due_posts() -> Dict[str, int]:
     """
     Periodic task to find posts ready to publish and enqueue them
@@ -23,7 +23,7 @@ def enqueue_due_posts() -> Dict[str, int]:
     Returns:
         Dict with counts of posts_found and posts_enqueued
     """
-    supabase = get_supabase_client()
+    supabase = get_db()
     now = datetime.now(timezone.utc)
 
     try:
@@ -66,7 +66,7 @@ def enqueue_due_posts() -> Dict[str, int]:
         }
 
 
-@celery_app.task(
+@celery.task(
     name="app.workers.scheduler.publish_post",
     bind=True,
     max_retries=3,
@@ -82,7 +82,7 @@ def publish_post(self, post_id: str) -> Dict[str, Any]:
     Returns:
         Dict with publish result
     """
-    supabase = get_supabase_client()
+    supabase = get_db()
     started_at = datetime.now(timezone.utc)
 
     try:

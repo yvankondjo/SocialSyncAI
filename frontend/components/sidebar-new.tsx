@@ -35,6 +35,18 @@ import {
 
 const navigation = [
   {
+    name: "Calendar",
+    href: "/dashboard/calendar",
+    logoPath: "/logos/logo-activity.svg",
+    type: "main"
+  },
+  {
+    name: "AI Studio",
+    href: "/dashboard/ai-studio",
+    logoPath: "/logos/logo-playground.svg",
+    type: "main"
+  },
+  {
     name: "Playground",
     href: "/dashboard/playground",
     logoPath: "/logos/logo-playground.svg",
@@ -46,7 +58,8 @@ const navigation = [
     logoPath: "/logos/logo-activity.svg",
     type: "section",
     children: [
-      { name: "Chat", href: "/dashboard/activity/chat", type: "sub" }
+      { name: "Chat", href: "/dashboard/activity/chat", type: "sub" },
+      { name: "Comments", href: "/dashboard/activity/comments", type: "sub" }
     ]
   },
   {
@@ -111,14 +124,22 @@ export function Sidebar() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [subData, storageData, modelsData] = await Promise.all([
-          ApiClient.get('/api/subscriptions/me'),
-          ApiClient.get('/api/subscriptions/storage/usage'),
-          ApiClient.get('/api/subscriptions/models')
+        // Try to load subscription data, but don't fail if endpoints don't exist
+        const [subData, storageData, modelsData] = await Promise.allSettled([
+          ApiClient.get('/api/subscriptions/me').catch(() => null),
+          ApiClient.get('/api/subscriptions/storage/usage').catch(() => null),
+          ApiClient.get('/api/subscriptions/models').catch(() => null)
         ])
-        setSubscription(subData)
-        setStorageUsage(storageData)
-        setAvailableModels(modelsData)
+
+        if (subData.status === 'fulfilled' && subData.value) {
+          setSubscription(subData.value)
+        }
+        if (storageData.status === 'fulfilled' && storageData.value) {
+          setStorageUsage(storageData.value)
+        }
+        if (modelsData.status === 'fulfilled' && modelsData.value) {
+          setAvailableModels(modelsData.value)
+        }
       } catch (error) {
         console.error("Erreur chargement données:", error)
       }

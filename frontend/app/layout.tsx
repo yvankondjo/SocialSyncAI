@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { Toaster } from "@/components/ui/toaster"
+import { QueryProvider } from "@/components/providers/QueryProvider"
 import { demoEnabled, demoAnalytics } from "@/lib/demo-data"
 
 const inter = Inter({
@@ -26,9 +27,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`font-sans ${inter.variable} antialiased h-screen overflow-hidden`}>
-        {children}
-        <Toaster />
-        <div id="portal-root" />
+        <QueryProvider>
+          {children}
+          <Toaster />
+          <div id="portal-root" />
+        </QueryProvider>
       </body>
     </html>
   )

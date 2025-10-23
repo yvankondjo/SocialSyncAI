@@ -40,41 +40,18 @@ async def list_comments(
         GET /api/comments?post_id=123&triage=escalate&limit=20&offset=0
     """
     try:
-        # Build query with user ownership check via posts
+        # Build query with user ownership check via monitored_posts
         query = db.table("comments") \
-            .select("*, ai_decisions(*)", count="exact")
+            .select("*, ai_decisions(*), monitored_posts!inner(user_id, caption, platform)", count="exact")
 
-        # Filter by user's posts only (security check)
-        # Use subquery to get post IDs owned by current user
-        user_posts_result = db.table("scheduled_posts") \
-            .select("id") \
-            .eq("user_id", current_user_id) \
-            .execute()
-
-        user_post_ids = [post["id"] for post in (user_posts_result.data or [])]
-
-        if not user_post_ids:
-            # User has no posts, return empty
-            logger.info(f"[COMMENTS_API] User {current_user_id} has no posts")
-            return CommentListResponse(
-                comments=[],
-                total=0,
-                limit=limit,
-                offset=offset
-            )
-
-        # Filter comments to user's posts
-        query = query.in_("post_id", user_post_ids)
+        # Filter by user ownership via monitored_posts join
+        query = query.eq("monitored_posts.user_id", current_user_id)
 
         # Optional filters
         if post_id:
-            # Verify post belongs to user
-            if post_id not in user_post_ids:
-                raise HTTPException(
-                    status_code=403,
-                    detail="You don't have access to this post"
-                )
-            query = query.eq("post_id", post_id)
+            # post_id can be either monitored_post_id or legacy post_id
+            # Try both for backwards compatibility
+            query = query.or_(f"monitored_post_id.eq.{post_id},post_id.eq.{post_id}")
 
         if triage:
             # Validate triage value
@@ -135,12 +112,12 @@ async def get_comment(
         404: Comment not found or doesn't belong to user's posts
     """
     try:
-        # Fetch comment with ownership check
+        # Fetch comment with ownership check via monitored_posts
         result = db.table("comments") \
             .select("""
                 *,
                 ai_decisions(*),
-                scheduled_posts!inner(user_id)
+                monitored_posts!inner(user_id, caption, platform)
             """) \
             .eq("id", comment_id) \
             .single() \
@@ -151,8 +128,8 @@ async def get_comment(
 
         comment = result.data
 
-        # Verify ownership via post
-        if comment["scheduled_posts"]["user_id"] != current_user_id:
+        # Verify ownership via monitored_posts
+        if comment["monitored_posts"]["user_id"] != current_user_id:
             raise HTTPException(
                 status_code=403,
                 detail="You don't have access to this comment"

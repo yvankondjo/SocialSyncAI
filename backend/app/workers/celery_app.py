@@ -10,7 +10,8 @@ celery = Celery(
 
 celery.conf.update(
     task_routes={
-        "app.workers.ingest.*": {"queue": "ingest"},
+        "app.workers.ingest.process_document": {"queue": "ingest"},  # Documents/embeddings only
+        "app.workers.ingest.scan_redis_batches": {"queue": "batching"},  # Batch scanner (DMs/chats)
         "app.workers.scheduler.*": {"queue": "scheduler"},
         "app.workers.comments.*": {"queue": "comments"},
     },
@@ -22,6 +23,13 @@ celery.conf.update(
 
 # Celery Beat schedule for periodic tasks
 celery.conf.beat_schedule = {
+    "scan-redis-batches-every-500ms": {
+        "task": "app.workers.ingest.scan_redis_batches",
+        "schedule": 0.5,  # Every 0.5 seconds (500ms)
+        "options": {
+            "expires": 0.4,  # Task expires after 400ms to avoid overlap
+        }
+    },
     "enqueue-due-posts-every-minute": {
         "task": "app.workers.scheduler.enqueue_due_posts",
         "schedule": 60.0,  # Every 60 seconds (1 minute)

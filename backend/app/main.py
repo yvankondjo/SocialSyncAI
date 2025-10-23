@@ -17,6 +17,11 @@ from app.routers import (
     scheduled_posts,
     ai_rules,
     comments,
+    ai_studio,
+    instagram_profiles,
+    monitoring,
+    debug_instagram,
+    debug_comments,
 )
 import logging
 import datetime
@@ -30,12 +35,13 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
-    # Démarrage
-    from app.services.batch_scanner import batch_scanner
-    await batch_scanner.start()
+    # Batch scanning is now handled by Celery Beat worker
+    logging.info("✅ DM/Chat batch scanning handled by Celery Beat (every 0.5s)")
+    logging.info("📝 Make sure Celery Beat is running: celery -A app.workers.celery_app beat")
+
     yield
-    # Arrêt
-    await batch_scanner.stop()
+
+    logging.info("🛑 FastAPI shutdown complete")
 
 app = FastAPI(
     title="SocialSyncAI API",
@@ -86,6 +92,21 @@ app.include_router(ai_rules.router, prefix="/api")
 
 # Comments polling feature
 app.include_router(comments.router, prefix="/api")
+
+# AI Studio feature (AI-assisted content creation)
+app.include_router(ai_studio.router, prefix="/api")
+
+# Instagram profile refresh (avatar URLs)
+app.include_router(instagram_profiles.router, prefix="/api")
+
+# Comment monitoring system (import posts, toggle monitoring, auto-rules)
+app.include_router(monitoring.router, prefix="/api")
+
+# DEBUG: Instagram API troubleshooting (temporary)
+app.include_router(debug_instagram.router, prefix="/api")
+
+# DEBUG: Comment monitoring troubleshooting (temporary)
+app.include_router(debug_comments.router, prefix="/api")
 
 @app.get("/")
 async def root():

@@ -45,14 +45,84 @@ services:
     depends_on:
       - backend
 
-  celery:
+  celery-worker-batching:
     build:
       context: ../backend
       dockerfile: Dockerfile
     command: >
-      sh -c "celery -A app.workers.celery_app.celery worker -Q ingest -E -l info"
+      sh -c "celery -A app.workers.celery_app worker -Q batching -E -l info -n batching@%h --pool=solo"
     volumes:
       - ../backend:/app
+    env_file:
+      - ../backend/.env
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  celery-worker-ingest:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "celery -A app.workers.celery_app worker -Q ingest -E -l info -n ingest@%h"
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ../backend/.env
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  celery-worker-scheduler:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "celery -A app.workers.celery_app worker -Q scheduler -E -l info -n scheduler@%h"
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ../backend/.env
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  celery-worker-comments:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "celery -A app.workers.celery_app worker -Q comments -E -l info -n comments@%h"
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ../backend/.env
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  celery-beat:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "celery -A app.workers.celery_app beat -l info"
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ../backend/.env
     environment:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}

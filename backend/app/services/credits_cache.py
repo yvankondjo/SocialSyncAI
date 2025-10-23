@@ -443,7 +443,7 @@ async def get_credits_cache_service(
     if redis_client is None:
         redis_client = get_redis_client()
     if credits_service is None:
-        from app.services.credits_service import get_credits_service
-        credits_service = await get_credits_service()
+        from app.db.session import get_db
+        credits_service = CreditsService(get_db())
 
     return CreditsCacheService(redis_client, credits_service)

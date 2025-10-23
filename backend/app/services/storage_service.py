@@ -11,7 +11,7 @@ class StorageService:
 
     async def get_storage_usage(self, user_id: str) -> StorageUsage:
         """Récupère l'usage de stockage depuis user_subscriptions."""
-        credits_service = await get_credits_service(self.db)
+        credits_service = CreditsService(self.db)
         subscription = await credits_service.get_user_subscription(user_id)
 
         if not subscription:

@@ -51,7 +51,7 @@ class InstagramConnector(PlatformConnector):
         try:
             url = f'/{post_platform_id}/comments'
             params = {
-                'fields': 'id,username,text,timestamp,from',
+                'fields': 'id,username,text,timestamp,from,parent_id,like_count',  # Added parent_id for threads
                 'limit': 50,  # Max 50 per request
                 'access_token': self.service.access_token
             }
@@ -68,12 +68,20 @@ class InstagramConnector(PlatformConnector):
             # Normalize comments to standard format
             comments = []
             for c in data.get('data', []):
+                # Instagram API returns username in 'from' object: {"from": {"id": "...", "username": "..."}}
+                # Fallback chain: from.username → username (root level) → "Unknown User"
+                from_data = c.get('from', {})
+                author_name = from_data.get('username') or c.get('username') or 'Unknown User'
+                author_id = from_data.get('id')
+
                 comments.append({
                     'id': c['id'],
-                    'author_name': c.get('username', 'Unknown'),
-                    'author_id': c.get('from', {}).get('id'),
+                    'author_name': author_name,
+                    'author_id': author_id,
                     'text': c['text'],
-                    'created_at': c['timestamp']
+                    'created_at': c['timestamp'],
+                    'parent_id': c.get('parent_id'),  # For thread reconstruction
+                    'like_count': c.get('like_count', 0)
                 })
 
             # Extract next cursor for pagination
@@ -210,3 +218,90 @@ class InstagramConnector(PlatformConnector):
                 'success': False,
                 'error': str(e)
             }
+
+    async def fetch_user_media(
+        self,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch user's Instagram media posts
+
+        API: GET /{ig_user_id}/media
+        Docs: https://developers.facebook.com/docs/instagram-api/reference/ig-user/media
+
+        Args:
+            limit: Max number of posts to fetch (default 50, max 100)
+
+        Returns:
+            List of media objects with fields: id, caption, media_type, media_url, timestamp, etc.
+        """
+        try:
+            # Get Instagram user ID from page_id
+            page_id = self.service.page_id
+
+            url = f'/{page_id}/media'
+            params = {
+                'fields': 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,comments_count,like_count',
+                'limit': min(limit, 100),  # API max is 100
+                'access_token': self.service.access_token
+            }
+
+            logger.info(f"[IG_CONNECTOR] Fetching user media (limit={limit})")
+
+            resp = await self.service.client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+            media_list = data.get('data', [])
+
+            logger.info(
+                f"[IG_CONNECTOR] Fetched {len(media_list)} media posts "
+                f"for user {page_id}"
+            )
+
+            return media_list
+
+        except Exception as e:
+            logger.error(f"[IG_CONNECTOR] Error fetching user media: {e}")
+            # Return empty list on error to avoid breaking the flow
+            return []
+
+    async def fetch_post_details(
+        self,
+        media_id: str
+    ) -> Dict[str, Any]:
+        """
+        Fetch details of a specific Instagram post
+
+        API: GET /{media_id}
+        Docs: https://developers.facebook.com/docs/instagram-api/reference/ig-media
+
+        Args:
+            media_id: Instagram media ID
+
+        Returns:
+            Media object with all details
+        """
+        try:
+            url = f'/{media_id}'
+            params = {
+                'fields': 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,comments_count,like_count,username',
+                'access_token': self.service.access_token
+            }
+
+            logger.info(f"[IG_CONNECTOR] Fetching details for media {media_id}")
+
+            resp = await self.service.client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+            logger.info(
+                f"[IG_CONNECTOR] Fetched details for media {media_id}: "
+                f"type={data.get('media_type')}, comments={data.get('comments_count')}"
+            )
+
+            return data
+
+        except Exception as e:
+            logger.error(f"[IG_CONNECTOR] Error fetching post details for {media_id}: {e}")
+            return {}

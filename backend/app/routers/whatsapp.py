@@ -142,11 +142,12 @@ async def webhook_handler(request: Request):
         signature = request.headers.get("X-Hub-Signature-256", "")
 
         webhook_secret = os.getenv("META_APP_SECRET")
-        # TODO: Réactiver la vérification HMAC lorsque la configuration Meta sera stabilisée
-        # if not verify_webhook_signature(payload, signature, webhook_secret):
-        #     logger.warning("Signature webhook invalide")
-        #     raise HTTPException(status_code=403, detail="Signature invalide")
-        
+
+        # HMAC validation for security (re-enabled 2025-10-20)
+        if not verify_webhook_signature(payload, signature, webhook_secret):
+            logger.warning("Signature webhook invalide - vérifiez META_APP_SECRET")
+            raise HTTPException(status_code=403, detail="Signature invalide")
+
         webhook_data = await request.json()
         logger.info(f"Webhook received: {webhook_data}")
         

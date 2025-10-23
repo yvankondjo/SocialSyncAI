@@ -10,12 +10,11 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
-from langgraph.graph.message import RemoveMessage, REMOVE_ALL_MESSAGES
+from langgraph.graph.message import RemoveMessage, REMOVE_ALL_MESSAGES, add_messages
 from pydantic import BaseModel, Field
 from psycopg import connect
 from psycopg.rows import dict_row
 
-from app.deps.runtime_prod import CHECKPOINTER_POSTGRES
 from app.deps.system_prompt import SYSTEM_PROMPT
 from app.services.escalation import Escalation
 from app.services.find_answers import FindAnswers
@@ -142,7 +141,7 @@ class EscalationResult(BaseModel):
     reason: str
 
 class RAGAgentState(BaseModel):
-    messages: Annotated[List[AnyMessage], operator.add]
+    messages: Annotated[List[AnyMessage], add_messages]
     search_results: List[str] = []
     n_search: int = 0
     find_answers_results: List[dict] = []
@@ -153,6 +152,9 @@ class RAGAgentState(BaseModel):
     trim_strategy: Literal["none", "hard", "summary"] = "summary"
     max_tokens: int = 8000
     escalation_result: EscalationResult = EscalationResult(escalated=False, escalation_id=None, reason="")
+    guardrail_pre_result: Optional[dict] = None
+    should_respond: bool = True
+    retry_count: int = 0
 
 
 class RAGAgent:
@@ -218,34 +220,230 @@ class RAGAgent:
         self.graph = self._build_graph()
 
     def _build_graph(self) -> StateGraph:
-        """Build the LangGraph workflow with history management"""
+        """Build the LangGraph workflow with history management and guardrails"""
         graph = StateGraph(RAGAgentState)
+
+        # Add nodes
+        graph.add_node("guardrails_pre_check", self._guardrails_pre_check)
         graph.add_node("llm", self._call_llm)
         graph.add_node("handle_tool_call", self._handle_tool_call)
-        graph.set_entry_point("llm")
+        graph.add_node("guardrails_post_check", self._guardrails_post_check)
+        graph.add_node("error_handler", self._error_handler)
 
-    
+        # Entry point: pre-validation
+        graph.set_entry_point("guardrails_pre_check")
+
+        # Pre-check → llm (if safe) or error_handler (if flagged)
         graph.add_conditional_edges(
-            "llm",
-            self._next_action,
+            "guardrails_pre_check",
+            self._guardrails_pre_decision,
             {
-                "tool_call": "handle_tool_call",
-                "end": END
+                "proceed": "llm",
+                "block": "error_handler"
             }
         )
-        
-       
-        graph.add_edge(
-            "handle_tool_call",
-            "llm"
+
+        # LLM → Check for errors first, then tool_call or post_check
+        graph.add_conditional_edges(
+            "llm",
+            self._check_llm_result,
+            {
+                "error": "error_handler",
+                "tool_call": "handle_tool_call",
+                "end": "guardrails_post_check"
+            }
         )
-        
+
+        # Tool calls loop back to llm
+        graph.add_edge("handle_tool_call", "llm")
+
+        # Post-check → Check if response should be sent or blocked
+        graph.add_conditional_edges(
+            "guardrails_post_check",
+            self._check_should_respond,
+            {
+                "blocked": "error_handler",
+                "ok": END
+            }
+        )
+
+        # Error handler → END (silent failure)
+        graph.add_edge("error_handler", END)
 
 
-        if self.checkpointer:   
+        if self.checkpointer:
             return graph.compile(checkpointer=self.checkpointer)
         else:
             return graph.compile()
+
+    async def _guardrails_pre_check(self, state: RAGAgentState) -> Dict[str, Any]:
+        """Pre-validation: Check incoming message with OpenAI Moderation + custom guardrails
+        If flagged → Block response (silent, no AI message generated)
+        """
+        try:
+            from app.services.ai_decision_service import AIDecisionService
+
+            last_user_message = state.messages[-1].content if isinstance(state.messages[-1], HumanMessage) else None
+
+            if not last_user_message:
+                return {}
+            decision_service = AIDecisionService(self.user_id)
+            decision, confidence, reason, matched_rule = decision_service.check_message(
+                last_user_message,
+                context_type="chat"
+            )
+
+            decision_log = decision_service.log_decision(
+                message_id=None,
+                message_text=last_user_message,
+                decision=decision,
+                confidence=confidence,
+                reason=reason,
+                matched_rule=matched_rule
+            )
+
+            if decision.value == 'ignore':
+                logger.warning(f"[GUARDRAILS PRE] Message flagged and blocked: {reason}")
+
+                return {
+                    "guardrail_pre_result": {
+                        "decision": "block",
+                        "reason": reason,
+                        "confidence": confidence,
+                        "escalated": True
+                    },
+                    "should_respond": False,
+                    "error_message": f"GUARDRAIL_PRE_BLOCKED: {reason}"
+                }
+
+            return {
+                "guardrail_pre_result": {
+                    "decision": "proceed",
+                    "reason": "Message passed guardrails",
+                    "confidence": confidence
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Error in guardrails_pre_check: {e}")
+            return {}
+
+    def _guardrails_pre_decision(self, state: RAGAgentState) -> str:
+        """Decision point: proceed or block based on pre-check"""
+        result = getattr(state, 'guardrail_pre_result', None)
+
+        if result and result.get('decision') == 'block':
+            logger.info(f"[GUARDRAILS] Blocking message: {result.get('reason')}")
+            return "block"
+
+        return "proceed"
+
+    def _check_llm_result(self, state: RAGAgentState) -> str:
+        """Check if LLM call resulted in error or should continue normally"""
+        # Check for LLM errors
+        if not state.should_respond:
+            if state.error_message and "LLM_ERROR" in state.error_message:
+                return "error"
+
+        # Check for tool calls
+        last_message = state.messages[-1] if state.messages else None
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            logger.debug(f"[LLM RESULT] Found {len(last_message.tool_calls)} tool calls")
+            return "tool_call"
+
+        # Normal end - proceed to post-check
+        return "end"
+
+    def _check_should_respond(self, state: RAGAgentState) -> str:
+        """Check if post-guardrail blocked the response"""
+        if not state.should_respond:
+            if state.error_message and "GUARDRAIL_POST_BLOCKED" in state.error_message:
+                logger.info(f"[GUARDRAILS POST] Response blocked, routing to error handler")
+                return "blocked"
+
+        return "ok"
+
+    async def _guardrails_post_check(self, state: RAGAgentState) -> Dict[str, Any]:
+        """Post-validation: Check generated response safety
+        If unsafe → Remove AI response + triggering user message from context (silent blocking)
+        """
+        try:
+            from app.services.ai_decision_service import AIDecisionService
+
+            # Find last AI message and its index
+            last_ai_message = None
+            last_ai_msg_obj = None
+            last_ai_index = None
+
+            for i in range(len(state.messages) - 1, -1, -1):
+                msg = state.messages[i]
+                if isinstance(msg, AIMessage):
+                    if hasattr(msg, 'content') and isinstance(msg.content, str):
+                        last_ai_message = msg.content
+                        last_ai_msg_obj = msg
+                        last_ai_index = i
+                        break
+
+            if not last_ai_message or last_ai_msg_obj is None:
+                return {}
+
+            decision_service = AIDecisionService(self.user_id)
+            moderation_result = decision_service._check_openai_moderation(last_ai_message)
+
+            if moderation_result.get("flagged"):
+                logger.warning(f"[GUARDRAILS POST] Generated response flagged: {moderation_result.get('reason')}")
+
+                # Verify message has an ID before attempting removal
+                if not last_ai_msg_obj.id:
+                    logger.error(f"[GUARDRAILS POST] AI message has no ID, cannot remove from context")
+                    return {
+                        "should_respond": False,
+                        "error_message": f"GUARDRAIL_POST_BLOCKED: {moderation_result.get('reason')}"
+                    }
+
+                # Find the user message that triggered this AI response
+                messages_to_remove = [RemoveMessage(id=last_ai_msg_obj.id)]
+
+                # Look for the last HumanMessage before this AI response
+                for i in range(last_ai_index - 1, -1, -1):
+                    if isinstance(state.messages[i], HumanMessage):
+                        if state.messages[i].id:
+                            messages_to_remove.append(RemoveMessage(id=state.messages[i].id))
+                            logger.info(f"[GUARDRAILS POST] Removing triggering user message from context")
+                        else:
+                            logger.warning(f"[GUARDRAILS POST] User message has no ID, cannot remove from context")
+                        break
+
+                return {
+                    "messages": messages_to_remove,
+                    "should_respond": False,
+                    "error_message": f"GUARDRAIL_POST_BLOCKED: {moderation_result.get('reason')}"
+                }
+
+            return {}
+
+        except Exception as e:
+            logger.error(f"Error in guardrails_post_check: {e}")
+            return {}
+
+    async def _error_handler(self, state: RAGAgentState) -> Dict[str, Any]:
+        """Handle errors and guardrail blocks silently
+        Logs the issue but does not generate any user-facing message
+        """
+        error_msg = state.error_message or "Unknown error"
+
+        # Categorize the error type
+        if "GUARDRAIL_PRE_BLOCKED" in error_msg:
+            logger.info(f"[SILENT FAILURE] Pre-guardrail blocked message for user {self.user_id}")
+        elif "GUARDRAIL_POST_BLOCKED" in error_msg:
+            logger.info(f"[SILENT FAILURE] Post-guardrail blocked response for user {self.user_id}")
+        elif "LLM_ERROR" in error_msg:
+            logger.error(f"[SILENT FAILURE] LLM error for user {self.user_id}: {error_msg}")
+        else:
+            logger.warning(f"[SILENT FAILURE] Unknown error type for user {self.user_id}: {error_msg}")
+
+        # Return empty dict - no messages generated (silent failure)
+        return {}
 
     def _manage_history(self, messages: List[AnyMessage], trim_strategy: Literal["none", "hard", "summary"], max_tokens: int) -> List[AnyMessage]:
         """Manage the history according to the configured strategy"""
@@ -310,7 +508,10 @@ class RAGAgent:
 
 
     async def _call_llm(self, state: RAGAgentState) -> Dict[str, Any]:
-        """Call the LLM with trimming soft and credit tracking"""
+        """Call the LLM with trimming soft, credit tracking, and silent retry on errors"""
+        MAX_RETRIES = 3
+        RETRY_DELAY = 2  # seconds
+
         try:
             if self.credit_tracker:
                 from app.deps.credit_tracker import get_model_credit_cost
@@ -323,9 +524,10 @@ class RAGAgent:
                     conversation_id=getattr(state, 'conversation_id', None)
                 )
                 if not can_proceed:
+                    logger.error(f"[LLM ERROR] Credit limit exceeded for user {self.user_id}")
                     return {
-                        "messages": [AIMessage(content="Error credit limit exceeded")],
-                        "error_message": "Credit limit exceeded"
+                        "should_respond": False,
+                        "error_message": "LLM_ERROR: Credit limit exceeded"
                     }
 
             messages = state.messages.copy()
@@ -335,32 +537,54 @@ class RAGAgent:
 
             trimmed_messages = self._manage_history(messages, self.trim_strategy, self.max_tokens)
             llm_input = trimmed_messages if trimmed_messages else messages
-            response = self.structured_llm.invoke(llm_input)
 
+            # Retry logic with exponential backoff
+            last_error = None
+            for attempt in range(MAX_RETRIES):
+                try:
+                    response = self.structured_llm.invoke(llm_input)
+
+                    # Success - reset retry count if needed
+                    if attempt > 0:
+                        logger.info(f"[LLM RETRY] Success on attempt {attempt + 1}/{MAX_RETRIES}")
+
+                    # Convert RAGAgentResponse to AIMessage
+                    ai_message = AIMessage(content=response.response)
+
+                    return {
+                        "messages": [ai_message],
+                        "retry_count": 0
+                    }
+
+                except Exception as retry_error:
+                    last_error = retry_error
+                    logger.warning(
+                        f"[LLM RETRY] Attempt {attempt + 1}/{MAX_RETRIES} failed: {str(retry_error)}"
+                    )
+
+                    if attempt < MAX_RETRIES - 1:
+                        # Wait before retrying (exponential backoff)
+                        import asyncio
+                        await asyncio.sleep(RETRY_DELAY * (2 ** attempt))
+                    else:
+                        # Max retries reached
+                        logger.error(
+                            f"[LLM ERROR] Max retries ({MAX_RETRIES}) reached for user {self.user_id}: {str(last_error)}"
+                        )
+
+            # All retries failed - return silent failure
             return {
-                "messages": [response]
+                "should_respond": False,
+                "error_message": f"LLM_ERROR: {str(last_error)}",
+                "retry_count": MAX_RETRIES
             }
-            
+
         except Exception as e:
-            logger.error(f"Erreur dans _call_llm pour {self.user_id}: {e}")
+            logger.error(f"[LLM ERROR] Critical error in _call_llm for {self.user_id}: {e}")
             return {
-                "messages": [AIMessage(content=f"Désolé, une erreur s'est produite lors de la génération de la réponse.")],
-                "error_message": f"Erreur LLM: {str(e)}"
+                "should_respond": False,
+                "error_message": f"LLM_ERROR: {str(e)}"
             }
-
-    def _next_action(self, state: RAGAgentState) -> str:
-        """Determine whether we should perform a tool call"""
-
-        last_message = state.messages[-1] if state.messages else None
-        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-            print(f"DEBUG: Found {len(last_message.tool_calls)} tool calls, going to handle_tool_call")
-            return "tool_call"
-        else:
-            print("DEBUG: No tool calls or empty tool_calls list, ending conversation")
-            return "end"
-
-
-
 
     async def _handle_tool_call(self, state: RAGAgentState) -> Dict[str, Any]:
         """Handle the tool call with credit tracking"""
@@ -631,12 +855,14 @@ def create_rag_agent(user_id: str,
 
 
 if __name__ == "__main__":
-    
+    # Import uniquement pour les tests (évite de bloquer le démarrage du backend)
+    from app.deps.runtime_prod import CHECKPOINTER_POSTGRES
+
     agent = create_rag_agent(
         user_id="example_user_id",
         conversation_id="example_conversation_id",
         system_prompt="You are a helpful assistant that can answer questions and help with tasks.",
-        trim_strategy="summary", 
+        trim_strategy="summary",
         max_tokens=6000,
         max_find_answers=5,
         checkpointer=CHECKPOINTER_POSTGRES,

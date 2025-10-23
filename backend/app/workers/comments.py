@@ -13,14 +13,16 @@ Features:
 - Retry logic with exponential backoff
 """
 import logging
+import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Tuple
 from app.workers.celery_app import celery
 from app.db.session import get_db
 from app.services.instagram_connector import InstagramConnector
 from app.services.ai_decision_service import AIDecisionService
-from app.services.email_escalation_service import EmailEscalationService
+from app.services.email_service import EmailService
 from app.services.rag_agent import RAGAgent
+from app.services.comment_triage import CommentTriageService, get_owner_username
 from app.schemas.ai_rules import AIDecision
 
 logger = logging.getLogger(__name__)
@@ -38,26 +40,26 @@ def _calculate_poll_interval(post: Dict[str, Any]) -> timedelta:
     - J+0 to J+2: Every 5 minutes (high engagement period)
     - J+2 to J+5: Every 15 minutes (medium engagement)
     - J+5 to J+7: Every 30 minutes (low engagement)
-    - J+7+: Stop polling (stop_at exceeded)
+    - J+7+: Stop polling (monitoring_ends_at exceeded)
 
     Args:
-        post: Dict with 'publish_at' key
+        post: Dict with 'posted_at' key (from monitored_posts)
 
     Returns:
         timedelta for next polling interval
     """
-    publish_at_str = post.get("publish_at")
-    if not publish_at_str:
+    posted_at_str = post.get("posted_at")
+    if not posted_at_str:
         return timedelta(minutes=5)  # Default
 
     try:
-        if isinstance(publish_at_str, str):
+        if isinstance(posted_at_str, str):
             # Parse ISO format timestamp
-            published_at = datetime.fromisoformat(publish_at_str.replace('Z', '+00:00'))
+            posted_at = datetime.fromisoformat(posted_at_str.replace('Z', '+00:00'))
         else:
-            published_at = publish_at_str
+            posted_at = posted_at_str
 
-        age = datetime.now(published_at.tzinfo) - published_at
+        age = datetime.now(posted_at.tzinfo) - posted_at
 
         if age < timedelta(days=2):
             return timedelta(minutes=5)  # J+0 to J+2
@@ -90,11 +92,12 @@ def _get_connector(post: Dict[str, Any]) -> Optional[InstagramConnector]:
             return None
 
         access_token = social_accounts.get("access_token")
-        page_id = social_accounts.get("platform_page_id")
+        page_id = social_accounts.get("account_id")  # Fixed: was platform_page_id
 
         if not access_token or not page_id:
             logger.error(
-                f"[POLL] Missing credentials for Instagram post {post.get('id')}"
+                f"[POLL] Missing credentials for Instagram post {post.get('id')}: "
+                f"has_token={bool(access_token)}, has_page_id={bool(page_id)}"
             )
             return None
 
@@ -119,7 +122,7 @@ def _get_checkpoint(db, post_id: str) -> Dict[str, Any]:
     try:
         result = db.table("comment_checkpoint") \
             .select("*") \
-            .eq("post_id", post_id) \
+            .eq("monitored_post_id", post_id) \
             .maybe_single() \
             .execute()
 
@@ -141,13 +144,13 @@ def _update_checkpoint(
 
     Args:
         db: Supabase client
-        post_id: Post UUID
+        post_id: Monitored post UUID
         last_cursor: Pagination cursor from API
         last_seen_ts: Timestamp of most recent comment
     """
     try:
         data = {
-            "post_id": post_id,
+            "monitored_post_id": post_id,
             "last_cursor": last_cursor,
             "last_seen_ts": last_seen_ts.isoformat() if last_seen_ts else None
         }
@@ -166,7 +169,7 @@ def _save_comment(db, post_id: str, comment_data: Dict[str, Any]) -> Optional[st
 
     Args:
         db: Supabase client
-        post_id: Post UUID
+        post_id: Monitored post UUID
         comment_data: Comment data from connector
 
     Returns:
@@ -174,16 +177,18 @@ def _save_comment(db, post_id: str, comment_data: Dict[str, Any]) -> Optional[st
     """
     try:
         data = {
-            "post_id": post_id,
+            "monitored_post_id": post_id,  # FK to monitored_posts
             "platform_comment_id": comment_data["id"],
             "author_name": comment_data.get("author_name"),
             "author_id": comment_data.get("author_id"),
             "text": comment_data["text"],
-            "created_at": comment_data["created_at"]
+            "created_at": comment_data["created_at"],
+            "parent_id": comment_data.get("parent_id"),  # Instagram parent comment ID (TEXT)
+            "like_count": comment_data.get("like_count", 0)
         }
 
         # Upsert to handle duplicates (idempotence)
-        result = db.table("comments").upsert(data, on_conflict="post_id,platform_comment_id").execute()
+        result = db.table("comments").upsert(data, on_conflict="monitored_post_id,platform_comment_id").execute()
 
         if result.data and len(result.data) > 0:
             comment_id = result.data[0]["id"]
@@ -228,7 +233,7 @@ def _get_user_email(db, user_id: str) -> Optional[str]:
 # ============================================================================
 
 @celery.task(name="app.workers.comments.poll_post_comments")
-async def poll_post_comments():
+def poll_post_comments():
     """
     Periodic task to poll published posts for new comments
 
@@ -251,16 +256,17 @@ async def poll_post_comments():
     db = get_db()
 
     try:
-        # Query posts with active polling
-        result = db.table("scheduled_posts") \
-            .select("*, social_accounts!inner(platform, access_token, platform_page_id)") \
-            .eq("status", "published") \
-            .gt("stop_at", "NOW()") \
+        # Query monitored_posts with active polling
+        result = db.table("monitored_posts") \
+            .select("*, social_accounts!inner(platform, access_token, account_id)") \
+            .eq("monitoring_enabled", True) \
+            .lte("next_check_at", datetime.utcnow().isoformat()) \
+            .gt("monitoring_ends_at", datetime.utcnow().isoformat()) \
             .execute()
 
         posts = result.data or []
 
-        logger.info(f"[POLL] Checking {len(posts)} active posts for new comments")
+        logger.info(f"[POLL] Checking {len(posts)} monitored posts for new comments")
 
         metrics = {
             "posts_checked": 0,
@@ -302,9 +308,12 @@ async def poll_post_comments():
                     f"(platform_post_id={platform_post_id})"
                 )
 
-                new_comments, next_cursor = await connector.list_new_comments(
-                    platform_post_id,
-                    since_cursor=last_cursor
+                # Fetch comments using asyncio.run() since connector methods are async
+                new_comments, next_cursor = asyncio.run(
+                    connector.list_new_comments(
+                        platform_post_id,
+                        since_cursor=last_cursor
+                    )
                 )
 
                 # Save comments and enqueue processing
@@ -330,8 +339,8 @@ async def poll_post_comments():
                 interval = _calculate_poll_interval(post)
                 next_check_at = datetime.utcnow() + interval
 
-                # Update post
-                db.table("scheduled_posts") \
+                # Update monitored_post
+                db.table("monitored_posts") \
                     .update({
                         "last_check_at": datetime.utcnow().isoformat(),
                         "next_check_at": next_check_at.isoformat()
@@ -369,7 +378,7 @@ async def poll_post_comments():
     max_retries=3,
     default_retry_delay=300  # 5 minutes
 )
-async def process_comment(self, comment_id: str):
+def process_comment(self, comment_id: str):
     """
     Process a single comment with AI guardrails and auto-reply
 
@@ -391,16 +400,19 @@ async def process_comment(self, comment_id: str):
     db = get_db()
 
     try:
-        # 1. Fetch comment with related data
+        # 1. Fetch comment with related data from monitored_posts
         result = db.table("comments") \
             .select("""
                 *,
-                scheduled_posts!inner(
+                monitored_posts!inner(
                     id,
                     user_id,
                     platform,
                     platform_post_id,
-                    social_accounts!inner(access_token, platform_page_id)
+                    caption,
+                    media_url,
+                    posted_at,
+                    social_accounts!inner(id, access_token, account_id, username)
                 )
             """) \
             .eq("id", comment_id) \
@@ -412,14 +424,97 @@ async def process_comment(self, comment_id: str):
             return
 
         comment = result.data
-        post = comment["scheduled_posts"]
+        post = comment["monitored_posts"]
         user_id = post["user_id"]
         platform = post["platform"]
+        social_account_id = post["social_accounts"]["id"] if "social_accounts" in post else None
 
         logger.info(
             f"[PROCESS] Processing comment {comment_id} from "
             f"{comment.get('author_name')} on {platform} post"
         )
+
+        # 1.5. Check if AI is enabled for comments
+        # Query monitoring_rules to check ai_enabled_for_comments flag
+        try:
+            # First, try account-specific rules
+            rules_result = db.table("monitoring_rules") \
+                .select("ai_enabled_for_comments") \
+                .eq("user_id", user_id) \
+                .eq("social_account_id", social_account_id) \
+                .maybe_single() \
+                .execute()
+
+            # If no account-specific rules, fall back to user-level rules
+            if not rules_result.data:
+                rules_result = db.table("monitoring_rules") \
+                    .select("ai_enabled_for_comments") \
+                    .eq("user_id", user_id) \
+                    .is_("social_account_id", "null") \
+                    .maybe_single() \
+                    .execute()
+
+            # Check if AI is disabled for comments
+            if rules_result.data:
+                ai_enabled = rules_result.data.get("ai_enabled_for_comments", True)
+
+                if not ai_enabled:
+                    logger.info(
+                        f"[PROCESS] AI disabled for comments (user_id={user_id}, "
+                        f"account_id={social_account_id}). Skipping AI processing for comment {comment_id}"
+                    )
+
+                    # Mark comment as ignored (AI disabled by user)
+                    db.table("comments") \
+                        .update({"triage": "ignore"}) \
+                        .eq("id", comment_id) \
+                        .execute()
+
+                    return
+
+        except Exception as e:
+            # If monitoring_rules query fails, log warning but continue processing
+            # (fail-open strategy - don't block comment processing on config errors)
+            logger.warning(
+                f"[PROCESS] Failed to check ai_enabled_for_comments flag for comment {comment_id}: {e}. "
+                f"Continuing with AI processing as fallback."
+            )
+
+        # 1.6. Check if AI should respond (conversation detection)
+        # Get owner username for triage
+        owner_username = post["social_accounts"].get("username", "") if "social_accounts" in post else ""
+
+        if not owner_username and social_account_id:
+            owner_username = get_owner_username(db, social_account_id)
+
+        if owner_username:
+            # Get all comments on this post for thread reconstruction
+            all_comments_result = db.table("comments") \
+                .select("*") \
+                .eq("monitored_post_id", post["id"]) \
+                .execute()
+
+            all_comments = all_comments_result.data or []
+
+            # Check if AI should respond
+            triage_service = CommentTriageService(user_id, owner_username)
+            should_respond, triage_reason = triage_service.should_ai_respond(
+                comment, post, all_comments
+            )
+
+            if not should_respond:
+                # Mark as user_conversation or ignore
+                logger.info(
+                    f"[PROCESS] Skipping AI processing: {triage_reason} - "
+                    f"Comment from {comment.get('author_name')}: {comment['text'][:50]}..."
+                )
+
+                db.table("comments") \
+                    .update({"triage": triage_reason}) \
+                    .eq("id", comment_id) \
+                    .execute()
+
+                return
 
         # 2. AI Decision with context_type="comment"
         decision_service = AIDecisionService(user_id, db)
@@ -450,44 +545,100 @@ async def process_comment(self, comment_id: str):
             # Send escalation email
             logger.info(f"[PROCESS] ESCALATE: Sending email for comment {comment_id}")
 
-            email_service = EmailEscalationService(db)
+            # TODO: Fix email escalation - EmailEscalationService removed
+            # For now, just log the escalation
+            logger.warning(f"[ESCALATE] Email sending temporarily disabled - comment {comment_id} needs manual review")
+            logger.warning(f"[ESCALATE] Reason: {reason}")
 
-            # Generate email with LLM
-            email_data = await email_service.generate_escalation_email(
-                message_text=comment["text"],
-                reason=reason,
-                context={
-                    "platform": platform,
-                    "author": comment.get("author_name", "Unknown"),
-                    "post_id": post["id"],
-                    "comment_id": comment_id,
-                    "platform_post_id": post.get("platform_post_id")
-                }
-            )
-
-            # Send email
-            user_email = _get_user_email(db, user_id)
-            if user_email:
-                await email_service.send_escalation_email(
-                    to_email=user_email,
-                    subject=email_data["subject"],
-                    body=email_data["body"],
-                    user_id=user_id,
-                    message_id=comment_id,
-                    decision_id=decision_id
-                )
-                logger.info(f"[PROCESS] Escalation email sent to {user_email}")
-            else:
-                logger.error(f"[PROCESS] No email found for user {user_id}")
+            # Commented out until EmailEscalationService is properly implemented
+            # email_service = EmailService()
+            # email_data = await email_service.send_escalation_email(
+            #     to_email="support@example.com",
+            #     escalation_data={
+            #         "message_text": comment["text"],
+            #         "reason": reason,
+            #         "context": {
+            #             "platform": platform,
+            #             "author": comment.get("author_name", "Unknown"),
+            #             "post_id": post["id"],
+            #             "comment_id": comment_id,
+            #             "platform_post_id": post.get("platform_post_id")
+            #         }
+            #     },
+            #     conversation_link="https://example.com/conversations"
+            # )
+            # logger.info(f"[PROCESS] Escalation email sent")
+            # Commented out until EmailEscalationService is fixed
 
         elif decision == AIDecision.RESPOND:
             # Generate auto-reply via RAG
             logger.info(f"[PROCESS] RESPOND: Generating auto-reply for comment {comment_id}")
 
-            # Generate response with RAG agent
+            # Build enriched context for Vision AI
+            context_parts = []
+
+            # 1. Add post image if available (Vision AI)
+            media_url = post.get("media_url")
+            if media_url:
+                context_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": media_url}
+                })
+                logger.info(f"[PROCESS] Added post image to context: {media_url[:50]}...")
+
+            # 2. Add post caption
+            caption = post.get("caption")
+            context_text = ""
+            if caption:
+                context_text += f"📸 Post Caption: {caption}\n\n"
+
+            # 3. Add music title if available (Instagram posts can have music)
+            # Note: Music metadata would need to be fetched from Instagram API
+            # For now, we'll check if it's in the post metadata
+            music_title = post.get("music_title")  # To be fetched from API
+            if music_title:
+                context_text += f"🎵 Music: {music_title}\n\n"
+
+            # 4. Add comment thread (all comments on this post for context)
+            thread_comments = all_comments if all_comments else []
+            if thread_comments and len(thread_comments) > 1:
+                context_text += "💬 Comment Thread:\n"
+                for c in thread_comments[:10]:  # Limit to 10 most recent
+                    author = c.get("author_name", "Unknown")
+                    text = c.get("text", "")
+                    context_text += f"  - @{author}: {text}\n"
+                context_text += "\n"
+
+            # 5. Add the current comment being responded to
+            context_text += f"❓ New Comment from @{comment.get('author_name')}: {comment['text']}"
+
+            # Add text context
+            context_parts.append({
+                "type": "text",
+                "text": context_text
+            })
+
+            # Generate response with RAG agent using enriched context
+            from langchain_core.messages import HumanMessage
+            enriched_message = HumanMessage(content=context_parts)
+
             agent = RAGAgent(user_id=user_id)
-            response_data = agent.generate_response(comment["text"])
-            response_text = response_data.get("response", "")
+            response_data = asyncio.run(agent.graph.ainvoke(
+                {"messages": [enriched_message]},
+                config={"configurable": {"thread_id": f"comment:{comment_id}"}}
+            ))
+
+            # Extract response from agent output
+            if response_data and "messages" in response_data:
+                ai_messages = [m for m in response_data["messages"] if hasattr(m, 'type') and m.type == 'ai']
+                if ai_messages:
+                    response_text = ai_messages[-1].content
+                else:
+                    logger.error(f"[PROCESS] No AI message in response")
+                    raise Exception("No AI response generated")
+            else:
+                logger.error(f"[PROCESS] Invalid response format from RAG agent")
+                raise Exception("Invalid RAG response format")
 
             if not response_text:
                 logger.error(f"[PROCESS] RAG agent returned empty response")
@@ -498,9 +649,12 @@ async def process_comment(self, comment_id: str):
             if not connector:
                 raise Exception("Failed to get platform connector")
 
-            result = await connector.reply_to_comment(
-                comment["platform_comment_id"],
-                response_text
+            # Reply using asyncio.run() since connector method is async
+            result = asyncio.run(
+                connector.reply_to_comment(
+                    comment["platform_comment_id"],
+                    response_text
+                )
             )
 
             if result.get("success"):

@@ -293,6 +293,7 @@ temperature NUMERIC(3,2) DEFAULT 0.7
 max_tokens INT DEFAULT 500
 doc_lang TEXT[]  -- Langues des documents indexés
 reply_lang TEXT  -- Langue de réponse par défaut
+ai_enabled_for_conversations BOOLEAN DEFAULT TRUE  -- ✨ NEW (V2.0): Contrôle AI pour DMs/chats
 auto_reply_enabled BOOLEAN DEFAULT true  -- Toggle AI Control
 created_at TIMESTAMPTZ
 updated_at TIMESTAMPTZ
@@ -475,30 +476,92 @@ created_at TIMESTAMPTZ DEFAULT NOW()
 
 ### Commentaires
 
-#### `comments`
+#### `monitored_posts` ✨ NEW (V2.0)
+Posts actifs sous monitoring pour commentaires
 ```sql
 id UUID PK
-post_id UUID FK → scheduled_posts(id)
-platform_comment_id TEXT
-parent_id UUID FK → comments(id)  -- Thread
-author_name TEXT
-author_id TEXT
-text TEXT
-triage TEXT
-ai_decision_id UUID FK → ai_decisions(id)
-hidden BOOLEAN DEFAULT false
+user_id UUID FK → users(id)
+social_account_id UUID FK → social_accounts(id)
+platform TEXT  -- 'instagram', 'facebook', 'twitter'
+platform_post_id TEXT  -- ID externe du post
+caption TEXT
+media_url TEXT  -- URL de l'image/video
+music_title VARCHAR(500)  -- ✨ NEW: Titre de la musique (pour contexte AI)
+posted_at TIMESTAMPTZ
+source TEXT  -- 'scheduled', 'imported', 'manual'
+monitoring_enabled BOOLEAN DEFAULT TRUE
+monitoring_started_at TIMESTAMPTZ
+monitoring_ends_at TIMESTAMPTZ
+last_check_at TIMESTAMPTZ
+next_check_at TIMESTAMPTZ
 created_at TIMESTAMPTZ
 updated_at TIMESTAMPTZ
 
-UNIQUE(post_id, platform_comment_id)
+UNIQUE(platform, platform_post_id)
 ```
 
-#### `comment_checkpoint`
+**Index**:
+- `idx_monitored_posts_next_check` ON (next_check_at) WHERE monitoring_enabled = TRUE
+- `idx_monitored_posts_user` ON (user_id)
+- `idx_monitored_posts_account` ON (social_account_id)
+
+---
+
+#### `monitoring_rules` ✨ NEW (V2.0)
+Règles de monitoring par utilisateur/compte
 ```sql
-post_id UUID PK FK → scheduled_posts(id)
-last_cursor TEXT
-last_seen_ts TIMESTAMPTZ
+id UUID PK
+user_id UUID FK → users(id)
+social_account_id UUID FK → social_accounts(id)  -- NULL = règles globales
+auto_monitor_enabled BOOLEAN DEFAULT TRUE
+auto_monitor_count INT DEFAULT 5 CHECK (auto_monitor_count BETWEEN 1 AND 20)
+monitoring_duration_days INT DEFAULT 7 CHECK (monitoring_duration_days BETWEEN 1 AND 30)
+ai_enabled_for_comments BOOLEAN DEFAULT TRUE  -- ✨ NEW: Contrôle AI granulaire
+created_at TIMESTAMPTZ
 updated_at TIMESTAMPTZ
+```
+
+---
+
+#### `comments`
+Commentaires sur posts monitorés
+```sql
+id UUID PK
+monitored_post_id UUID FK → monitored_posts(id)
+platform_comment_id TEXT
+parent_id TEXT  -- ID du commentaire parent (pour threads)
+author_name TEXT
+author_id TEXT
+author_avatar_url TEXT  -- ✨ NEW
+text TEXT
+created_at TIMESTAMPTZ
+like_count INTEGER DEFAULT 0  -- ✨ NEW
+triage TEXT CHECK (triage IN ('respond', 'ignore', 'escalate', 'user_conversation'))  -- ✨ UPDATED
+ai_decision_id UUID FK → ai_decisions(id)
+replied_at TIMESTAMPTZ
+ai_reply_text TEXT  -- ✨ NEW: Copie de la réponse AI envoyée
+
+UNIQUE(monitored_post_id, platform_comment_id)
+```
+
+**Index**:
+- `idx_comments_monitored_post` ON (monitored_post_id)
+- `idx_comments_triage` ON (triage)
+- `idx_comments_created_at` ON (created_at DESC)
+
+---
+
+#### `comment_checkpoint` ✨ NEW (V2.0)
+État de pagination pour chaque post
+```sql
+id UUID PK
+monitored_post_id UUID FK → monitored_posts(id)
+last_cursor TEXT  -- Curseur de pagination Instagram
+last_check_at TIMESTAMPTZ
+created_at TIMESTAMPTZ
+updated_at TIMESTAMPTZ
+
+UNIQUE(monitored_post_id)
 ```
 
 ---

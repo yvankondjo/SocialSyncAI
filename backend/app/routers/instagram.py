@@ -183,11 +183,11 @@ async def instagram_webhook_handler(request: Request):
             logger.warning("META_APP_SECRET not configured - webhook ignored for security")
             raise HTTPException(status_code=403, detail="Configuration webhook manquante")
 
-        # TODO: Réactiver la vérification HMAC lorsque la configuration Meta sera stabilisée
-        # if not verify_instagram_webhook_signature(payload, signature, webhook_secret):
-        #     logger.warning("Invalid Instagram webhook signature - check META_APP_SECRET in Meta for Developers")
-        #     raise HTTPException(status_code=403, detail="Invalid signature")
-        
+        # HMAC validation for security (re-enabled 2025-10-20)
+        if not verify_instagram_webhook_signature(payload, signature, webhook_secret):
+            logger.warning("Invalid Instagram webhook signature - check META_APP_SECRET in Meta for Developers")
+            raise HTTPException(status_code=403, detail="Invalid signature")
+
         webhook_data = await request.json()
         logger.info(f"Webhook Instagram received: {webhook_data}")
         
@@ -233,14 +233,32 @@ async def process_instagram_message_event(message_event: dict, user_info: dict):
     """Process an Instagram messaging event (direct message, comment, etc.)"""
     try:
         if 'message' in message_event:
-            sender_id = message_event['sender']['id']
+            # Extract sender information from the webhook
+            sender = message_event.get('sender', {})
+            sender_id = sender.get('id')
             message = message_event['message']
+
+            # Build contact info from sender data
+            contact_info = None
+            if sender_id:
+                sender_username = sender.get('username') or sender.get('name')
+                if sender_username:
+                    contact_info = {
+                        'name': sender_username,
+                        'id': sender_id
+                    }
+
             formatted_message = {
                 'id': message.get('mid'),
                 'from': sender_id,
                 'timestamp': message_event.get('timestamp'),
                 **message
             }
+
+            # Add contact info if available
+            if contact_info:
+                formatted_message['_contact_info'] = contact_info
+
             await process_incoming_message_for_user(formatted_message, user_info)
     except Exception as e:
         logger.error(f"Error processing Instagram messaging event: {e}")

@@ -19,7 +19,10 @@ class InstagramService:
             raise RuntimeError('INSTAGRAM_ACCESS_TOKEN manquant')
         if not self.page_id:
             raise RuntimeError('INSTAGRAM_PAGE_ID manquant')
-        self.api_url = 'https://graph.instagram.com/v23.0'
+
+        # Use META_GRAPH_VERSION from config instead of hardcoded v23.0
+        graph_version = os.getenv('META_GRAPH_VERSION', 'v24.0')
+        self.api_url = f'https://graph.instagram.com/{graph_version}'
         self.client = httpx.AsyncClient(base_url=self.api_url, timeout=httpx.Timeout(connect=5.0, read=15.0, write=10.0, pool=15.0))
 
     async def validate_credentials(self) -> Dict[str, Any]:
@@ -123,7 +126,8 @@ class InstagramService:
             return resp.json()
         except Exception as e:
             logger.error(f'Erreur conversations: {e}')
-            raise HTTPException(status_code=500, detail=f'Erreur conversations: {str(e)}')
+            # Services should raise RuntimeError, not HTTPException (router's responsibility)
+            raise RuntimeError(f'Erreur conversations: {str(e)}')
 
     async def reply_to_comment(self, comment_id: str, message: str) -> Dict[str, Any]:
         url = f'/{comment_id}/replies'
@@ -152,14 +156,16 @@ class InstagramService:
                     backoff *= 2
                     continue
                 else:
-                    raise HTTPException(status_code=502, detail=f'Échec Instagram: {e.response.text}')
+                    # Services should raise RuntimeError, not HTTPException (router's responsibility)
+                    raise RuntimeError(f'Échec Instagram: {e.response.text}')
             except httpx.TimeoutException:
                 if attempt < 2:
                     await asyncio.sleep(backoff)
                     backoff *= 2
                     continue
                 else:
-                    raise HTTPException(status_code=504, detail='Timeout Instagram')
+                    # Services should raise RuntimeError, not HTTPException (router's responsibility)
+                    raise RuntimeError('Timeout Instagram')
 
     async def close(self):
         await self.client.aclose()

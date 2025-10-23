@@ -85,10 +85,37 @@ def normalize_embedding(embedding: List[float]) -> List[float]:
     normalized = embedding_array / np.linalg.norm(embedding_array)
     return normalized.tolist()
 
-def embed_texts(batch: List[str], model: str='gemini-embedding-001') -> List[List[float]]:
+def embed_texts(
+    batch: List[str],
+    model: str='gemini-embedding-001',
+    task_type: str='retrieval_document'
+) -> List[List[float]]:
+    """
+    Generate embeddings for a batch of texts using Gemini
+
+    Args:
+        batch: List of texts to embed (max 100)
+        model: Gemini embedding model to use
+        task_type: Type of task ('retrieval_document', 'retrieval_query', 'clustering', 'classification')
+
+    Returns:
+        List of normalized embedding vectors (768 dimensions)
+    """
     if len(batch) == 0 or len(batch) > 100:
         raise ValueError('Batch size must be between 1 and 100')
+
+    valid_task_types = ['retrieval_document', 'retrieval_query', 'semantic_similarity', 'classification', 'clustering']
+    if task_type not in valid_task_types:
+        raise ValueError(f'Invalid task_type. Must be one of: {valid_task_types}')
+
     client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
-    resp = client.models.embed_content(model=model, contents=batch, config=types.EmbedContentConfig(task_type='retrieval_document', output_dimensionality=768))
+    resp = client.models.embed_content(
+        model=model,
+        contents=batch,
+        config=types.EmbedContentConfig(
+            task_type=task_type,
+            output_dimensionality=768
+        )
+    )
     embs = [normalize_embedding(d.values) for d in resp.embeddings]
     return embs

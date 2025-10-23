@@ -626,9 +626,9 @@ class RAGAgent:
                     )],
                 }
         except Exception as e:
-            logger.error(f"Erreur dans _handle_tool_call: {e}")
+            logger.error(f"Error in _handle_tool_call: {e}")
             return {
-                "messages": [AIMessage(content="Erreur lors du traitement de l'outil")],
+                "messages": [AIMessage(content="Error processing tool")],
                 "error_message": str(e)
             }
 

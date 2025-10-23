@@ -14,6 +14,7 @@ celery.conf.update(
         "app.workers.ingest.scan_redis_batches": {"queue": "batching"},  # Batch scanner (DMs/chats)
         "app.workers.scheduler.*": {"queue": "scheduler"},
         "app.workers.comments.*": {"queue": "comments"},
+        "app.workers.topics.*": {"queue": "topics"},  # Topic modeling (BERTopic)
     },
     task_time_limit=1800,              # 30 min max/ tâche
     worker_max_tasks_per_child=200,
@@ -44,9 +45,18 @@ celery.conf.beat_schedule = {
             "expires": 290,  # Task expires after 290s to avoid overlap
         }
     },
+
+    "topic-modeling-daily-fit-merge": {
+        "task": "app.workers.topics.run_daily_fit_and_merge",
+        "schedule": crontab(hour=3, minute=0),  # Every day at 3:00 AM UTC
+        "options": {
+            "expires": 7200,  # 2 hours timeout
+        }
+    },
 }
 
 
 from app.workers import ingest
 from app.workers import scheduler
 from app.workers import comments
+from app.workers import topics  # Re-enabled after Supabase migration

@@ -179,7 +179,11 @@ class BatchScanner:
             
             
             automation_service = AutomationService()
-            automation_check = automation_service.should_auto_reply(user_id=user_id, conversation_id=conversation_id)
+            automation_check = automation_service.should_auto_reply(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                context_type="chat"
+            )
             ai_settings = automation_check.get("ai_settings", {})
 
             # Check if AI is enabled for conversations (DM/chat messages)

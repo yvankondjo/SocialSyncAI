@@ -1,10 +1,5 @@
 'use client';
 
-/**
- * AI Studio - Modern Minimalist Interface
- * Inspired by ChatGPT's clean design with history in a side sheet
- */
-
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,17 +13,15 @@ import { Message } from '@/types/ai-studio';
 import {
   Send,
   Clock,
-  Sparkles,
   Plus,
-  SettingsIcon,
+  Settings,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 const WELCOME_MESSAGE: Message = {
   id: 'welcome',
   role: 'assistant',
   content:
-    "Hello! I'm your AI content creation assistant. I can help you:\n\n• Generate engaging social media posts\n• Schedule posts for Instagram, Twitter, WhatsApp, and Facebook\n• Preview and optimize your content\n• Suggest best practices for each platform\n\nWhat would you like to create today?",
+    "Hello! I'm your AI content creation assistant. I can help you create and schedule social media posts across multiple platforms.\n\nWhat would you like to create today?",
   timestamp: new Date().toISOString(),
 };
 
@@ -52,7 +45,6 @@ export default function AIStudioPage() {
     isLoaded,
   } = useConversations();
 
-  // Initialize first conversation on load
   useEffect(() => {
     if (isLoaded && !currentConversationId) {
       const newConv = createConversation(selectedModel);
@@ -62,7 +54,6 @@ export default function AIStudioPage() {
     }
   }, [isLoaded, currentConversationId, createConversation, updateConversation, selectedModel]);
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (scrollAreaRef.current) {
       const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
@@ -72,7 +63,6 @@ export default function AIStudioPage() {
     }
   }, [currentConversation?.messages, isLoading]);
 
-  // Auto-resize textarea
   useEffect(() => {
     const textarea = textareaRef.current;
     if (textarea) {
@@ -159,29 +149,21 @@ export default function AIStudioPage() {
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      {/* Top Bar */}
-      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
-        <div className="flex items-center justify-between h-14 px-4 sm:px-6 max-w-5xl mx-auto">
-          {/* Left: Branding */}
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-primary" />
-            </div>
-            <h1 className="font-semibold text-base sm:text-lg tracking-tight">
-              AI Studio
-            </h1>
+      {/* Header */}
+      <header className="flex-shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex items-center justify-between h-14 px-6">
+          <div className="flex items-center gap-3 min-w-0">
+            <h1 className="font-semibold text-lg tracking-tight">AI Studio</h1>
           </div>
 
-          {/* Right: Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 flex-shrink-0">
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
               onClick={handleNewConversation}
-              className="gap-2"
+              className="h-9 w-9"
             >
               <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">New</span>
             </Button>
 
             <ModelSelector
@@ -192,16 +174,19 @@ export default function AIStudioPage() {
 
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
               onClick={() => setHistoryOpen(true)}
-              className="gap-2"
+              className="h-9 w-9"
             >
               <Clock className="h-4 w-4" />
-              <span className="hidden sm:inline">History</span>
             </Button>
 
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex">
-              <SettingsIcon className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9"
+            >
+              <Settings className="h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -210,8 +195,8 @@ export default function AIStudioPage() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col items-center overflow-hidden">
         <div className="w-full max-w-3xl flex flex-col flex-1">
-          {/* Messages Area */}
-          <ScrollArea ref={scrollAreaRef} className="flex-1 px-4 sm:px-6">
+          {/* Messages */}
+          <ScrollArea ref={scrollAreaRef} className="flex-1 px-4">
             <div className="py-8 space-y-6">
               {messages.map((message: Message) => (
                 <MessageBubble key={message.id} message={message} />
@@ -220,73 +205,38 @@ export default function AIStudioPage() {
             </div>
           </ScrollArea>
 
-          {/* Input Area */}
-          <div className="border-t bg-background p-4 sm:p-6">
-            <div className="space-y-4">
-              {/* Input Box */}
-              <div className="relative flex items-end gap-2">
-                <div className="flex-1 relative">
-                  <Textarea
-                    ref={textareaRef}
-                    value={input}
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Describe the content you want to create..."
-                    disabled={isLoading}
-                    className={cn(
-                      'min-h-[52px] max-h-[200px] resize-none pr-12',
-                      'focus-visible:ring-1 focus-visible:ring-primary',
-                      'rounded-xl'
-                    )}
-                    rows={1}
-                  />
-                  <Button
-                    onClick={handleSendMessage}
-                    disabled={!input.trim() || isLoading}
-                    size="sm"
-                    className="absolute right-2 bottom-2 rounded-lg h-8 w-8 p-0"
-                  >
-                    <Send className="h-4 w-4" />
-                    <span className="sr-only">Send message</span>
-                  </Button>
-                </div>
+          {/* Input */}
+          <div className="border-t bg-background p-4">
+            <div className="flex items-end gap-3">
+              <div className="flex-1 relative">
+                <Textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Message AI Studio..."
+                  disabled={isLoading}
+                  className="min-h-[52px] max-h-[200px] resize-none pr-4 focus-visible:ring-1"
+                  rows={1}
+                />
               </div>
-
-              {/* Example Prompts - Only show when no messages yet */}
-              {messages.length <= 1 && (
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground">Try asking:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      'Create an Instagram post about a new product launch',
-                      'Write a Twitter thread about sustainability',
-                      'Schedule a WhatsApp message for tomorrow',
-                    ].map((example) => (
-                      <Button
-                        key={example}
-                        variant="outline"
-                        size="sm"
-                        className="text-xs h-auto py-2 px-3 rounded-lg hover:bg-accent"
-                        onClick={() => setInput(example)}
-                        disabled={isLoading}
-                      >
-                        {example}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Footer Info */}
-              <p className="text-xs text-center text-muted-foreground">
-                AI can make mistakes. Check important info.
-              </p>
+              <Button
+                onClick={handleSendMessage}
+                disabled={!input.trim() || isLoading}
+                size="icon"
+                className="h-[52px] w-[52px]"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
             </div>
+            <p className="text-xs text-center text-muted-foreground mt-3">
+              AI can make mistakes. Check important info.
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Conversation History Sheet */}
+      {/* History */}
       <ConversationHistory
         open={historyOpen}
         onOpenChange={setHistoryOpen}

@@ -11,7 +11,7 @@ import time
 from app.db.session import get_authenticated_db
 from app.core.security import get_current_user_id
 from app.services.content_creation_agent import ContentCreationAgent, CONTENT_CREATION_SYSTEM_PROMPT
-from app.deps.runtime_test import CHECKPOINTER_REDIS
+from app.deps.runtime_prod import CHECKPOINTER_POSTGRES
 from langchain_core.messages import HumanMessage
 
 router = APIRouter(prefix="/ai-studio", tags=["ai-studio"])
@@ -52,17 +52,15 @@ async def create_content(
     try:
         start_time = time.time()
 
-        # Create Content Creation Agent
         agent = ContentCreationAgent(
             user_id=current_user_id,
             supabase_client=db,
             model_name=request_data.model,
             system_prompt=request_data.system_prompt or CONTENT_CREATION_SYSTEM_PROMPT,
-            checkpointer=CHECKPOINTER_REDIS,
+            checkpointer=CHECKPOINTER_POSTGRES,
             max_iterations=10
         )
 
-        # Configure thread
         config = {
             "configurable": {
                 "thread_id": request_data.thread_id,
@@ -71,15 +69,12 @@ async def create_content(
             }
         }
 
-        # Invoke agent
         result = agent.invoke(request_data.message, config)
 
-        # Extract response
         messages_list = result.get("messages", [])
         if not messages_list:
             raise HTTPException(status_code=500, detail="No response from AI agent")
 
-        # Get the last AI message
         ai_message = None
         for msg in reversed(messages_list):
             if hasattr(msg, 'content') and not hasattr(msg, 'tool_calls'):
@@ -87,13 +82,11 @@ async def create_content(
                 break
 
         if not ai_message:
-            # If no AI message found, use the last message
             ai_message = messages_list[-1]
 
         response_text = ai_message.content if hasattr(ai_message, 'content') else str(ai_message)
         response_time = time.time() - start_time
 
-        # Extract scheduled posts and previews
         scheduled_posts = [post.model_dump() for post in result.get("scheduled_posts", [])]
         previews = [preview.model_dump() for preview in result.get("previews", [])]
 

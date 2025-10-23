@@ -22,6 +22,8 @@ class AIRulesCreate(BaseModel):
     ai_control_enabled: bool = True
     ai_enabled_for_chats: bool = True
     ai_enabled_for_comments: bool = True
+    flagged_keywords: Optional[List[str]] = Field(default_factory=list)
+    flagged_phrases: Optional[List[str]] = Field(default_factory=list)
 
 
 class AIRulesUpdate(BaseModel):
@@ -31,6 +33,8 @@ class AIRulesUpdate(BaseModel):
     ai_control_enabled: Optional[bool] = None
     ai_enabled_for_chats: Optional[bool] = None
     ai_enabled_for_comments: Optional[bool] = None
+    flagged_keywords: Optional[List[str]] = None
+    flagged_phrases: Optional[List[str]] = None
 
 
 class AIRulesResponse(BaseModel):
@@ -42,6 +46,8 @@ class AIRulesResponse(BaseModel):
     ai_control_enabled: bool
     ai_enabled_for_chats: bool
     ai_enabled_for_comments: bool
+    flagged_keywords: List[str]
+    flagged_phrases: List[str]
     created_at: datetime
     updated_at: datetime
 

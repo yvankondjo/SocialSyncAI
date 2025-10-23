@@ -22,6 +22,7 @@ from app.routers import (
     monitoring,
     debug_instagram,
     debug_comments,
+    analytics,
 )
 import logging
 import datetime
@@ -107,6 +108,9 @@ app.include_router(debug_instagram.router, prefix="/api")
 
 # DEBUG: Comment monitoring troubleshooting (temporary)
 app.include_router(debug_comments.router, prefix="/api")
+
+# Analytics router (real data)
+app.include_router(analytics.router, prefix="/api")
 
 @app.get("/")
 async def root():

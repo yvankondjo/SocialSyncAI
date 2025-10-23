@@ -18,26 +18,28 @@ async def toggle_conversation_automation(
     current_user_id: str = Depends(get_current_user_id),
     db = Depends(get_authenticated_db)
 ):
-    """Active/désactive l'automation pour une conversation spécifique"""
+    """Active/désactive l'automation pour une conversation spécifique (ai_mode)"""
     try:
-        service = AutomationService(db)
-        success = service.toggle_conversation_automation(
-            conversation_id=conversation_id,
-            user_id=current_user_id,
-            enabled=request.enabled
-        )
-        
-        if not success:
+        # Toggle ai_mode directly in conversations table
+        target_mode = "ON" if request.enabled else "OFF"
+
+        result = db.table("conversations") \
+            .update({"ai_mode": target_mode}) \
+            .eq("id", conversation_id) \
+            .eq("user_id", current_user_id) \
+            .execute()
+
+        if not result.data:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Impossible de modifier l'automation pour cette conversation"
+                detail="Conversation non trouvée ou vous n'avez pas les permissions"
             )
-        
+
         return {
             "success": True,
             "message": f"Automation {'activée' if request.enabled else 'désactivée'} pour cette conversation"
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -50,21 +52,20 @@ async def toggle_conversation_automation(
 @router.post("/conversations/{conversation_id}/check")
 async def check_automation_rules(
     conversation_id: str,
-    message_content: str = Query(..., description="Contenu du message à vérifier"),
     current_user_id: str = Depends(get_current_user_id),
     db = Depends(get_authenticated_db)
 ) -> AutomationCheckResponse:
-    """Vérifie si l'IA doit répondre automatiquement à un message"""
+    """Vérifie si l'IA doit répondre automatiquement à une conversation"""
     try:
-        service = AutomationService(db)
+        service = AutomationService()
         result = service.should_auto_reply(
+            user_id=current_user_id,
             conversation_id=conversation_id,
-            message_content=message_content,
-            user_id=current_user_id
+            context_type="chat"
         )
-        
+
         return AutomationCheckResponse(**result)
-        
+
     except Exception as e:
         logger.error(f"Erreur vérification automation: {e}")
         raise HTTPException(

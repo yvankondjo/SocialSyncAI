@@ -19,21 +19,20 @@ async def get_media_signed_url(
     db = Depends(get_authenticated_db)
 ):
     """
-    Génère une URL signée temporaire pour accéder à un média stocké (avec cache Redis)
+    Generate a temporary signed URL to access a stored media (with Redis cache)
 
     Args:
-        object_path: Chemin de l'objet dans Supabase Storage (ex: "uuid/message_id.jpg")
-        expires_in: Durée de validité de l'URL en secondes (défaut: 1 heure)
+        object_path: Object path in Supabase Storage (ex: "uuid/message_id.jpg")
+        expires_in: Duration of the URL in seconds (default: 1 hour)
 
     Returns:
-        URL signée pour accéder au média
+        Signed URL to access the media
     """
     try:
-        # Validation basique du chemin
         if not object_path or "/" not in object_path:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Chemin d'objet invalide"
+                detail="Invalid object path"
             )
 
         
@@ -49,7 +48,7 @@ async def get_media_signed_url(
         if not signed_url:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Média non trouvé ou impossible de générer l'URL signée"
+                detail="Media not found or unable to generate signed URL"
             )
 
         return {
@@ -61,17 +60,17 @@ async def get_media_signed_url(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Erreur lors de la génération de l'URL signée pour {object_path}: {e}")
+        logger.error(f"Error generating signed URL for {object_path}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erreur interne du serveur"
+            detail="Internal server error"
         )
 
 
 async def validate_media_access(object_path: str, user_id: str, db) -> None:
     """
-    Valide que l'utilisateur a accès au média demandé en vérifiant qu'il appartient
-    à une conversation accessible par l'utilisateur.
+    Validate that the user has access to the requested media by verifying that it belongs
+    to a conversation accessible by the user.
     """
     try:
         message_result = db.table('conversation_messages').select(
@@ -81,7 +80,7 @@ async def validate_media_access(object_path: str, user_id: str, db) -> None:
         if not message_result.data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Média non trouvé"
+                detail="Media not found"
             )
 
         message = message_result.data[0]
@@ -97,16 +96,16 @@ async def validate_media_access(object_path: str, user_id: str, db) -> None:
         if not conversation_check.data:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Accès non autorisé à ce média"
+                detail="Access denied to this conversation"
             )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Erreur lors de la validation d'accès au média {object_path}: {e}")
+        logger.error(f"Error validating media access for {object_path}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erreur lors de la validation d'accès"
+            detail="Error validating media access"
         )
 
 

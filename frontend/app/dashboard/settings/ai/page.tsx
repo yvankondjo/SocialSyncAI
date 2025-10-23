@@ -446,6 +446,56 @@ export default function AISettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Content Guardrails */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            🛡️ Content Guardrails
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <Alert>
+            <AlertDescription>
+              Add keywords or phrases to automatically flag and block. When detected, the AI won't respond and an escalation will be created automatically.
+            </AlertDescription>
+          </Alert>
+
+          <div className="space-y-2">
+            <Label>Flagged Keywords</Label>
+            <Textarea
+              value={(currentSettings?.flagged_keywords || []).join(", ")}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                const keywords = (e.target as HTMLTextAreaElement).value.split(",").map(k => k.trim()).filter(k => k.length > 0)
+                handleSettingChange("flagged_keywords", keywords)
+              }}
+              placeholder="exemple: refund, scam, lawsuit, cancel (comma-separated)"
+              className="min-h-[80px]"
+              disabled={!currentSettings?.is_active}
+            />
+            <p className="text-xs text-muted-foreground">
+              Separate keywords with commas. Any message containing these will be blocked and escalated.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Flagged Phrases</Label>
+            <Textarea
+              value={(currentSettings?.flagged_phrases || []).join("\n")}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                const phrases = (e.target as HTMLTextAreaElement).value.split("\n").map(p => p.trim()).filter(p => p.length > 0)
+                handleSettingChange("flagged_phrases", phrases)
+              }}
+              placeholder="Example:&#10;I want my money back&#10;This is a scam&#10;I will sue you&#10;(one per line)"
+              className="min-h-[120px]"
+              disabled={!currentSettings?.is_active}
+            />
+            <p className="text-xs text-muted-foreground">
+              One phrase per line. Full phrases will be matched in messages.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

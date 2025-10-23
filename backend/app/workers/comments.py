@@ -434,51 +434,29 @@ def process_comment(self, comment_id: str):
             f"{comment.get('author_name')} on {platform} post"
         )
 
-        # 1.5. Check if AI is enabled for comments
-        # Query monitoring_rules to check ai_enabled_for_comments flag
-        try:
-            # First, try account-specific rules
-            rules_result = db.table("monitoring_rules") \
-                .select("ai_enabled_for_comments") \
-                .eq("user_id", user_id) \
-                .eq("social_account_id", social_account_id) \
-                .maybe_single() \
+        # 1.5. Check if AI is enabled for comments using AutomationService
+        from app.services.automation_service import AutomationService
+
+        automation_service = AutomationService()
+        automation_check = automation_service.should_auto_reply(
+            user_id=user_id,
+            comment_id=comment_id,
+            context_type="comment"
+        )
+
+        if not automation_check["should_reply"]:
+            logger.info(
+                f"[PROCESS] AI disabled for comments (user_id={user_id}, "
+                f"comment_id={comment_id}). Reason: {automation_check['reason']}"
+            )
+
+            # Mark comment as ignored (AI disabled by user)
+            db.table("comments") \
+                .update({"triage": "ignore"}) \
+                .eq("id", comment_id) \
                 .execute()
 
-            # If no account-specific rules, fall back to user-level rules
-            if not rules_result.data:
-                rules_result = db.table("monitoring_rules") \
-                    .select("ai_enabled_for_comments") \
-                    .eq("user_id", user_id) \
-                    .is_("social_account_id", "null") \
-                    .maybe_single() \
-                    .execute()
-
-            # Check if AI is disabled for comments
-            if rules_result.data:
-                ai_enabled = rules_result.data.get("ai_enabled_for_comments", True)
-
-                if not ai_enabled:
-                    logger.info(
-                        f"[PROCESS] AI disabled for comments (user_id={user_id}, "
-                        f"account_id={social_account_id}). Skipping AI processing for comment {comment_id}"
-                    )
-
-                    # Mark comment as ignored (AI disabled by user)
-                    db.table("comments") \
-                        .update({"triage": "ignore"}) \
-                        .eq("id", comment_id) \
-                        .execute()
-
-                    return
-
-        except Exception as e:
-            # If monitoring_rules query fails, log warning but continue processing
-            # (fail-open strategy - don't block comment processing on config errors)
-            logger.warning(
-                f"[PROCESS] Failed to check ai_enabled_for_comments flag for comment {comment_id}: {e}. "
-                f"Continuing with AI processing as fallback."
-            )
+            return
 
         # 1.6. Check if AI should respond (conversation detection)
         # Get owner username for triage

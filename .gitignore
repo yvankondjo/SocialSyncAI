@@ -241,3 +241,4 @@ node_modules/
 .moat/
 supabase/
 node_modules/
+migrations/

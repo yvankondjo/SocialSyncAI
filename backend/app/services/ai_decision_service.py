@@ -10,18 +10,18 @@ from difflib import SequenceMatcher
 from supabase import Client
 from openai import OpenAI
 from app.schemas.ai_rules import AIDecision
-
+from app.db.session import get_db
 logger = logging.getLogger(__name__)
 
 
 class AIDecisionService:
     """Service pour évaluer si l'IA doit répondre à un message"""
 
-    def __init__(self, user_id: str, db: Client):
+    def __init__(self, user_id: str):
         self.user_id = user_id
-        self.db = db
         self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.moderation_enabled = os.getenv("OPENAI_MODERATION_ENABLED", "true").lower() == "true"
+        self.db = get_db()
 
     def check_message(
         self,
@@ -29,36 +29,35 @@ class AIDecisionService:
         context_type: str = "chat"
     ) -> Tuple[AIDecision, float, str, str]:
         """
-        Évalue si l'IA doit répondre au message
+        Check if the AI should respond to a message based on user rules and OpenAI Moderation API
 
-        Flow de décision (ordre de priorité):
-        1. Scope check (chats vs comments) → IGNORE si désactivé
+        Decision flow (priority order):
+        1. Scope check (chats vs comments) → IGNORE if disabled
         2. AI Control OFF? → IGNORE
-        3. OpenAI Moderation check → Si flagged: ESCALATE ou IGNORE selon severity
-        4. Custom user rules (instructions + exemples) → Apply
-        5. Fallback: RESPOND
+        3. OpenAI Moderation check → If flagged: ESCALATE or IGNORE
+        4. Custom user rules (instructions + examples) → Apply
+        5. Default: RESPOND
 
         Args:
-            message_text: Le texte du message à analyser
-            context_type: Type de contexte - "chat" (DMs) ou "comment" (posts publics)
+            message_text: The text of the message to analyze
+            context_type: Context type - "chat" (DMs) or "comment" (posts publics)
 
         Returns:
             Tuple (decision, confidence, reason, matched_rule)
             - decision: AIDecision enum (RESPOND, IGNORE, ESCALATE)
-            - confidence: float entre 0.0 et 1.0
-            - reason: str explication lisible par humain
-            - matched_rule: str identifiant de la règle matchée
+            - confidence: float between 0.0 and 1.0
+            - reason: str readable explanation
+            - matched_rule: str identifier of the matched rule
         """
-        # 1. Récupérer les règles de l'utilisateur
         rules = self._get_user_rules()
 
-        # 2. Vérifier scope spécifique (NOUVEAU - Granular control)
+
         if context_type == "chat":
             if rules and not rules.get("ai_enabled_for_chats", True):
                 return (
                     AIDecision.IGNORE,
                     1.0,
-                    "AI désactivée pour les messages privés (chats)",
+                    "AI disabled for private messages (chats)",
                     "chats_disabled"
                 )
         elif context_type == "comment":
@@ -66,85 +65,60 @@ class AIDecisionService:
                 return (
                     AIDecision.IGNORE,
                     1.0,
-                    "AI désactivée pour les commentaires publics",
+                    "AI disabled for comments",
                     "comments_disabled"
                 )
 
-        # 3. Vérifier AI Control global activé
-        # Si pas de règles (None), on considère que AI Control est activé par défaut
         if rules is not None:
             if not rules.get("ai_control_enabled", True):
                 return (
                     AIDecision.IGNORE,
                     1.0,
-                    "AI Control désactivé par l'utilisateur",
+                    "AI Control disabled by user",
                     "ai_control_disabled"
                 )
 
-        # 3. OpenAI Moderation check (NOUVEAU - Guardrail principal)
         if self.moderation_enabled:
             moderation_result = self._check_openai_moderation(message_text)
 
             if moderation_result["flagged"]:
-                # Déterminer action selon severity
-                severity = self._assess_severity(moderation_result.get("categories", {}))
-
-                if severity == "HIGH":
-                    return (
-                        AIDecision.ESCALATE,
-                        0.95,
-                        f"OpenAI Moderation (HIGH): {moderation_result['reason']}",
-                        "openai_moderation_high"
-                    )
-                else:
-                    return (
-                        AIDecision.IGNORE,
-                        0.90,
-                        f"OpenAI Moderation (LOW): {moderation_result['reason']}",
-                        "openai_moderation_low"
-                    )
-
-        # 4. Vérifier similarité avec exemples à ignorer (custom rules)
-        ignore_examples = rules.get("ignore_examples", []) if rules else []
-        if ignore_examples:
-            for example in ignore_examples:
-                similarity = self._text_similarity(
-                    message_text.lower(),
-                    example.lower()
+                return (
+                    AIDecision.IGNORE,
+                    0.95,
+                    f"OpenAI Moderation: {moderation_result['reason']}",
+                    "openai_moderation"
                 )
 
-                # Si similarité > 70%, on ignore
-                if similarity > 0.7:
-                    reason = f"Message similaire ({int(similarity*100)}%) à exemple: '{example[:50]}...'"
-                    return (
-                        AIDecision.IGNORE,
-                        similarity,
-                        reason,
-                        f"ignore_example:{example[:30]}"
-                    )
-
-        # 5. Vérifier mots-clés d'escalation (custom keywords)
-        escalation_keywords = [
-            "remboursement", "urgent", "avocat", "poursuivre", "arnaque",
-            "refund", "lawyer", "sue", "scam", "fraud"
-        ]
+        flagged_keywords = rules.get("flagged_keywords", []) if rules else []
+        flagged_phrases = rules.get("flagged_phrases", []) if rules else []
         message_lower = message_text.lower()
 
-        for keyword in escalation_keywords:
-            if keyword in message_lower:
-                reason = f"Mot-clé d'escalation détecté: '{keyword}'"
+        for keyword in flagged_keywords:
+            if keyword.lower() in message_lower:
+                reason = f"Guardrail: Flagged keyword detected: '{keyword}'"
                 return (
-                    AIDecision.ESCALATE,
-                    0.9,
+                    AIDecision.IGNORE,
+                    0.95,
                     reason,
-                    f"escalation_keyword:{keyword}"
+                    f"flagged_keyword:{keyword[:30]}"
                 )
 
-        # 6. Par défaut: répondre
+        for phrase in flagged_phrases:
+            if phrase.lower() in message_lower:
+                reason = f"Guardrail: Flagged phrase detected: '{phrase[:50]}...'"
+                return (
+                    AIDecision.IGNORE,
+                    0.95,
+                    reason,
+                    f"flagged_phrase:{phrase[:30]}"
+                )
+
+        
+
         return (
             AIDecision.RESPOND,
-            0.8,
-            "Aucune règle bloquante détectée",
+            1.0,
+            "No blocking rule detected",
             "default_respond"
         )
 
@@ -153,27 +127,26 @@ class AIDecisionService:
         Call OpenAI Moderation API
 
         Args:
-            text: Texte à modérer
+            text: Text to moderate
 
         Returns:
             Dict avec {
                 "flagged": bool,
-                "categories": dict (optionnel),
-                "category_scores": dict (optionnel),
-                "reason": str (optionnel),
-                "error": str (optionnel)
+                "categories": dict (optional),
+                "category_scores": dict (optional),
+                "reason": str (optional),
+                "error": str (optional)
             }
         """
         try:
             response = self.openai_client.moderations.create(
-                model="omni-moderation-latest",  # Dernier modèle 2025
+                model="omni-moderation-latest",
                 input=text
             )
 
             result = response.results[0]
 
             if result.flagged:
-                # Build reason from flagged categories
                 categories_dict = result.categories.model_dump()
                 flagged_cats = [cat for cat, val in categories_dict.items() if val]
 
@@ -191,41 +164,10 @@ class AIDecisionService:
 
         except Exception as e:
             logger.error(f"[MODERATION] OpenAI Moderation API error: {e}")
-            # Fallback: ne pas bloquer si l'API est down (fail open)
             return {"flagged": False, "error": str(e)}
 
-    def _assess_severity(self, categories: Dict[str, bool]) -> str:
-        """
-        Assess severity from flagged categories
-
-        HIGH severity = Nécessite intervention humaine immédiate (ESCALATE)
-        LOW severity = Bloquer seulement (IGNORE)
-
-        Args:
-            categories: Dict de catégories flaggées par OpenAI Moderation
-
-        Returns:
-            "HIGH" ou "LOW"
-        """
-        HIGH_SEVERITY_CATEGORIES = [
-            "violence",
-            "violence/graphic",
-            "self-harm",
-            "self-harm/intent",
-            "self-harm/instructions",
-            "harassment/threatening"
-        ]
-
-        for cat, val in categories.items():
-            if val and any(hs in cat for hs in HIGH_SEVERITY_CATEGORIES):
-                logger.info(f"[MODERATION] HIGH severity detected: {cat}")
-                return "HIGH"
-
-        logger.info(f"[MODERATION] LOW severity detected")
-        return "LOW"
-
     def _get_user_rules(self) -> Optional[Dict[str, Any]]:
-        """Récupère les règles AI de l'utilisateur depuis DB"""
+        """Retrieve AI rules for the user from DB"""
         try:
             result = self.db.table("ai_rules") \
                 .select("*") \
@@ -240,8 +182,8 @@ class AIDecisionService:
 
     def _text_similarity(self, text1: str, text2: str) -> float:
         """
-        Calcule la similarité entre deux textes (0.0 à 1.0)
-        Utilise SequenceMatcher de difflib pour une comparaison simple
+        Calculate the similarity between two texts (0.0 to 1.0)
+        Uses SequenceMatcher from difflib for a simple comparison
         """
         return SequenceMatcher(None, text1, text2).ratio()
 
@@ -255,18 +197,18 @@ class AIDecisionService:
         matched_rule: str
     ) -> Optional[Dict[str, Any]]:
         """
-        Log une décision IA en DB pour traçabilité
+        Log an AI decision in DB for tracking
 
         Args:
-            message_id: ID du message (optionnel)
-            message_text: Texte du message analysé
-            decision: Décision prise (RESPOND, IGNORE, ESCALATE)
-            confidence: Score de confiance 0.0-1.0
-            reason: Raison de la décision
-            matched_rule: Règle qui a été matchée
+            message_id: ID of the message (optional)
+            message_text: Text of the analyzed message
+            decision: Decision taken (RESPOND, IGNORE, ESCALATE)
+            confidence: Confidence score 0.0-1.0
+            reason: Reason for the decision
+            matched_rule: Rule that was matched
 
         Returns:
-            Dict avec l'ID de la décision créée (ou None si erreur)
+            Dict with the ID of the created decision (or None if error)
         """
         try:
             data = {
@@ -285,7 +227,6 @@ class AIDecisionService:
                 f"[AI_DECISION] User {self.user_id}: {decision.value} - {reason}"
             )
 
-            # Retourner l'ID de la décision créée
             if result.data and len(result.data) > 0:
                 return result.data[0]
             return None

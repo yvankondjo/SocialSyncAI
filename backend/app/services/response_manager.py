@@ -64,7 +64,6 @@ async def handle_messages_webhook_for_user(value: Dict[str, Any], user_info: Dic
     platform = user_info.get('platform', 'whatsapp')
 
     if platform == 'whatsapp':
-        # WhatsApp: Extract contact names from 'contacts' array
         for contact in value.get('contacts', []):
             wa_id = contact.get('wa_id')
             if wa_id and 'profile' in contact:
@@ -73,13 +72,12 @@ async def handle_messages_webhook_for_user(value: Dict[str, Any], user_info: Dic
                     'wa_id': wa_id
                 }
     elif platform == 'instagram':
-        # Instagram: Extract sender info from messages themselves
-        # Instagram webhooks don't have a separate 'contacts' array
+        
         for message in value.get('messages', []):
             sender = message.get('sender', {})
             sender_id = sender.get('id')
             if sender_id:
-                # Try to get username/name from sender object
+               
                 sender_username = sender.get('username') or sender.get('name')
                 contacts_info[sender_id] = {
                     'name': sender_username or f'User_{sender_id[:8]}',
@@ -191,7 +189,7 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
                         'required_feature': 'audio'
                     }
                 )
-        else:  # Instagram
+        else:  
             attachments = message.get('attachments', []) or []
             if attachments:
                 attachment_type = attachments[0].get('type', '').lower()
@@ -240,7 +238,6 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
 
     if contact_id == message_id:
         logger.info(f'Message is from the user itself, skipping extraction: {message}')
-        #save the message in the database
         try:
             save_request = MessageSaveRequest(
             platform=platform_enum,
@@ -293,7 +290,6 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
         return None
     
     if extracted_message.token_count > 7000:
-        #save message in the database and send notification to user 
         logger.error(f"Message too long: {extracted_message.token_count}")
         try:
             save_request = MessageSaveRequest(
@@ -460,7 +456,6 @@ def resize_image(image_content: bytes, width: int, height: int) -> bytes:
     import io
     image = Image.open(io.BytesIO(image_content))
     
-    # Convertir en RGB si nécessaire (pour JPEG)
     if image.mode in ('RGBA', 'LA', 'P'):
         background = Image.new('RGB', image.size, (255, 255, 255))
         if image.mode == 'P':
@@ -472,7 +467,6 @@ def resize_image(image_content: bytes, width: int, height: int) -> bytes:
     
     original_width, original_height = image.size
     
-    # Toujours convertir en JPEG même si pas de redimensionnement
     if original_width <= width and original_height <= height:
         output = io.BytesIO()
         image.save(output, format='JPEG', quality=85, optimize=True)
@@ -487,7 +481,7 @@ def resize_image(image_content: bytes, width: int, height: int) -> bytes:
 
 def extract_image_dimensions(image_content: bytes) -> tuple[int, int]:
     """
-    Extrait les dimensions d'une image à partir de son contenu binaire
+    Extract the dimensions of an image from its binary content
     """
     try:
         from PIL import Image
@@ -505,7 +499,7 @@ def extract_image_dimensions(image_content: bytes) -> tuple[int, int]:
 
 def calculate_image_tokens(width: int=None, height: int=None) -> int:
     """
-    Calcule approximativement les tokens basé sur la taille de l'image
+    Calculate approximately the tokens based on the size of the image
     """
     tokens_image = width * height / 750
     return tokens_image
@@ -546,7 +540,6 @@ async def get_media_content(media_id: str, access_token: str) -> bytes:
     import httpx
     import os
 
-    # Use META_GRAPH_VERSION from config instead of hardcoded v23.0
     graph_version = os.getenv('META_GRAPH_VERSION', 'v24.0')
 
     client = httpx.AsyncClient()
@@ -571,7 +564,6 @@ async def generate_smart_response(messages: List[HumanMessage], user_id: str, ai
         doc_lang = ", ".join(doc_lang)
     local_system_prompt = system_prompt.format(doc_lang=doc_lang)
 
-    # Utiliser le modèle configuré dans ai_settings, sinon fallback
     model_name = ai_settings.get('ai_model', 'x-ai/grok-4-fast:free')
 
     logger.info(f"🔍 DEBUG generate_smart_response - messages: {messages}")
@@ -585,7 +577,7 @@ async def generate_smart_response(messages: List[HumanMessage], user_id: str, ai
 
     agent = create_rag_agent(
         user_id,
-        conversation_id,  # ✅ AJOUTÉ - Paramètre requis
+        conversation_id,  
         model_name=model_name,
         system_prompt=local_system_prompt,
         credit_tracker=credit_tracker
@@ -605,7 +597,7 @@ async def generate_smart_response(messages: List[HumanMessage], user_id: str, ai
         )
         
         await credit_tracker.finalize_batch(conversation_id=conversation_id)
-        logger.info(f"✅ Credits finalisés pour batch: {credit_tracker.get_batch_info()}")
+        logger.info(f"Credits finalized for batch: {credit_tracker.get_batch_info()}")
         
         logger.info(f"🔍 DEBUG generate_smart_response - response type: {type(response)}")
         logger.info(f"🔍 DEBUG generate_smart_response - response: {response}")
@@ -615,7 +607,7 @@ async def generate_smart_response(messages: List[HumanMessage], user_id: str, ai
         try:
             await credit_tracker.finalize_batch(conversation_id=conversation_id)
         except Exception as finalize_error:
-            logger.error(f"Erreur finalisation batch après exception: {finalize_error}")
+            logger.error(f"Error finalizing batch after exception: {finalize_error}")
         return {"error": str(e)}
 
 
@@ -639,7 +631,7 @@ async def get_user_credentials_by_platform_account(platform: str, account_id: st
             return record
         return None
     except Exception as e:
-        logger.error(f'Error retrieving credentials {platform}:{account_id}: {e}')
+        logger.error(f'Error retrieving credentials for {platform}:{account_id}: {e}')
         return None
 
 async def send_typing_indicator_and_mark_read(platform: str, user_credentials: Dict[str, Any], contact_id: str, message_id: str=None) -> bool:
@@ -660,19 +652,19 @@ async def send_typing_indicator_and_mark_read(platform: str, user_credentials: D
                 result = await service.send_typing_and_mark_read(contact_id, message_id)
 
                 if result.get('success'):
-                    logger.info(f'📱 Instagram: Sender actions réussis vers {contact_id} - {result.get("message")}')
+                    logger.info(f'Instagram: Sender actions successful to {contact_id} - {result.get("message")}')
                 else:
-                    logger.warning(f'❌ Échec sender actions Instagram vers {contact_id}: {result.get("error")}')
+                    logger.warning(f'❌ Failed sender actions Instagram to {contact_id}: {result.get("error")}')
 
                 return result.get('success', False)
             else:
                 logger.warning('Message ID requis pour Instagram sender actions')
                 return False
         else:
-            logger.error(f'Plateforme non supportée pour indicateur de frappe: {platform}')
+            logger.error(f'Platform not supported for typing indicator: {platform}')
             return False
     except Exception as e:
-        logger.error(f'Erreur envoi indicateur de frappe {platform}: {e}')
+        logger.error(f'Error sending typing indicator for {platform}: {e}')
         return False
 
 async def send_response(platform: str, user_credentials: Dict[str, Any], contact_id: str, content: str) -> bool:
@@ -688,7 +680,7 @@ async def send_response(platform: str, user_credentials: Dict[str, Any], contact
         else:
             return False
     except Exception as e:
-        logger.error(f'Erreur lors de l\'envoi de réponse {platform}: {e}')
+        logger.error(f'Error sending response for {platform}: {e}')
         return False
 
 def save_response_to_db(
@@ -719,7 +711,7 @@ def save_response_to_db(
         res = db.table('conversation_messages').insert(payload).execute()
         return res.data[0]['id'] if res.data else None
     except Exception as e:
-        logger.error(f'Erreur lors de la sauvegarde de réponse en BDD: {e}')
+        logger.error(f'Error saving response to database: {e}')
 
 
 
@@ -868,8 +860,6 @@ async def extract_instagram_message_content(message: Dict[str, Any], user_creden
 
     if not message:
         return None
-
-
     message_type = 'text'  
 
     if 'text' in message:
@@ -1005,7 +995,7 @@ async def extract_instagram_message_content(message: Dict[str, Any], user_creden
             metadata={'unsupported_type': 'story_mention'}
         )
     else:
-        logger.warning(f"Type de message Instagram non supporté: {message_type}")
+        logger.warning(f"Type of Instagram message not supported: {message_type}")
         return UnifiedMessageContent(
             content='This Type of message is not supported yet',
             token_count=0,
@@ -1034,7 +1024,7 @@ async def save_unified_message(request: MessageSaveRequest) -> MessageSaveRespon
         if not conversation_id:
             return MessageSaveResponse(
                 success=False,
-                error=f"Impossible de créer/récupérer la conversation pour {request.extracted_message.message_from}"
+                error=f"Unable to create/retrieve the conversation for {request.extracted_message.message_from}"
             )
 
 
@@ -1122,7 +1112,7 @@ async def update_instagram_conversation_profile(
     try:
         db.table('conversations').update(update_payload).eq('id', conversation_id).execute()
     except Exception as exc:
-        logger.error(f"Error updating Instagram profile for conversation {conversation_id}: {exc}")
+        logger.error(f"Error updating Instagram profile for conversation {conversation_id}: {e}")
 
 async def fetch_instagram_user_profile(instagram_user_id: str, access_token: str) -> Optional[Dict[str, Any]]:
     import httpx

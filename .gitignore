@@ -242,3 +242,6 @@ node_modules/
 supabase/
 node_modules/
 migrations/
+.claude/
+.agent/
+./enterprise_setup/

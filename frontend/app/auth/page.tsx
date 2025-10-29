@@ -1,13 +1,18 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { supabase } from '@/lib/supabase'
-import { logos } from '@/lib/logos'
 
 export default function AuthPage() {
   const router = useRouter()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
@@ -19,22 +24,27 @@ export default function AuthPage() {
     return () => subscription.unsubscribe()
   }, [router])
 
-  // Gestionnaire pour la connexion Google
-  const handleGoogleSignIn = async () => {
+  // Gestionnaire pour la connexion email/password
+  const handleEmailSignIn = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`
-        }
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       })
+
       if (error) {
-        console.error('Erreur de connexion Google:', error)
-        alert('Erreur lors de la connexion avec Google')
+        console.error('Erreur de connexion:', error)
+        setError('Email ou mot de passe incorrect')
       }
     } catch (err) {
       console.error('Erreur inattendue:', err)
-      alert('Une erreur inattendue s\'est produite')
+      setError('Une erreur inattendue s\'est produite')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -43,7 +53,7 @@ export default function AuthPage() {
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            ConversAI
+            SocialSync AI
           </h1>
           <p className="text-gray-600">
             Connectez-vous à votre compte pour gérer vos réseaux sociaux
@@ -54,35 +64,61 @@ export default function AuthPage() {
           <div className="space-y-6">
             <div className="text-center">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                Connexion à ConversAI
+                Connexion
               </h2>
               <p className="text-gray-600 text-sm">
-                Connectez-vous avec votre compte Google pour accéder à votre tableau de bord
+                Entrez vos identifiants pour accéder au dashboard
               </p>
             </div>
 
-            <div className="space-y-4">
+            <form onSubmit={handleEmailSignIn} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="demo@socialsync.ai"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password">Mot de passe</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              {error && (
+                <div className="text-red-600 text-sm bg-red-50 p-3 rounded">
+                  {error}
+                </div>
+              )}
+
               <Button
-                onClick={handleGoogleSignIn}
-                className="w-full bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center justify-center space-x-3 py-3"
+                type="submit"
+                className="w-full"
+                disabled={loading}
               >
-                <img src={logos.google} alt="Google" className="w-5 h-5" />
-                <span>Continuer avec Google</span>
+                {loading ? 'Connexion...' : 'Se connecter'}
               </Button>
 
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300" />
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-gray-500">ou</span>
-                </div>
-              </div>
-
               <div className="text-center text-sm text-gray-600">
-                En vous connectant, vous acceptez nos conditions d'utilisation
+                <p className="font-medium">🚀 Version Open-Source</p>
+                <p className="text-xs mt-1">
+                  Créez un utilisateur avec <code className="bg-gray-100 px-1 rounded">python scripts/seed_users.py</code>
+                </p>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       </div>

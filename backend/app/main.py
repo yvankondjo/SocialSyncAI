@@ -12,8 +12,6 @@ from app.routers import (
     faq_qa,
     ai_settings,
     media,
-    subscriptions,
-    stripe,
     scheduled_posts,
     ai_rules,
     comments,
@@ -79,8 +77,6 @@ app.include_router(knowledge_documents.router, prefix="/api")
 app.include_router(faq_qa.router, prefix="/api")
 app.include_router(ai_settings.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
-app.include_router(subscriptions.router, prefix="/api")
-app.include_router(stripe.router, prefix="/api")
 
 # Nouvelles routes PRD2
 from app.routers import support

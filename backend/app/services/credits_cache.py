@@ -1,5 +1,6 @@
 import logging
 import json
+import time
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 import asyncio
@@ -204,7 +205,7 @@ class CreditsCacheService:
         Returns:
             Dict with 'success', 'transaction', 'error'
         """
-        lock_value = f"deduct-{user_id}-{asyncio.get_event_loop().time()}"
+        lock_value = f"deduct-{user_id}-{time.time()}"
         max_retries = 3
         retry_delay = 0.1
 

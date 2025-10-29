@@ -64,7 +64,7 @@ def create_schedule_post_tool(user_id: str, supabase_client):
     """Factory function to create schedule_post tool with user_id and database"""
 
     @tool
-    async def schedule_post(
+    def schedule_post(
         platform: str,
         content_text: str,
         publish_at: str,
@@ -77,22 +77,67 @@ def create_schedule_post_tool(user_id: str, supabase_client):
         The post must be scheduled for a future date/time.
 
         Args:
-            platform: The platform to post to (whatsapp, instagram, facebook, twitter)
+            platform: The platform to post to (instagram, whatsapp, facebook, twitter) - LOWERCASE ONLY
             content_text: The text content of the post
-            publish_at: When to publish in ISO format (YYYY-MM-DDTHH:MM:SS)
+            publish_at: When to publish in ISO format (YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS)
             media_urls: Optional list of media URLs to attach
 
         Returns:
             SchedulePostResult with success status and details
         """
         try:
-            publish_datetime = datetime.fromisoformat(publish_at.replace('Z', '+00:00'))
-            if publish_datetime <= datetime.now(publish_datetime.tzinfo):
+            # Normalize platform name to lowercase
+            platform = platform.lower().strip()
+
+            logger.info(f"Attempting to schedule post - user_id: {user_id}, platform: {platform}, publish_at: {publish_at}")
+
+            # Validate platform
+            valid_platforms = ['instagram', 'whatsapp', 'facebook', 'twitter']
+            if platform not in valid_platforms:
                 return SchedulePostResult(
                     success=False,
-                    message="Cannot schedule posts in the past. Please choose a future date/time."
+                    message=f"Invalid platform '{platform}'. Must be one of: {', '.join(valid_platforms)}"
                 )
 
+            # Parse date with multiple format support
+            publish_datetime = None
+            date_formats = [
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M",
+                "%Y-%m-%d %H:%M",
+            ]
+
+            # Try ISO format first
+            try:
+                publish_datetime = datetime.fromisoformat(publish_at.replace('Z', '+00:00'))
+            except ValueError:
+                # Try other common formats
+                for fmt in date_formats:
+                    try:
+                        publish_datetime = datetime.strptime(publish_at, fmt)
+                        break
+                    except ValueError:
+                        continue
+
+            if not publish_datetime:
+                return SchedulePostResult(
+                    success=False,
+                    message=f"Invalid date format '{publish_at}'. Use ISO format: YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD HH:MM:SS"
+                )
+
+            logger.info(f"Parsed datetime: {publish_datetime}")
+
+            # Check if date is in the future
+            now = datetime.now(publish_datetime.tzinfo) if publish_datetime.tzinfo else datetime.now()
+            if publish_datetime <= now:
+                return SchedulePostResult(
+                    success=False,
+                    message=f"Cannot schedule posts in the past. Specified time: {publish_datetime}, Current time: {now}"
+                )
+
+            # Query for active social account
+            logger.info(f"Querying social_accounts for user_id={user_id}, platform={platform}")
             channels_result = supabase_client.table("social_accounts")\
                 .select("id, platform, username")\
                 .eq("user_id", user_id)\
@@ -101,18 +146,23 @@ def create_schedule_post_tool(user_id: str, supabase_client):
                 .limit(1)\
                 .execute()
 
+            logger.info(f"Social accounts query result: {len(channels_result.data) if channels_result.data else 0} accounts found")
+
             if not channels_result.data:
                 return SchedulePostResult(
                     success=False,
-                    message=f"No active {platform} account found. Please connect a {platform} account first."
+                    message=f"No active {platform} account found. Please connect a {platform} account first in /dashboard/connect"
                 )
 
             channel = channels_result.data[0]
+            logger.info(f"Found channel: {channel['id']} (@{channel['username']})")
 
             media = None
             if media_urls:
                 media = [{"type": "image", "url": url} for url in media_urls]
 
+            # Convert datetime to ISO format string for database
+            publish_at_iso = publish_datetime.isoformat()
 
             post_data = {
                 "user_id": user_id,
@@ -122,10 +172,12 @@ def create_schedule_post_tool(user_id: str, supabase_client):
                     "text": content_text,
                     "media": media
                 },
-                "publish_at": publish_at,
+                "publish_at": publish_at_iso,
                 "status": "queued",
                 "retry_count": 0
             }
+
+            logger.info(f"Inserting scheduled post: channel_id={channel['id']}, platform={platform}, publish_at={publish_at_iso}")
 
             result = supabase_client.table("scheduled_posts")\
                 .insert(post_data)\
@@ -133,26 +185,29 @@ def create_schedule_post_tool(user_id: str, supabase_client):
 
             if result.data:
                 post = result.data[0]
+                logger.info(f"Successfully created scheduled post: post_id={post['id']}")
                 return SchedulePostResult(
                     success=True,
                     post_id=post["id"],
-                    scheduled_for=publish_at,
+                    scheduled_for=publish_at_iso,
                     platform=platform,
-                    message=f"Post successfully scheduled for {publish_at} on {platform} (@{channel['username']})"
+                    message=f"✅ Post successfully scheduled for {publish_datetime.strftime('%Y-%m-%d at %H:%M')} on {platform} (@{channel['username']})"
                 )
             else:
+                logger.error(f"Failed to insert scheduled post - no data returned from database")
                 return SchedulePostResult(
                     success=False,
-                    message="Failed to create scheduled post"
+                    message="Failed to create scheduled post in database"
                 )
 
         except ValueError as e:
+            logger.error(f"ValueError in schedule_post: {e}", exc_info=True)
             return SchedulePostResult(
                 success=False,
                 message=f"Invalid date format. Use ISO format (YYYY-MM-DDTHH:MM:SS): {str(e)}"
             )
         except Exception as e:
-            logger.error(f"Error scheduling post: {e}")
+            logger.error(f"Unexpected error in schedule_post: {e}", exc_info=True)
             return SchedulePostResult(
                 success=False,
                 message=f"Error scheduling post: {str(e)}"
@@ -177,7 +232,7 @@ def create_preview_post_tool(user_id: str):
         platform-specific formatting, and suggestions for improvement.
 
         Args:
-            platform: The platform to preview for (whatsapp, instagram, facebook, twitter)
+            platform: The platform to preview for (instagram, whatsapp, facebook, twitter) - LOWERCASE ONLY
             content_text: The text content to preview
             media_urls: Optional list of media URLs
 
@@ -185,10 +240,14 @@ def create_preview_post_tool(user_id: str):
             PreviewPostResult with preview details and suggestions
         """
         try:
+            # Normalize platform name to lowercase
+            platform = platform.lower().strip()
+
+            logger.info(f"Previewing post for platform: {platform}, content length: {len(content_text)}")
+
             char_count = len(content_text)
             has_media = media_urls and len(media_urls) > 0
 
-        
             platform_notes = []
             suggestions = []
 

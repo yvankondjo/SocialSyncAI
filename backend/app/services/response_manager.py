@@ -344,7 +344,7 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
             message_data=message_data,
             conversation_message_id=save_response.conversation_message_id
         )
-
+        
         success = await add_message_to_batch_unified(batch_request)
 
         if not success:
@@ -1118,14 +1118,29 @@ async def fetch_instagram_user_profile(instagram_user_id: str, access_token: str
     import httpx
     url = f"https://graph.instagram.com/v23.0/{instagram_user_id}"
     params = {
+        # Use correct fields for Instagram User Profile API (messaging)
+        # profile_pic is the correct field for Instagram User IDs from messaging
         "fields": "name,username,profile_pic",
         "access_token": access_token
     }
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params)
+            response = await client.get(url, params=params, timeout=10.0)
+
+            # If 400 error, the ID might be a business account - try alternative fields
+            if response.status_code == 400:
+                logger.warning(f"Trying alternative fields for Instagram ID {instagram_user_id}")
+                params["fields"] = "name,username,profile_picture_url"
+                response = await client.get(url, params=params, timeout=10.0)
+
             response.raise_for_status()
-            return response.json()
+            profile = response.json()
+
+            # Normalize field names: map profile_picture_url to profile_pic
+            if 'profile_picture_url' in profile and 'profile_pic' not in profile:
+                profile['profile_pic'] = profile['profile_picture_url']
+
+            return profile
     except Exception as exc:
         logger.error(f"Error retrieving Instagram profile {instagram_user_id}: {exc}")
         return None

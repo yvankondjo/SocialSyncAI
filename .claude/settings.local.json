@@ -30,7 +30,19 @@
       "Bash(python:*)",
       "Bash(python test_topic_modeling_refactoring.py:*)",
       "Bash(chmod:*)",
-      "Bash(./run_all_rag_tests.sh:*)"
+      "Bash(./run_all_rag_tests.sh:*)",
+      "Bash(find:*)",
+      "Bash(docker-compose ps:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker restart:*)",
+      "Bash(docker inspect:*)",
+      "Bash(wait)",
+      "Bash(sed:*)",
+      "Bash(curl:*)",
+      "Bash(docker-compose:*)",
+      "Bash(docker cp:*)",
+      "Bash(timeout 180 python:*)",
+      "Bash(timeout 120 python:*)"
     ],
     "deny": [],
     "ask": []
@@ -39,6 +51,7 @@
   "enabledMcpjsonServers": [
     "context7",
     "playwright",
-    "shadcn"
+    "shadcn",
+    "supabase"
   ]
 }

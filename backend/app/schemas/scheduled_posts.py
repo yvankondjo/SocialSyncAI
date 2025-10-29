@@ -3,7 +3,7 @@ Pydantic schemas for Scheduled Posts feature
 """
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 
 
@@ -63,9 +63,19 @@ class ScheduledPostCreate(BaseModel):
     @field_validator('publish_at')
     @classmethod
     def validate_publish_at(cls, v):
-        """Ensure publish_at is in the future"""
-        if v <= datetime.utcnow():
-            raise ValueError("publish_at must be in the future")
+        """Ensure publish_at is in the future (with 2-minute tolerance for 'Post Now')"""
+        # Make v timezone-aware if it's naive
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+
+        # Get current time in UTC (timezone-aware)
+        now_utc = datetime.now(timezone.utc)
+
+        # Allow publish_at to be up to 2 minutes in the past (for "Post Now" functionality)
+        tolerance = timedelta(minutes=2)
+        if v < (now_utc - tolerance):
+            raise ValueError(f"publish_at must be in the future (within 2 minutes tolerance). Got: {v}, Current UTC: {now_utc}")
+
         return v
 
 
@@ -79,9 +89,20 @@ class ScheduledPostUpdate(BaseModel):
     @field_validator('publish_at')
     @classmethod
     def validate_publish_at(cls, v):
-        """Ensure publish_at is in the future if provided"""
-        if v and v <= datetime.utcnow():
-            raise ValueError("publish_at must be in the future")
+        """Ensure publish_at is in the future if provided (with 2-minute tolerance)"""
+        if v:
+            # Make v timezone-aware if it's naive
+            if v.tzinfo is None:
+                v = v.replace(tzinfo=timezone.utc)
+
+            # Get current time in UTC (timezone-aware)
+            now_utc = datetime.now(timezone.utc)
+
+            # Allow publish_at to be up to 2 minutes in the past
+            tolerance = timedelta(minutes=2)
+            if v < (now_utc - tolerance):
+                raise ValueError(f"publish_at must be in the future (within 2 minutes tolerance). Got: {v}, Current UTC: {now_utc}")
+
         return v
 
 

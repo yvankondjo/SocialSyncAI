@@ -1,33 +1,70 @@
 {
-  "name": "SocialSync Dev",
+  "name": "SocialSync AI - Full Dev Environment",
   "dockerComposeFile": "docker-compose.yml",
   "service": "dev",
   "workspaceFolder": "/workspace",
-
-  "forwardPorts": [3000, 3001, 8000, 8001, 6380],
+  "forwardPorts": [3000, 8000, 5555, 6380],
+  "portsAttributes": {
+    "3000": {
+      "label": "Frontend",
+      "onAutoForward": "notify"
+    },
+    "8000": {
+      "label": "Backend API",
+      "onAutoForward": "notify"
+    },
+    "5555": {
+      "label": "Flower",
+      "onAutoForward": "silent"
+    },
+    "6380": {
+      "label": "Redis",
+      "onAutoForward": "silent"
+    }
+  },
 
   "customizations": {
     "vscode": {
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash",
-        "python.defaultInterpreterPath": "/usr/bin/python3"
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": true,
+        "python.formatting.provider": "black",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": "explicit"
+        },
+        "files.watcherExclude": {
+          "**/.git/objects/**": true,
+          "**/.git/subtree-cache/**": true,
+          "**/node_modules/**": true,
+          "**/.next/**": true,
+          "**/__pycache__/**": true,
+          "**/.pytest_cache/**": true
+        }
       },
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
         "esbenp.prettier-vscode",
         "dbaeumer.vscode-eslint",
         "bradlc.vscode-tailwindcss",
         "anthropic.claude-code",
-        "ms-playwright.playwright"
+        "ms-playwright.playwright",
+        "ms-azuretools.vscode-docker"
       ]
     }
   },
-
   "mounts": [
     "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
-    "source=${localEnv:HOME}/.claude,target=/home/dev/.claude,type=bind,consistency=cached"
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached"
   ],
-  
-  "postStartCommand": "DOCKER_GID=$(stat -c %g /var/run/docker.sock) && sudo groupadd -fg $DOCKER_GID docker || true && sudo usermod -aG docker dev && sudo chown -R dev:dev /home/dev/.claude"
+  "postStartCommand": "bash -lc 'sudo chown -R vscode:vscode /home/vscode/.claude 2>/dev/null || true && export PYTHONPATH=/workspace/backend:$PYTHONPATH && echo \"✅ Dev container ready!\"'",
+  "remoteEnv": { "PYTHONUNBUFFERED": "1", "PYTHONDONTWRITEBYTECODE": "1" },
+  "features": {
+  "ghcr.io/devcontainers/features/docker-in-docker:2": { "version": "latest", "moby": false }
+}
+
 }

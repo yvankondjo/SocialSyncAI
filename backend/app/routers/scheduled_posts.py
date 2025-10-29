@@ -83,6 +83,10 @@ async def list_scheduled_posts(
 
     if status:
         query = query.eq("status", status)
+    else:
+        # By default, exclude cancelled posts
+        query = query.neq("status", PostStatus.CANCELLED.value)
+
     if channel_id:
         query = query.eq("channel_id", channel_id)
     if platform:

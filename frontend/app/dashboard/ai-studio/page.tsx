@@ -1,9 +1,19 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { AIStudioService } from '@/lib/api/ai-studio';
 import { useConversations } from '@/hooks/use-conversations';
 import { ConversationHistory } from '@/components/ai-studio/conversation-history';
@@ -26,12 +36,51 @@ const WELCOME_MESSAGE: Message = {
 };
 
 export default function AIStudioPage() {
+  const queryClient = useQueryClient();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('openai/gpt-4o');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tempSystemPrompt, setTempSystemPrompt] = useState('');
+  const [tempModel, setTempModel] = useState('openai/gpt-4o');
+  const [tempTemperature, setTempTemperature] = useState(0.7);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Fetch AI Studio settings from API
+  const {
+    data: settings,
+    isLoading: settingsLoading,
+    error: settingsError,
+  } = useQuery({
+    queryKey: ['ai-studio', 'settings'],
+    queryFn: () => AIStudioService.getSettings(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+
+  // Mutation for updating settings
+  const updateSettingsMutation = useMutation({
+    mutationFn: (data: { default_system_prompt?: string | null; default_model?: string; temperature?: number }) =>
+      AIStudioService.updateSettings(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-studio', 'settings'] });
+    },
+  });
+
+  // Get current values from settings or defaults
+  const systemPrompt = settings?.default_system_prompt || null;
+  const defaultModel = settings?.default_model || 'openai/gpt-4o';
+  const temperature = settings?.temperature || 0.7;
+
+  // Local state for current session model (can be changed per conversation)
+  const [selectedModel, setSelectedModel] = useState(defaultModel);
+
+  // Update selectedModel when settings load
+  useEffect(() => {
+    if (settings?.default_model) {
+      setSelectedModel(settings.default_model);
+    }
+  }, [settings?.default_model]);
 
   const {
     currentConversation,
@@ -96,6 +145,7 @@ export default function AIStudioPage() {
         thread_id: currentConversation?.threadId || `thread-${Date.now()}`,
         message: userMessage.content,
         model: selectedModel,
+        system_prompt: systemPrompt || undefined, // Pass custom system prompt if set
       });
 
       const aiMessage: Message = {
@@ -110,6 +160,9 @@ export default function AIStudioPage() {
       updateConversation(currentConversationId, {
         messages: [...updatedMessages, aiMessage],
       });
+
+      // Invalidate conversations list to sync with backend
+      queryClient.invalidateQueries({ queryKey: ['ai-studio', 'conversations'] });
     } catch (error) {
       console.error('Error creating content:', error);
       const errorMessage: Message = {
@@ -143,6 +196,27 @@ export default function AIStudioPage() {
 
   const handleRenameConversation = (id: string, newTitle: string) => {
     updateConversation(id, { title: newTitle });
+  };
+
+  const handleOpenSettings = () => {
+    // Load current settings into temp state
+    setTempSystemPrompt(systemPrompt || '');
+    setTempModel(selectedModel);
+    setTempTemperature(temperature);
+    setSettingsOpen(true);
+  };
+
+  const handleSaveSettings = async () => {
+    try {
+      await updateSettingsMutation.mutateAsync({
+        default_system_prompt: tempSystemPrompt || null,
+        default_model: tempModel,
+        temperature: tempTemperature,
+      });
+      setSettingsOpen(false);
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+    }
   };
 
   const messages = currentConversation?.messages || [WELCOME_MESSAGE];
@@ -184,6 +258,7 @@ export default function AIStudioPage() {
             <Button
               variant="ghost"
               size="icon"
+              onClick={handleOpenSettings}
               className="h-9 w-9"
             >
               <Settings className="h-4 w-4" />
@@ -194,9 +269,9 @@ export default function AIStudioPage() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col items-center overflow-hidden">
-        <div className="w-full max-w-3xl flex flex-col flex-1">
+        <div className="w-full max-w-3xl flex flex-col h-full">
           {/* Messages */}
-          <ScrollArea ref={scrollAreaRef} className="flex-1 px-4">
+          <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0 px-4">
             <div className="py-8 space-y-6">
               {messages.map((message: Message) => (
                 <MessageBubble key={message.id} message={message} />
@@ -248,6 +323,44 @@ export default function AIStudioPage() {
         onRenameConversation={handleRenameConversation}
         onSearch={searchConversations}
       />
+
+      {/* Settings Dialog */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>AI Studio Settings</DialogTitle>
+            <DialogDescription>
+              Configure your AI assistant defaults for model, temperature, and system prompt.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="system-prompt">Custom System Prompt (Optional)</Label>
+              <Textarea
+                id="system-prompt"
+                value={tempSystemPrompt}
+                onChange={(e) => setTempSystemPrompt(e.target.value)}
+                placeholder="Leave empty to use default content creation prompt..."
+                className="min-h-[150px] resize-none"
+              />
+              <p className="text-xs text-muted-foreground">
+                Custom system prompt to override the default behavior. Leave empty to use the built-in content creation assistant prompt.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSettingsOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveSettings}
+              disabled={updateSettingsMutation.isPending}
+            >
+              {updateSettingsMutation.isPending ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

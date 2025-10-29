@@ -21,8 +21,8 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 from pydantic import BaseModel, Field
 from bertopic import BERTopic
-from bertopic.representation import LangChain as BERTopicLangChain
-from langchain_google_genai import ChatGoogleGenerativeAI
+from bertopic.representation import OpenAI
+from openai import OpenAI as OpenAIClient
 
 from app.db.session import get_db
 from app.services.ingest_helpers import embed_texts
@@ -46,84 +46,110 @@ class TopicModelingService:
         self.user_id = user_id
 
         gemini_api_key = os.getenv("GEMINI_API_KEY")
-        if not gemini_api_key:
-            raise ValueError("GEMINI_API_KEY not set")
+        gemini_base_url = os.getenv("GEMINI_BASE_URL")
+        if not gemini_api_key or not gemini_base_url:
+            raise ValueError("GEMINI_API_KEY or GEMINI_BASE_URL not set")
 
-        # Initialize LangChain Gemini LLM for topic naming
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash-exp",
-            temperature=0,
-            google_api_key=gemini_api_key
+        # Create OpenAI-compatible client for Gemini
+        openai_client = OpenAIClient(
+            api_key=gemini_api_key,
+            base_url=gemini_base_url
         )
 
-        # Create BERTopic representation model for automatic topic naming
-        self.representation_model = BERTopicLangChain(llm)
+        self.representation_model = OpenAI(
+            client=openai_client,
+            model="gemini-2.5-flash",
+            delay_in_seconds=1,
+            chat=True
+        )
 
         self.db = get_db()
         self.bucket_name = "bertopic-models"
         self.storage_prefix = f"{user_id}/"
 
-    # =====================================================
-    # MESSAGES & EMBEDDINGS (ON-THE-FLY GENERATION)
-    # =====================================================
-
     async def get_recent_messages_and_generate_embeddings(
         self,
-        hours_lookback: int = 24
+        hours_lookback: Optional[int] = 24
     ) -> Tuple[List[str], np.ndarray, List[str]]:
         """
         Fetch recent inbound messages and generate embeddings on-the-fly
 
         Args:
-            hours_lookback: Number of hours to look back (default: 24)
+            hours_lookback: Number of hours to look back (default: 24, None = all messages)
 
         Returns:
             Tuple of (message_ids, embeddings_array, message_texts)
         """
         try:
-            # Calculate date range
             date_end = datetime.now(timezone.utc)
-            date_start = date_end - timedelta(hours=hours_lookback)
 
-            logger.info(f"[TOPIC] Fetching messages from {date_start} to {date_end}")
+            if hours_lookback is None:
+                # Get ALL messages (for initial fit)
+                date_start = None
+                logger.info(f"[TOPIC] Fetching ALL historical messages (no time limit)")
+            else:
+                # Get messages from specific time window (for daily updates)
+                date_start = date_end - timedelta(hours=hours_lookback)
+                logger.info(f"[TOPIC] Fetching messages from {date_start} to {date_end}")
 
-            # Fetch recent inbound text messages
+            # Build query in 3 steps to avoid complex join syntax
+            # Step 1: Get social_account_ids for this user
+            accounts_result = self.db.table("social_accounts").select("id").eq("user_id", self.user_id).execute()
+
+            if not accounts_result.data:
+                logger.info(f"[TOPIC] No social accounts found for user {self.user_id}")
+                return [], np.array([]), []
+
+            social_account_ids = [acc["id"] for acc in accounts_result.data]
+
+            # Step 2: Get conversation_ids for these social_accounts
+            conversations_result = self.db.table("conversations").select("id").in_("social_account_id", social_account_ids).execute()
+
+            if not conversations_result.data:
+                logger.info(f"[TOPIC] No conversations found for user {self.user_id}")
+                return [], np.array([]), []
+
+            conversation_ids = [conv["id"] for conv in conversations_result.data]
+
+            # Step 3: Get messages for these conversations
             query = self.db.table("conversation_messages").select(
-                "id, conversation_id, text, conversations!inner(user_id)"
-            ).eq(
-                "conversations.user_id", self.user_id
+                "id, conversation_id, content"
+            ).in_(
+                "conversation_id", conversation_ids
             ).eq(
                 "direction", "inbound"
             ).eq(
                 "message_type", "text"
-            ).gte(
-                "created_at", date_start.isoformat()
-            ).lte(
-                "created_at", date_end.isoformat()
-            ).order("created_at", desc=False)
+            )
+
+            # Add time filters only if date_start is specified
+            if date_start is not None:
+                query = query.gte("created_at", date_start.isoformat())
+
+            query = query.lte("created_at", date_end.isoformat()).order("created_at", desc=False)
 
             result = query.execute()
 
             if not result.data:
-                logger.info(f"[TOPIC] No messages found in last {hours_lookback}h")
+                timeframe = "all time" if hours_lookback is None else f"last {hours_lookback}h"
+                logger.info(f"[TOPIC] No messages found in {timeframe}")
                 return [], np.array([]), []
 
-            # Extract data and filter out empty texts
             message_ids = []
             message_texts = []
             for row in result.data:
-                text = row["text"]
-                if text and text.strip():  # Filter out None and empty strings
+                content = row.get("content") or row.get("text", "")  # Support both field names
+                if content and content.strip():
                     message_ids.append(str(row["id"]))
-                    message_texts.append(text.strip())
+                    message_texts.append(content.strip())
 
             if len(message_texts) == 0:
-                logger.info(f"[TOPIC] No valid text messages found in last {hours_lookback}h (all empty)")
+                timeframe = "all time" if hours_lookback is None else f"last {hours_lookback}h"
+                logger.info(f"[TOPIC] No valid text messages found in {timeframe} (all empty)")
                 return [], np.array([]), []
 
             logger.info(f"[TOPIC] Found {len(message_texts)} valid messages")
 
-            # Generate embeddings on-the-fly (batch by 100)
             all_embeddings = []
             batch_size = 100
 
@@ -151,10 +177,6 @@ class TopicModelingService:
         except Exception as e:
             logger.error(f"[TOPIC] Error fetching messages and generating embeddings: {e}")
             raise
-
-    # =====================================================
-    # MODEL STORAGE (Supabase Storage)
-    # =====================================================
 
     async def upload_model_to_storage(
         self,
@@ -276,7 +298,8 @@ class TopicModelingService:
         min_documents: int = 10
     ) -> Optional[str]:
         """
-        Fit initial BERTopic model on last 24h messages
+        Fit initial BERTopic model on ALL historical messages
+        This is only called once when no model exists yet
 
         Args:
             min_documents: Minimum number of messages required (default: 10)
@@ -287,9 +310,9 @@ class TopicModelingService:
         try:
             logger.info(f"[TOPIC] Starting initial model fit for user {self.user_id}")
 
-            # Get messages from last 24h and generate embeddings on-the-fly
+            # Get ALL historical messages and generate embeddings on-the-fly
             message_ids, embeddings, message_texts = await self.get_recent_messages_and_generate_embeddings(
-                hours_lookback=24
+                hours_lookback=None  # None = ALL messages, not just 24h!
             )
 
             if len(message_ids) < min_documents:
@@ -327,9 +350,20 @@ class TopicModelingService:
             # Upload model to storage
             storage_path = await self.upload_model_to_storage(topic_model, version)
 
-            # Save model metadata
+            # Save model metadata with actual date range from messages
+            # For initial fit, we use the timestamp of first and last message
             date_range_end = datetime.now(timezone.utc)
-            date_range_start = date_range_end - timedelta(hours=24)
+
+            # Get the earliest message timestamp (if we have messages)
+            if message_texts:
+                # Fetch the actual timestamps of the messages we used
+                first_msg_result = self.db.table("conversation_messages").select("created_at").eq("id", message_ids[0]).execute()
+                if first_msg_result.data:
+                    date_range_start = datetime.fromisoformat(first_msg_result.data[0]["created_at"].replace('Z', '+00:00'))
+                else:
+                    date_range_start = date_range_end - timedelta(hours=24)
+            else:
+                date_range_start = date_range_end - timedelta(hours=24)
 
             self.db.table("bertopic_models").insert({
                 "user_id": self.user_id,

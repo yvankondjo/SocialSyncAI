@@ -229,23 +229,23 @@ async def handle_oauth_callback(
 
 @router.get("/", response_model=list[SocialAccount])
 async def get_social_accounts(
-    request: Request,
-    db: Client = Depends(get_authenticated_db)
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
 ):
     try:
         # RLS applique automatiquement le filtre user_id = auth.uid()
         response = db.table("social_accounts").select("*").execute()
         return response.data
     except Exception as e:
-        print(f"Error getting social accounts: {e}")
+        logger.error(f"Error getting social accounts for user {current_user_id}: {e}")
         raise HTTPException(status_code=500, detail="Could not get social accounts.")
 
 
 @router.delete("/{account_id}")
 async def delete_social_account(
     account_id: str,
-    request: Request,
-    db: Client = Depends(get_authenticated_db)
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
 ):
     try:
         # Vérifier que le compte appartient à l'utilisateur avant de le supprimer
@@ -261,5 +261,5 @@ async def delete_social_account(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error deleting social account: {e}")
+        logger.error(f"Error deleting social account {account_id} for user {current_user_id}: {e}")
         raise HTTPException(status_code=500, detail="Could not delete social account.")

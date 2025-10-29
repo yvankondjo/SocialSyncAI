@@ -9,10 +9,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useCreateScheduledPost } from '@/lib/api/scheduled-posts';
 import { SocialAccountsService, type SocialAccount } from '@/lib/api';
-import { format } from 'date-fns';
-import { Clock } from 'lucide-react';
+import { format, addMinutes } from 'date-fns';
+import { Clock, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CreatePostDialogProps {
@@ -24,6 +25,7 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
   const [channels, setChannels] = useState<SocialAccount[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState('');
   const [content, setContent] = useState('');
+  const [postMode, setPostMode] = useState<'now' | 'schedule'>('schedule');
   const [publishDate, setPublishDate] = useState<Date | undefined>(undefined);
   const [publishTime, setPublishTime] = useState('12:00');
   const [mediaUrl, setMediaUrl] = useState('');
@@ -41,9 +43,11 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
     try {
       setIsLoadingChannels(true);
       const { accounts } = await SocialAccountsService.getSocialAccounts();
-      setChannels(accounts.filter(a => a.is_active));
+      setChannels(Array.isArray(accounts) ? accounts.filter(a => a.is_active) : []);
     } catch (error) {
       console.error('Failed to load channels:', error);
+      // Set empty array on error to prevent crashes
+      setChannels([]);
     } finally {
       setIsLoadingChannels(false);
     }
@@ -52,13 +56,26 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!selectedChannelId || !content || !publishDate) {
+    if (!selectedChannelId || !content) {
       return;
     }
 
-    const [hours, minutes] = publishTime.split(':').map(Number);
-    const publishAt = new Date(publishDate);
-    publishAt.setHours(hours, minutes, 0, 0);
+    // If scheduling mode, require date selection
+    if (postMode === 'schedule' && !publishDate) {
+      return;
+    }
+
+    let publishAt: Date;
+
+    if (postMode === 'now') {
+      // Post now - set to current time + 1 minute to ensure it's in the future
+      publishAt = addMinutes(new Date(), 1);
+    } else {
+      // Scheduled post - use selected date and time
+      const [hours, minutes] = publishTime.split(':').map(Number);
+      publishAt = new Date(publishDate!);
+      publishAt.setHours(hours, minutes, 0, 0);
+    }
 
     const postData = {
       channel_id: selectedChannelId,
@@ -79,13 +96,16 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
   const handleClose = () => {
     setSelectedChannelId('');
     setContent('');
+    setPostMode('schedule');
     setPublishDate(undefined);
     setPublishTime('12:00');
     setMediaUrl('');
     onOpenChange(false);
   };
 
+  // Set minDate to start of today (00:00:00) to allow selecting today's date
   const minDate = new Date();
+  minDate.setHours(0, 0, 0, 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -123,6 +143,37 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Post Mode Selection */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">When to publish?</Label>
+            <RadioGroup value={postMode} onValueChange={(value) => setPostMode(value as 'now' | 'schedule')}>
+              <div className="flex items-center space-x-2 rounded-lg border border-border p-3 hover:border-primary/50 transition-colors">
+                <RadioGroupItem value="now" id="post-now" />
+                <Label htmlFor="post-now" className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <Send className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="font-medium">Post Now</p>
+                      <p className="text-xs text-muted-foreground">Publish immediately (within 1 minute)</p>
+                    </div>
+                  </div>
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2 rounded-lg border border-border p-3 hover:border-primary/50 transition-colors">
+                <RadioGroupItem value="schedule" id="post-schedule" />
+                <Label htmlFor="post-schedule" className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="font-medium">Schedule for Later</p>
+                      <p className="text-xs text-muted-foreground">Choose a specific date and time</p>
+                    </div>
+                  </div>
+                </Label>
+              </div>
+            </RadioGroup>
           </div>
 
           {/* Content */}
@@ -166,7 +217,8 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
             />
           </div>
 
-          {/* Publish Date & Time */}
+          {/* Publish Date & Time - Only show if scheduling */}
+          {postMode === 'schedule' && (
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2.5">
               <Label className="text-sm font-medium">
@@ -211,6 +263,7 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
               />
             </div>
           </div>
+          )}
 
           <DialogFooter className="gap-2 sm:gap-0 pt-4 border-t">
             <Button type="button" variant="outline" onClick={handleClose} className="h-10">
@@ -218,16 +271,16 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
             </Button>
             <Button
               type="submit"
-              disabled={createMutation.isPending || !selectedChannelId || !content || !publishDate}
+              disabled={createMutation.isPending || !selectedChannelId || !content || (postMode === 'schedule' && !publishDate)}
               className="h-10 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
             >
               {createMutation.isPending ? (
                 <>
                   <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-                  Scheduling...
+                  {postMode === 'now' ? 'Publishing...' : 'Scheduling...'}
                 </>
               ) : (
-                'Schedule Post'
+                postMode === 'now' ? 'Publish Now' : 'Schedule Post'
               )}
             </Button>
           </DialogFooter>

@@ -30,7 +30,8 @@ export function CalendarLayout() {
     delete: false,
   });
 
-  const { data: posts = [], isLoading } = useScheduledPosts({});
+  const { data, isLoading } = useScheduledPosts({});
+  const posts = data?.posts || [];
 
   const handleOpenDialog = (type: keyof typeof dialogState, post?: ScheduledPost) => {
     if (post) setSelectedPost(post);

@@ -29,7 +29,9 @@ export function CalendarGrid({ currentDate, posts, onPostClick }: CalendarGridPr
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
   // Group posts by day
-  const postsByDay = posts.reduce((acc, post) => {
+  // Ensure posts is always an array, even if API fails or returns unexpected data
+  const postsArray = Array.isArray(posts) ? posts : [];
+  const postsByDay = postsArray.reduce((acc, post) => {
     const dayKey = format(new Date(post.publish_at), 'yyyy-MM-dd');
     if (!acc[dayKey]) acc[dayKey] = [];
     acc[dayKey].push(post);

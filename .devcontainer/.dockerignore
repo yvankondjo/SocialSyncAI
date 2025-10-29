@@ -1,0 +1,23 @@
+# Root .dockerignore (applies when context is the repo root)
+.git
+**/.git
+**/.idea
+**/.vscode
+**/.history
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+**/build
+**/.cache
+**/__pycache__
+**/.pytest_cache
+**/.venv
+**/.mypy_cache
+**/*.log
+**/.DS_Store
+
+frontend/node_modules
+frontend/.next
+backend/.venv
+backend/__pycache__

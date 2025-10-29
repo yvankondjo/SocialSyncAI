@@ -6,6 +6,7 @@ import logging
 import operator
 import os
 from typing import List, Annotated, Optional, Literal
+from datetime import datetime, timedelta
 
 from langchain_core.messages import HumanMessage, AIMessage, AnyMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -58,11 +59,25 @@ When helping users create content:
 4. Use the schedule_post tool when the user is ready to schedule
 5. Provide actionable suggestions for improvement
 
+**IMPORTANT - Tool Usage Guidelines:**
+
+When using the `schedule_post` tool:
+- Platform names must be LOWERCASE: "instagram", "whatsapp", "facebook", or "twitter" (never "Instagram" or "Twitter")
+- Date format must be ISO 8601: "YYYY-MM-DDTHH:MM:SS" (e.g., "2025-10-26T14:30:00")
+- Always schedule for FUTURE dates only (at least 5 minutes from now)
+- CRITICAL: Use the current date/time provided above to calculate future dates
+- Example: If today is 2025-10-25, use "2025-10-26T15:00:00" for tomorrow at 3pm
+- Example tool call: schedule_post(platform="instagram", content_text="Great post!", publish_at="2025-10-26T15:00:00")
+
+When using the `preview_post` tool:
+- Use it BEFORE scheduling to check character count and get suggestions
+- Platform names must be lowercase: "instagram", "whatsapp", "facebook", or "twitter"
+
 Platforms you support:
-- **Instagram**: Focus on visual storytelling, use hashtags, first 125 chars matter
-- **Twitter**: Concise, punchy, use threads for longer content
-- **WhatsApp**: Direct and personal, great for community engagement
-- **Facebook**: Mix of personal and promotional, questions drive engagement
+- **instagram**: Focus on visual storytelling, use hashtags, first 125 chars matter (2,200 char limit)
+- **twitter**: Concise, punchy, use threads for longer content (280 char limit)
+- **whatsapp**: Direct and personal, great for community engagement (65k char limit)
+- **facebook**: Mix of personal and promotional, questions drive engagement (63k char limit)
 
 Always respond in a helpful, creative, and professional manner. Format your responses clearly using markdown."""
 
@@ -128,7 +143,30 @@ class ContentCreationAgent:
             messages = state.messages
 
             if len(messages) == 1 and isinstance(messages[0], HumanMessage):
-                messages = [SystemMessage(content=self.system_prompt)] + messages
+                # Inject current date/time context into system prompt
+                current_datetime = datetime.now()
+                current_date_str = current_datetime.strftime("%Y-%m-%d")
+                current_time_str = current_datetime.strftime("%H:%M:%S")
+                tomorrow_str = (current_datetime + timedelta(days=1)).strftime("%Y-%m-%d")
+                in_two_days_str = (current_datetime + timedelta(days=2)).strftime("%Y-%m-%d")
+
+                contextual_prompt = f"""**CURRENT DATE AND TIME:**
+Today's date: {current_date_str}
+Current time: {current_time_str}
+
+**IMPORTANT:** When the user says "tomorrow", "next week", etc., calculate the date based on TODAY ({current_date_str}).
+For example:
+- Tomorrow = {tomorrow_str}
+- In 2 days = {in_two_days_str}
+- Next Monday = (calculate from {current_date_str})
+
+Always use dates in the FUTURE (after {current_date_str}). Never use dates from 2023 or earlier.
+
+---
+
+{self.system_prompt}"""
+
+                messages = [SystemMessage(content=contextual_prompt)] + messages
 
             response = self.llm_with_tools.invoke(messages)
 
@@ -225,8 +263,85 @@ class ContentCreationAgent:
                 config=config
             )
 
+            # Auto-save conversation metadata
+            try:
+                self._save_conversation_metadata(config, result)
+            except Exception as metadata_error:
+                logger.warning(f"Failed to save conversation metadata: {metadata_error}")
+                # Don't fail the request if metadata save fails
+
             return result
 
         except Exception as e:
             logger.error(f"Error invoking Content Creation Agent: {e}")
             raise
+
+    def _save_conversation_metadata(self, config: dict, result: dict):
+        """
+        Save or update conversation metadata after each agent invocation
+        """
+        try:
+            from app.db.session import get_db
+
+            thread_id = config.get("configurable", {}).get("thread_id")
+            user_id = config.get("configurable", {}).get("user_id")
+
+            if not thread_id or not user_id:
+                logger.warning("Missing thread_id or user_id in config, skipping metadata save")
+                return
+
+            messages = result.get("messages", [])
+            if not messages:
+                return
+
+            # Generate title from first user message
+            title = self._generate_title(messages)
+            message_count = len([m for m in messages if isinstance(m, (HumanMessage, AIMessage))])
+
+            db = get_db()
+
+            # Check if metadata exists
+            existing = db.table("ai_studio_conversation_metadata")\
+                .select("*")\
+                .eq("thread_id", thread_id)\
+                .execute()
+
+            if existing.data and len(existing.data) > 0:
+                # Update existing metadata
+                db.table("ai_studio_conversation_metadata")\
+                    .update({
+                        "message_count": message_count,
+                        "updated_at": "NOW()"
+                    })\
+                    .eq("thread_id", thread_id)\
+                    .execute()
+            else:
+                # Insert new metadata
+                db.table("ai_studio_conversation_metadata")\
+                    .insert({
+                        "thread_id": thread_id,
+                        "user_id": user_id,
+                        "title": title,
+                        "model": self.model_name,
+                        "message_count": message_count
+                    })\
+                    .execute()
+
+            logger.info(f"Saved conversation metadata for thread {thread_id}")
+
+        except Exception as e:
+            logger.error(f"Error saving conversation metadata: {e}")
+            raise
+
+    def _generate_title(self, messages: list) -> str:
+        """
+        Generate conversation title from first user message
+        """
+        for msg in messages:
+            if isinstance(msg, HumanMessage):
+                content = msg.content
+                # Take first 50 chars or up to first newline
+                title = content.split('\n')[0][:50]
+                return title if len(title) < len(content) else title + "..."
+
+        return "New Conversation"

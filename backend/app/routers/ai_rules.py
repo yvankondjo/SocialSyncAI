@@ -143,7 +143,7 @@ async def check_message(
     """
     user_id = db.auth.get_user().user.id
 
-    service = AIDecisionService(db, user_id)
+    service = AIDecisionService(user_id)
     decision, confidence, reason, matched_rule = service.check_message(
         request.message_text,
         context_type=context_type

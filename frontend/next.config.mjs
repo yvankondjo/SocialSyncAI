@@ -1,24 +1,53 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  webpack: (config) => {
-    config.watchOptions = {
-      poll: 2000, // Réduire la fréquence de polling
-      aggregateTimeout: 600, // Augmenter l'agrégation
-      ignored: ['**/node_modules/**', '**/.git/**', '**/.next/**'],
-    };
-    // Optimisations pour Docker
-    config.cache = false;
+  // Webpack configuration for Docker hot reload
+  webpack: (config, { dev }) => {
+    if (dev) {
+      // Optimize for Docker development
+      config.watchOptions = {
+        poll: 2000, // Poll every 2 seconds
+        aggregateTimeout: 600,
+        ignored: [
+          '**/node_modules/**',
+          '**/.git/**',
+          '**/.next/**',
+          '**/public/**'
+        ],
+      };
+    }
+    
+    // Disable caching in development
+    if (dev) {
+      config.cache = false;
+    }
+    
     return config;
   },
-  // Optimisations générales
+
+  // Compiler options
   compiler: {
     removeConsole: process.env.NODE_ENV === 'production',
   },
+
+  // Transpile packages
   transpilePackages: ['lucide-react'],
-  // Note: optimizePackageImports est géré automatiquement dans Next.js 15
-  // Note: Les appels API utilisent maintenant la lib/api.ts avec NEXT_PUBLIC_API_URL
-  // Plus de proxy Next.js nécessaire
+
+  // Output for production (standalone for Docker)
+  output: process.env.NODE_ENV === 'production' ? 'standalone' : undefined,
+
+  // Disable telemetry
+  telemetry: false,
+
+  // React strict mode
+  reactStrictMode: true,
+
+  // Experimental features
+  experimental: {
+    // Optimize for Docker
+    turbotrace: {
+      contextDirectory: process.cwd(),
+    },
+  },
 };
 
 export default nextConfig;

@@ -4,6 +4,7 @@ import { AuthGuard } from '@/components/AuthGuard'
 import { Sidebar } from '@/components/sidebar-new'
 import { Header } from '@/components/header'
 import { useSidebarStore } from '@/hooks/useSidebarStore'
+import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 
 export default function DashboardLayout({
@@ -12,6 +13,11 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const { isCollapsed } = useSidebarStore()
+  const pathname = usePathname()
+
+  // Pages with their own custom headers
+  const pagesWithCustomHeader = ['/dashboard/ai-studio']
+  const hasCustomHeader = pagesWithCustomHeader.some(page => pathname.startsWith(page))
 
   return (
     <AuthGuard>
@@ -29,8 +35,11 @@ export default function DashboardLayout({
             isCollapsed ? "lg:ml-16" : "lg:ml-64"
           )}
         >
-          <Header />
-          <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-3 sm:space-y-4 lg:space-y-6 overflow-auto">
+          {!hasCustomHeader && <Header />}
+          <div className={cn(
+            "flex-1 space-y-3 sm:space-y-4 lg:space-y-6 overflow-auto",
+            !hasCustomHeader && "p-3 sm:p-4 lg:p-6"
+          )}>
             {children}
           </div>
         </div>

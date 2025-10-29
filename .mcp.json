@@ -11,6 +11,11 @@
     "shadcn": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "https://www.shadcn.io/api/mcp"]
+    },
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=dbsxoijxmnebrziedvwq&features=docs%2Cstorage%2Cdatabase%2Cfunctions%2Cbranching%2Cdebugging"
     }
+
   }
 }

@@ -10,6 +10,47 @@ from app.db.session import get_db
 
 logger = logging.getLogger(__name__)
 
+# Global event loop for this worker process (solo pool = 1 process)
+# Created once and reused across all tasks to avoid "Event loop is closed" errors
+_worker_loop = None
+
+
+def run_async_safe(coro):
+    """
+    Safely run an async coroutine in a Celery worker with a persistent event loop.
+
+    For solo pool workers, we maintain ONE event loop for the entire worker process.
+    This prevents "Event loop is closed" errors with Redis async connections.
+    """
+    global _worker_loop
+
+    try:
+        logger.debug(f"[DEBUG] run_async_safe: Current _worker_loop = {_worker_loop}")
+
+        # Create the loop once for this worker process
+        if _worker_loop is None:
+            logger.info("[DEBUG] Creating NEW persistent event loop for Celery worker (first time)")
+            _worker_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_worker_loop)
+            logger.debug(f"[DEBUG] Created new loop: {id(_worker_loop)}, is_closed={_worker_loop.is_closed()}")
+        elif _worker_loop.is_closed():
+            logger.warning("[DEBUG] Event loop was closed! Creating a new one...")
+            _worker_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_worker_loop)
+            logger.debug(f"[DEBUG] Created replacement loop: {id(_worker_loop)}, is_closed={_worker_loop.is_closed()}")
+        else:
+            logger.debug(f"[DEBUG] Reusing existing loop: {id(_worker_loop)}, is_closed={_worker_loop.is_closed()}")
+
+        # Run the coroutine using the persistent loop
+        logger.debug(f"[DEBUG] Running coroutine: {coro}")
+        result = _worker_loop.run_until_complete(coro)
+        logger.debug(f"[DEBUG] Coroutine completed successfully")
+        return result
+
+    except Exception as e:
+        logger.error(f"[DEBUG] Error in async task: {type(e).__name__}: {e}", exc_info=True)
+        raise
+
 
 
 
@@ -45,7 +86,7 @@ def process_document_task(self, document_id: str):
 
 
         # run async depuis tâche sync
-        chunks_ctx = asyncio.run(add_context_to_chunks(chunks, document_text=content, concurrency=8))
+        chunks_ctx = run_async_safe(add_context_to_chunks(chunks, document_text=content, concurrency=8))
 
         # 7) préparer rows + embeddins
         rows: List[Dict] = []
@@ -109,7 +150,7 @@ def scan_redis_batches_task(self):
         logger.debug("[BATCH_SCAN] Starting Redis batch scan")
 
         # Run the async processing function
-        asyncio.run(batch_scanner._process_due_conversations())
+        run_async_safe(batch_scanner._process_due_conversations())
 
         logger.debug("[BATCH_SCAN] Batch scan completed successfully")
 

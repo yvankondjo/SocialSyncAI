@@ -22,24 +22,57 @@ class MessageBatcher:
 
     def __init__(self, redis_url: str = None):
         self.redis_url = redis_url or os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-        self._redis_pool = None
-        self.batch_window_seconds = 2 
-        self.cache_ttl_hours = 0.5  
+        self._redis_pools = {}  # Store pools per event loop
+        self.batch_window_seconds = 2
+        self.cache_ttl_hours = 0.5
 
     async def get_redis(self) -> redis.Redis:
-        """Get a Redis connection from the pool"""
-        if not self._redis_pool:
-            self._redis_pool = redis.ConnectionPool.from_url(self.redis_url, decode_responses=True, max_connections=20)
-        return redis.Redis(connection_pool=self._redis_pool)
+        """
+        Get a Redis connection from a pool tied to the current event loop.
+
+        Creates a separate connection pool for each event loop to avoid
+        "Event loop is closed" errors in Celery workers.
+        """
+        try:
+            logger.debug("[DEBUG] get_redis: Getting running loop...")
+            # Get the current running loop
+            loop = asyncio.get_running_loop()
+            loop_id = id(loop)
+            logger.debug(f"[DEBUG] get_redis: Loop ID = {loop_id}, is_closed = {loop.is_closed()}")
+
+            # Create a pool for this loop if it doesn't exist
+            if loop_id not in self._redis_pools:
+                logger.info(f"[DEBUG] Creating new Redis connection pool for event loop {loop_id}")
+                self._redis_pools[loop_id] = redis.ConnectionPool.from_url(
+                    self.redis_url,
+                    decode_responses=True,
+                    max_connections=20
+                )
+            else:
+                logger.debug(f"[DEBUG] get_redis: Reusing existing pool for loop {loop_id}")
+
+            logger.debug(f"[DEBUG] get_redis: Creating Redis client from pool...")
+            client = redis.Redis(connection_pool=self._redis_pools[loop_id])
+            logger.debug(f"[DEBUG] get_redis: Redis client created successfully")
+            return client
+        except RuntimeError as e:
+            # No running loop - create a direct connection (fallback)
+            logger.error(f"[DEBUG] get_redis: RuntimeError - {e}")
+            logger.warning("No running event loop, creating direct Redis connection")
+            return redis.Redis.from_url(self.redis_url, decode_responses=True)
 
     @asynccontextmanager
     async def redis_connection(self):
-        """Context manager for Redis connections"""
+        """
+        Context manager for Redis connections.
+
+        Note: We DON'T close the client here because it uses a shared ConnectionPool.
+        Closing it would interfere with the pool's lifecycle and cause "Event loop is closed" errors
+        in async workers. The pool manages connections automatically.
+        """
         redis_client = await self.get_redis()
-        try:
-            yield redis_client
-        finally:
-            await redis_client.close()
+        yield redis_client
+        # Don't close - the connection pool is reused across calls
 
     def _get_conversation_key(self, platform: str, account_id: str, contact_id: str) -> str:
         """Base key for a conversation"""
@@ -117,21 +150,30 @@ class MessageBatcher:
         """
         Get the conversations whose deadline has expired
         """
-        async with self.redis_connection() as redis_client:
-            now_timestamp = int(datetime.now().timestamp())
-            due_conversations = await redis_client.zrangebyscore('conv:deadlines', 0, now_timestamp, withscores=True)
-            if due_conversations:
-                logger.info(f'Found {len(due_conversations)} due conversations: {[conv[0] for conv in due_conversations]}')
-            result = []
-            for conv_id, deadline_score in due_conversations:
-                try:
-                    platform, account_id, contact_id = conv_id.split(':', 2)
-                    base_key = self._get_conversation_key(platform, account_id, contact_id)
-                    conversation_id = await redis_client.get(f'{base_key}:conversation_id')
-                    result.append({'platform': platform, 'account_id': account_id, 'contact_id': contact_id, 'deadline': deadline_score, 'conversation_key': base_key, 'conversation_id': conversation_id})
-                except ValueError:
-                    logger.warning(f'Invalid conversation format: {conv_id}')
-            return result
+        logger.debug("[DEBUG] get_due_conversations: Starting...")
+        try:
+            logger.debug("[DEBUG] get_due_conversations: Entering redis_connection context...")
+            async with self.redis_connection() as redis_client:
+                logger.debug("[DEBUG] get_due_conversations: Got redis_client, querying deadlines...")
+                now_timestamp = int(datetime.now().timestamp())
+                due_conversations = await redis_client.zrangebyscore('conv:deadlines', 0, now_timestamp, withscores=True)
+                logger.debug(f"[DEBUG] get_due_conversations: Found {len(due_conversations)} due conversations")
+                if due_conversations:
+                    logger.info(f'Found {len(due_conversations)} due conversations: {[conv[0] for conv in due_conversations]}')
+                result = []
+                for conv_id, deadline_score in due_conversations:
+                    try:
+                        platform, account_id, contact_id = conv_id.split(':', 2)
+                        base_key = self._get_conversation_key(platform, account_id, contact_id)
+                        conversation_id = await redis_client.get(f'{base_key}:conversation_id')
+                        result.append({'platform': platform, 'account_id': account_id, 'contact_id': contact_id, 'deadline': deadline_score, 'conversation_key': base_key, 'conversation_id': conversation_id})
+                    except ValueError:
+                        logger.warning(f'Invalid conversation format: {conv_id}')
+                logger.debug(f"[DEBUG] get_due_conversations: Returning {len(result)} results")
+                return result
+        except Exception as e:
+            logger.error(f"[DEBUG] get_due_conversations: Exception - {type(e).__name__}: {e}", exc_info=True)
+            raise
 
     async def process_batch_for_conversation(self, platform: str, account_id: str, contact_id: str, conversation_key: str, conversation_id: str) -> Optional[Dict[str, Any]]:
         """

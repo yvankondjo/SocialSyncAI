@@ -1,135 +1,356 @@
-version: "3.9"
+# ==============================================================================
+# Docker Compose - FINAL OPTIMIZED VERSION
+# Optimized for: 16GB RAM, Hot Reload, Stability
+# ==============================================================================
 
 services:
+  # ============================================================================
+  # DEV CONTAINER (VSCode + Claude Code)
+  # ============================================================================
   dev:
     build:
-      context: ..
-      dockerfile: .devcontainer/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     volumes:
       - ..:/workspace:cached
     command: sleep infinity
-    ports:
-      - "8001:8000"
-      - "3001:3000"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # ============================================================================
+  # BACKEND (FastAPI) - Hot Reload Enabled
+  # ============================================================================
   backend:
     build:
       context: ../backend
       dockerfile: Dockerfile
     volumes:
       - ../backend:/app
+    user: "1000:1000"  # appuser UID/GID
     env_file:
       - ../backend/.env
     ports:
       - "8000:8000"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # ============================================================================
+  # FRONTEND (Next.js) - Hot Reload Enabled
+  # ============================================================================
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+      target: development
     volumes:
       - ../frontend:/app
       - /app/node_modules
+      - /app/.next
+    user: "1001:1001"  # nextjs UID/GID
     env_file:
       - ../frontend/.env.local
     environment:
+      - NODE_ENV=development
       - WATCHPACK_POLLING=true
       - CHOKIDAR_USEPOLLING=true
-      - CHOKIDAR_INTERVAL=1000
+      - CHOKIDAR_INTERVAL=2000
+      - API_URL_INTERNAL=http://backend:8000
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+          cpus: '1.5'
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # ============================================================================
+  # CELERY WORKERS - Optimized for 16GB RAM
+  # ============================================================================
   celery-worker-batching:
     build:
       context: ../backend
       dockerfile: Dockerfile
     command: >
-      sh -c "celery -A app.workers.celery_app worker -Q batching -E -l info -n batching@%h --pool=solo"
-    volumes:
-      - ../backend:/app
+      sh -c "celery -A app.workers.celery_app worker
+      -Q batching
+      -E
+      -l info
+      -n batching@%h
+      --pool=solo
+      --concurrency=1
+      --max-memory-per-child=300000"
     env_file:
       - ../backend/.env
-    environment:
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
-      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d batching@$HOSTNAME"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   celery-worker-ingest:
     build:
       context: ../backend
       dockerfile: Dockerfile
     command: >
-      sh -c "celery -A app.workers.celery_app worker -Q ingest -E -l info -n ingest@%h"
-    volumes:
-      - ../backend:/app
+      sh -c "celery -A app.workers.celery_app worker
+      -Q ingest
+      -E
+      -l info
+      -n ingest@%h
+      --pool=solo
+      --concurrency=1
+      --max-memory-per-child=300000"
     env_file:
       - ../backend/.env
-    environment:
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
-      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d ingest@$HOSTNAME"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   celery-worker-scheduler:
     build:
       context: ../backend
       dockerfile: Dockerfile
     command: >
-      sh -c "celery -A app.workers.celery_app worker -Q scheduler -E -l info -n scheduler@%h"
-    volumes:
-      - ../backend:/app
+      sh -c "celery -A app.workers.celery_app worker
+      -Q scheduler
+      -E
+      -l info
+      -n scheduler@%h
+      --pool=solo
+      --concurrency=1
+      --max-memory-per-child=300000"
     env_file:
       - ../backend/.env
-    environment:
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
-      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d scheduler@$HOSTNAME"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   celery-worker-comments:
     build:
       context: ../backend
       dockerfile: Dockerfile
     command: >
-      sh -c "celery -A app.workers.celery_app worker -Q comments -E -l info -n comments@%h"
-    volumes:
-      - ../backend:/app
+      sh -c "celery -A app.workers.celery_app worker
+      -Q comments
+      -E
+      -l info
+      -n comments@%h
+      --pool=solo
+      --concurrency=1
+      --max-memory-per-child=300000"
     env_file:
       - ../backend/.env
-    environment:
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
-      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d comments@$HOSTNAME"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 400M
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  celery-worker-topics:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "celery -A app.workers.celery_app worker
+      -Q topics
+      -E
+      -l info
+      -n topics@%h
+      --pool=prefork
+      --concurrency=2
+      --max-memory-per-child=600000"
+    env_file:
+      - ../backend/.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d topics@$HOSTNAME"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 800M
+          cpus: '2.0'
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================================================
+  # CELERY BEAT (Scheduler)
+  # ============================================================================
   celery-beat:
     build:
       context: ../backend
       dockerfile: Dockerfile
     command: >
       sh -c "celery -A app.workers.celery_app beat -l info"
-    volumes:
-      - ../backend:/app
     env_file:
       - ../backend/.env
-    environment:
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
-      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+      replicas: 1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # ============================================================================
+  # FLOWER (Celery Monitoring)
+  # ============================================================================
   flower:
     build:
       context: ../backend
@@ -137,25 +358,60 @@ services:
     command: >
       sh -c "celery -A app.workers.celery_app flower
       --port=5555
-      --broker=${CELERY_BROKER_URL}
-      --result-backend=${CELERY_RESULT_BACKEND}
-      --persistent
-      --db=/data/flower.db
-      --basic_auth=${FLOWER_BASIC_AUTH}"
-    volumes:
-      - ../backend:/app
-      - ./data/flower:/data
-    environment:
-      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
-      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
-      - FLOWER_BASIC_AUTH=${FLOWER_BASIC_AUTH}
+      --broker=$${CELERY_BROKER_URL}
+      --result-backend=$${CELERY_RESULT_BACKEND}
+      --basic_auth=$${FLOWER_BASIC_AUTH}"
+    env_file:
+      - ../backend/.env
     ports:
       - "5555:5555"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # ============================================================================
+  # REDIS (Broker + Result Backend)
+  # ============================================================================
   redis:
     image: redis:8.2.1-alpine
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
     ports:
       - "6380:6379"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+

@@ -167,6 +167,117 @@ class InstagramService:
                     # Services should raise RuntimeError, not HTTPException (router's responsibility)
                     raise RuntimeError('Timeout Instagram')
 
+    async def create_media_container(
+        self,
+        ig_user_id: str,
+        image_url: Optional[str] = None,
+        video_url: Optional[str] = None,
+        caption: str = "",
+        access_token: str = None
+    ) -> Dict[str, Any]:
+        """
+        Create a media container for Instagram post.
+        Step 1 of Instagram publishing process.
+
+        Args:
+            ig_user_id: Instagram Business Account ID
+            image_url: URL to image (for image posts)
+            video_url: URL to video (for video posts)
+            caption: Post caption/text
+            access_token: Access token for the request
+
+        Returns:
+            Dict with 'id' (container ID) and other metadata
+
+        Docs: https://developers.facebook.com/docs/instagram-api/reference/ig-user/media
+        """
+        token = access_token or self.access_token
+
+        # Build params
+        params = {
+            "caption": caption,
+            "access_token": token
+        }
+
+        if image_url:
+            params["image_url"] = image_url
+        elif video_url:
+            params["video_url"] = video_url
+            params["media_type"] = "VIDEO"
+        else:
+            raise ValueError("Either image_url or video_url must be provided")
+
+        try:
+            # POST to /{ig-user-id}/media to create container
+            response = await self.client.post(
+                f"/{ig_user_id}/media",
+                params=params
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            logger.info(f"Created Instagram media container: {result.get('id')}")
+            return result
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Instagram create_media_container error: {e.response.text}")
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=f"Failed to create Instagram media container: {e.response.text}"
+            )
+        except Exception as e:
+            logger.error(f"Instagram create_media_container unexpected error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def publish_media(
+        self,
+        ig_user_id: str,
+        creation_id: str,
+        access_token: str = None
+    ) -> Dict[str, Any]:
+        """
+        Publish a media container to Instagram feed.
+        Step 2 of Instagram publishing process.
+
+        Args:
+            ig_user_id: Instagram Business Account ID
+            creation_id: Container ID from create_media_container
+            access_token: Access token for the request
+
+        Returns:
+            Dict with 'id' (published media ID)
+
+        Docs: https://developers.facebook.com/docs/instagram-api/reference/ig-user/media_publish
+        """
+        token = access_token or self.access_token
+
+        params = {
+            "creation_id": creation_id,
+            "access_token": token
+        }
+
+        try:
+            # POST to /{ig-user-id}/media_publish to publish
+            response = await self.client.post(
+                f"/{ig_user_id}/media_publish",
+                params=params
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            logger.info(f"Published Instagram media: {result.get('id')}")
+            return result
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Instagram publish_media error: {e.response.text}")
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=f"Failed to publish Instagram media: {e.response.text}"
+            )
+        except Exception as e:
+            logger.error(f"Instagram publish_media unexpected error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     async def close(self):
         await self.client.aclose()
 

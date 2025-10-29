@@ -71,8 +71,6 @@ const playgroundSubItems = [
 
 const settingsSubItems = [
   { icon: Bot, label: 'AI', href: '/dashboard/settings/ai' },
-  { icon: MessageCircle, label: 'Chat Interfaces', href: '/dashboard/settings/chat-interfaces' },
-  { icon: Globe, label: 'Custom Domain', href: '/dashboard/settings/custom-domain' },
   { icon: CreditCard, label: 'Facturation', href: '/dashboard/settings/billing' },
 ]
 

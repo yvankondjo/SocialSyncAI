@@ -1,13 +1,17 @@
 """
 Comment Triage Service
-Determines if AI should respond to a comment based on conversation context
+Determines if AI should respond to a comment
 
-Rules:
-1. Ignore @mentions of other users (user-to-user conversations)
-2. Ignore replies to other users' comments
-3. Only respond to direct questions/requests to the account owner
+NEW LOGIC: RESPOND TO ALL COMMENTS BY DEFAULT
+- Only ignore self-comments (owner commenting on their own posts)
+- User controls what to ignore/respond via AI settings (future feature)
 
-This prevents AI from spamming user-to-user conversations
+Old restrictive rules removed:
+- ❌ No longer ignore @mentions
+- ❌ No longer ignore replies to other users
+- ❌ No longer filter by question indicators
+
+This gives users full control over their comment automation
 """
 import re
 import logging
@@ -41,6 +45,10 @@ class CommentTriageService:
         """
         Determine if AI should respond to this comment
 
+        NEW LOGIC: RESPOND TO ALL COMMENTS BY DEFAULT
+        - Only skip self-comments (owner commenting on their own posts)
+        - User can configure additional exclusion rules in AI settings
+
         Args:
             comment: The comment to evaluate
             post: The post this comment is on
@@ -50,47 +58,22 @@ class CommentTriageService:
             Tuple of (should_respond: bool, reason: str)
 
         Reasons:
-            - "user_conversation" - Comment is between users, not directed at owner
-            - "ignore" - Generic comment, not a question or request
-            - "respond" - Direct question/request to account owner
+            - "ignore" - Self-comment (owner's own comment)
+            - "respond" - All other comments (default behavior)
         """
         comment_text = comment.get("text", "")
         author_name = comment.get("author_name", "")
 
-        # Skip if comment is from the owner themselves
+        # ONLY RULE: Skip if comment is from the owner themselves
         if author_name.lower().strip('@') == self.owner_username:
-            logger.debug(
-                f"[TRIAGE] Comment from owner themselves, skipping"
+            logger.info(
+                f"[TRIAGE] Self-comment from owner @{author_name}, ignoring"
             )
             return False, "ignore"
 
-      
-        should_respond, reason = self._check_mentions(comment_text)
-        if not should_respond:
-            logger.info(
-                f"[TRIAGE] Comment mentions other users: {reason}"
-            )
-            return False, reason
-
-    
-        should_respond, reason = self._check_reply_to_others(comment, all_comments)
-        if not should_respond:
-            logger.info(
-                f"[TRIAGE] Comment is reply to another user: {reason}"
-            )
-            return False, reason
-
-       
-        is_question = self._is_direct_question(comment_text)
-        if not is_question:
-            logger.info(
-                f"[TRIAGE] Comment is not a direct question/request"
-            )
-            return False, "ignore"
-
-       
+        # RESPOND TO EVERYTHING ELSE
         logger.info(
-            f"[TRIAGE] Comment should be answered by AI"
+            f"[TRIAGE] Comment from @{author_name} will be processed by AI"
         )
         return True, "respond"
 

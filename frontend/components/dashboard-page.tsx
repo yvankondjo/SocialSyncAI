@@ -47,20 +47,29 @@ export function DashboardPage() {
       const [accountsData, conversationsData, analyticsData] = await Promise.allSettled([
         SocialAccountsService.getSocialAccounts(),
         ConversationsService.getConversations(),
-        AnalyticsService.getTrends(user!.id)
+        AnalyticsService.getPostsCommentsTimeline('30d')
       ])
 
       if (accountsData.status === 'fulfilled') {
-        setAccounts(accountsData.value)
+        setAccounts(accountsData.value.accounts || [])
+      } else {
+        console.error('Failed to load social accounts:', accountsData.reason)
       }
+
       if (conversationsData.status === 'fulfilled') {
         setConversations(conversationsData.value.conversations || [])
+      } else {
+        console.error('Failed to load conversations:', conversationsData.reason)
       }
+
       if (analyticsData.status === 'fulfilled') {
-        setAnalytics(analyticsData.value)
+        // Transform timeline data to match expected format
+        setAnalytics({ trends: analyticsData.value })
+      } else {
+        console.error('Failed to load analytics:', analyticsData.reason)
       }
     } catch (error) {
-      console.error('Error loading dashboard data:', error)
+      console.error('Unexpected error loading dashboard data:', error)
     } finally {
       setLoading(false)
     }
@@ -147,17 +156,20 @@ export function DashboardPage() {
   const getContentAutomated = () => {
     if (!analytics) return 12 // Default fallback
     const trends = analytics.trends || []
-    return trends.reduce((total: number, trend: any) => total + (trend.total_likes || 0), 0)
+    return trends.reduce((total: number, trend: any) => total + (trend.posts || 0), 0)
   }
 
   const getDmsAnswered = () => {
-    return conversations.length || 147 // Default fallback
+    if (!analytics) return conversations.length || 147 // Default fallback
+    const trends = analytics.trends || []
+    const totalDms = trends.reduce((total: number, trend: any) => total + (trend.dms || 0), 0)
+    return totalDms > 0 ? totalDms : conversations.length || 147
   }
 
   const getCommentsAutomated = () => {
     if (!analytics) return 35 // Default fallback
     const trends = analytics.trends || []
-    return trends.reduce((total, trend) => total + (trend.total_comments || 0), 0)
+    return trends.reduce((total: number, trend: any) => total + (trend.comments || 0), 0)
   }
 
   return (

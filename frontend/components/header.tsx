@@ -21,8 +21,6 @@ const getPageName = (pathname: string): string => {
     "/dashboard/connect": "Connexion",
     "/dashboard/settings": "Paramètres",
     "/dashboard/settings/ai": "IA",
-    "/dashboard/settings/chat-interface": "Interface Chat",
-    "/dashboard/settings/custom-domains": "Domaines Personnalisés",
   }
 
   // Chercher une correspondance exacte

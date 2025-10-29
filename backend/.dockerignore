@@ -1,6 +1,73 @@
+# Python artifacts
 .venv
-__pycache__
+venv/
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.pdb
+*.egg-info/
+.Python
+*.so
+
+# Environment & secrets
 .env
+.env.*
+!.env.example
+
+# Testing
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+*.cover
+.hypothesis/
+coverage.xml
+
+# Development tools
+scripts/
+docs/
+*.md
+!README.md
+
+# Static files (if served separately)
+static/
+
+# Database & migrations (if handled externally)
+# migrations/
+*.db
+*.sqlite3
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Logs
+*.log
+logs/
+
+# Temp files
+tmp/
+temp/
+*.tmp

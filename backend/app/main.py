@@ -20,8 +20,6 @@ from app.routers import (
     ai_studio,
     instagram_profiles,
     monitoring,
-    debug_instagram,
-    debug_comments,
     analytics,
 )
 import logging
@@ -29,26 +27,29 @@ import datetime
 
 # Configuration du logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
     # Batch scanning is now handled by Celery Beat worker
     logging.info("✅ DM/Chat batch scanning handled by Celery Beat (every 0.5s)")
-    logging.info("📝 Make sure Celery Beat is running: celery -A app.workers.celery_app beat")
+    logging.info(
+        "📝 Make sure Celery Beat is running: celery -A app.workers.celery_app beat"
+    )
 
     yield
 
     logging.info("🛑 FastAPI shutdown complete")
 
+
 app = FastAPI(
     title="SocialSyncAI API",
     description="API pour la gestion et synchronisation de contenus sur les réseaux sociaux avec IA",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Configuration CORS
@@ -60,7 +61,7 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -83,6 +84,7 @@ app.include_router(stripe.router, prefix="/api")
 
 # Nouvelles routes PRD2
 from app.routers import support
+
 app.include_router(support.router, prefix="/api")
 
 # Scheduled posts feature
@@ -103,22 +105,19 @@ app.include_router(instagram_profiles.router, prefix="/api")
 # Comment monitoring system (import posts, toggle monitoring, auto-rules)
 app.include_router(monitoring.router, prefix="/api")
 
-# DEBUG: Instagram API troubleshooting (temporary)
-app.include_router(debug_instagram.router, prefix="/api")
-
-# DEBUG: Comment monitoring troubleshooting (temporary)
-app.include_router(debug_comments.router, prefix="/api")
-
 # Analytics router (real data)
 app.include_router(analytics.router, prefix="/api")
+
 
 @app.get("/")
 async def root():
     return {"message": "SocialSyncAI API is running test"}
 
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "socialsyncai-api"}
+
 
 @app.get("/api/versions")
 async def api_versions():
@@ -128,20 +127,21 @@ async def api_versions():
             "graph_api_version": "v23.0",
             "base_url": "https://graph.facebook.com/v23.0",
             "webhook_compatible": True,
-            "notes": "Cohérent avec les webhooks Meta"
+            "notes": "Cohérent avec les webhooks Meta",
         },
         "instagram": {
             "graph_api_version": "v23.0",
             "base_url": "https://graph.instagram.com/v23.0",
             "webhook_compatible": True,
-            "notes": "Cohérent avec les webhooks Meta"
+            "notes": "Cohérent avec les webhooks Meta",
         },
         "api_info": {
             "socialsync_version": "1.0.0",
             "last_updated": "2024-12-19",
-            "compatibility": "Toutes les APIs utilisent la même version v23.0 pour la cohérence"
-        }
+            "compatibility": "Toutes les APIs utilisent la même version v23.0 pour la cohérence",
+        },
     }
+
 
 @app.get("/api/health")
 async def system_health():
@@ -152,8 +152,9 @@ async def system_health():
         "system": "healthy",
         "scanner": batch_scanner.get_health_status(),
         "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0"
+        "version": "1.0.0",
     }
+
 
 @app.get("/api/metrics")
 async def system_metrics():
@@ -167,5 +168,5 @@ async def system_metrics():
         "scanner_metrics": metrics,
         "health_status": health,
         "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0"
-    } 
+        "version": "1.0.0",
+    }

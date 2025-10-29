@@ -21,7 +21,6 @@ import {
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import {
-  Search,
   X,
   ChevronDown,
   Plus,
@@ -43,12 +42,6 @@ const navigation = [
   {
     name: "AI Studio",
     href: "/dashboard/ai-studio",
-    logoPath: "/logos/logo-playground.svg",
-    type: "main"
-  },
-  {
-    name: "Playground",
-    href: "/dashboard/playground",
     logoPath: "/logos/logo-playground.svg",
     type: "main"
   },
@@ -90,9 +83,8 @@ const navigation = [
     logoPath: "/logos/logo-settings.svg",
     type: "section",
     children: [
-      { name: "AI", href: "/dashboard/settings/ai", type: "sub" },
-      { name: "Chat Interface", href: "/dashboard/settings/chat-interface", type: "sub" },
-      { name: "Custom domains", href: "/dashboard/settings/custom-domains", type: "sub" }
+      { name: "Playground", href: "/dashboard/playground", type: "sub" },
+      { name: "AI", href: "/dashboard/settings/ai", type: "sub" }
     ]
   }
 ]
@@ -181,20 +173,6 @@ export function Sidebar() {
         </Button>
       </div>
 
-      {/* Search */}
-      {!isCollapsed && (
-        <div className="p-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search... (⌘K)"
-              className="w-full pl-10 pr-4 py-2 bg-input border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-        </div>
-      )}
-
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1">
         {navigation.map((item) => {
@@ -267,7 +245,7 @@ export function Sidebar() {
                     {item.children.map((child) => {
                       const isChildActive = pathname === child.href || pathname.startsWith(child.href + "/")
                       const childLogoPath = (child as any).logoPath
-                      const hasIcon = childLogoPath && !["Chat", "DATA", "FAQ", "AI", "Chat Interface", "Custom domains"].includes(child.name)
+                      const hasIcon = childLogoPath && !["Chat", "DATA", "FAQ", "AI"].includes(child.name)
 
                       return (
                         <Link key={child.name} href={child.href}>

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import List, Dict, Any
 from contextlib import asynccontextmanager
@@ -82,25 +83,43 @@ class BatchScanner:
     async def _process_due_conversations(self):
         """Process all due conversations"""
         try:
+            logger.debug("[DEBUG] Starting _process_due_conversations")
+
+            logger.debug("[DEBUG] Calling get_due_conversations...")
             due_conversations = await message_batcher.get_due_conversations()
-            
+            logger.debug(f"[DEBUG] Got {len(due_conversations) if due_conversations else 0} due conversations")
+
             if due_conversations:
                 logger.info(f"Processing {len(due_conversations)} due conversations")
-                
-                
+
+                logger.debug("[DEBUG] Creating tasks for conversations...")
                 tasks = []
                 for conv in due_conversations:
+                    logger.debug(f"[DEBUG] Creating task for {conv.get('platform')}:{conv.get('account_id')}:{conv.get('contact_id')}")
                     task = asyncio.create_task(
                         self._process_single_conversation(conv_info=conv)
                     )
                     tasks.append(task)
-                
-                
+
+                logger.debug(f"[DEBUG] Gathering {len(tasks)} tasks...")
                 if tasks:
                     await asyncio.gather(*tasks, return_exceptions=True)
-                    
+                logger.debug("[DEBUG] All tasks completed")
+
         except Exception as e:
-            logger.error(f"Error processing due conversations: {e}")
+            # Force print to stderr for debugging (bypasses logger filters)
+            import traceback
+            import sys
+            msg = f"\n{'='*80}\n"
+            msg += f"[BATCH_SCANNER ERROR] Exception in _process_due_conversations\n"
+            msg += f"Exception type: {type(e).__name__}\n"
+            msg += f"Exception message: {e}\n"
+            msg += f"Full traceback:\n{traceback.format_exc()}"
+            msg += f"{'='*80}\n"
+            sys.stderr.write(msg)
+            sys.stderr.flush()
+
+            logger.error(f"Error processing due conversations: {e}", exc_info=True)
     
     async def _process_single_conversation(self, conv_info: Dict[str, Any]):
         """
@@ -113,7 +132,7 @@ class BatchScanner:
         conversation_id = conv_info["conversation_id"]
 
         # ⏱️ Measure the processing time for the metrics
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.perf_counter()
 
         try:
             async with asyncio.timeout(30):
@@ -312,7 +331,7 @@ class BatchScanner:
                 logger.info(f"Response sent for {platform}:{account_id}:{contact_id}")
 
                 # 📊 Métriques de succès
-                end_time = asyncio.get_event_loop().time()
+                end_time = time.perf_counter()
                 processing_time = end_time - start_time
                 self.metrics['conversations_processed'] += 1
                 self.metrics['responses_generated'] += 1
@@ -324,7 +343,7 @@ class BatchScanner:
                 # Réponse générée mais pas envoyée
                 logger.error(f"❌ Failed to send response for {platform}:{account_id}:{contact_id}")
                 # 📊 Métriques d'échec
-                end_time = asyncio.get_event_loop().time()
+                end_time = time.perf_counter()
                 processing_time = end_time - start_time
                 self.metrics['conversations_failed'] += 1
                 self.metrics['errors_total'] += 1

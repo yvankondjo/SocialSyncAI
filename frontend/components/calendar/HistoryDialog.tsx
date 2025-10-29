@@ -16,7 +16,8 @@ interface HistoryDialogProps {
 }
 
 export function HistoryDialog({ open, onOpenChange, post }: HistoryDialogProps) {
-  const { data: runs = [], isLoading } = usePostRuns(post.id, undefined, open);
+  const { data, isLoading } = usePostRuns(post.id, undefined, open);
+  const runs = data?.runs || [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

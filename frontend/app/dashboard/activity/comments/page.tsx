@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card } from "@/components/ui/card"
-import { Search, RefreshCw, Filter } from "lucide-react"
+import { Search, RefreshCw, ListFilter } from "lucide-react"
 import { MonitoringService, CommentsService } from "@/lib/api"
 import { MonitoredPost, MonitoringRules, Comment, CommentFilters } from "@/types/comments"
 import { MonitoringRulesPanel } from "@/components/comments/MonitoringRulesPanel"
@@ -324,7 +324,7 @@ export default function CommentsPage() {
         <Card className="border flex flex-col overflow-hidden">
           <div className="p-4 border-b">
             <h2 className="font-semibold flex items-center gap-2">
-              <Filter className="w-4 h-4" />
+              <ListFilter className="w-4 h-4" />
               Monitored Posts
             </h2>
             <p className="text-xs text-muted-foreground mt-1">

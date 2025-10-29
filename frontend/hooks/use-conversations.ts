@@ -1,16 +1,17 @@
 /**
  * useConversations Hook
- * Manages AI Studio conversation state with localStorage persistence
+ * Manages AI Studio conversation state with React Query and backend API
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Conversation,
   ConversationUpdate,
   GroupedConversations,
   Message,
-  DateGroup,
 } from '@/types/ai-studio';
+import { AIStudioService } from '@/lib/api/ai-studio';
 import {
   isToday,
   isYesterday,
@@ -18,9 +19,6 @@ import {
   subDays,
   parseISO,
 } from 'date-fns';
-
-const STORAGE_KEY = 'ai-studio-conversations';
-const MAX_CONVERSATIONS = 100;
 
 /**
  * Generate a title from the first user message
@@ -78,79 +76,94 @@ function groupConversationsByDate(conversations: Conversation[]): GroupedConvers
 }
 
 /**
- * Load conversations from localStorage
+ * Convert backend ConversationMetadata to frontend Conversation format
  */
-function loadConversations(): Conversation[] {
-  if (typeof window === 'undefined') return [];
-
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return [];
-
-    const parsed = JSON.parse(stored) as Conversation[];
-    // Sort by updatedAt descending
-    return parsed.sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    );
-  } catch (error) {
-    console.error('Failed to load conversations:', error);
-    return [];
-  }
-}
-
-/**
- * Save conversations to localStorage
- */
-function saveConversations(conversations: Conversation[]): void {
-  if (typeof window === 'undefined') return;
-
-  try {
-    // Keep only the most recent MAX_CONVERSATIONS
-    const toSave = conversations.slice(0, MAX_CONVERSATIONS);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-  } catch (error) {
-    console.error('Failed to save conversations:', error);
-  }
+function mapConversationMetadata(metadata: any): Conversation {
+  return {
+    id: metadata.thread_id,
+    title: metadata.title,
+    messages: [], // Messages loaded separately
+    createdAt: metadata.created_at,
+    updatedAt: metadata.updated_at,
+    threadId: metadata.thread_id,
+    model: metadata.model,
+  };
 }
 
 export function useConversations() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const queryClient = useQueryClient();
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [localConversation, setLocalConversation] = useState<Conversation | null>(null);
 
-  // Load conversations on mount
-  useEffect(() => {
-    const loaded = loadConversations();
-    setConversations(loaded);
-    setIsLoaded(true);
-  }, []);
+  // Fetch conversations list from API
+  const {
+    data: conversationsResponse,
+    isLoading: conversationsLoading,
+    error: conversationsError,
+  } = useQuery({
+    queryKey: ['ai-studio', 'conversations'],
+    queryFn: () => AIStudioService.listConversations(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
 
-  // Save conversations whenever they change
-  useEffect(() => {
-    if (isLoaded) {
-      saveConversations(conversations);
-    }
-  }, [conversations, isLoaded]);
+  // Fetch messages for current conversation
+  // Skip API call if this is a local conversation (not yet in database)
+  const shouldFetchMessages = !!currentConversationId &&
+    (!localConversation || localConversation.id !== currentConversationId);
+
+  const {
+    data: messagesResponse,
+    isLoading: messagesLoading,
+  } = useQuery({
+    queryKey: ['ai-studio', 'conversations', currentConversationId, 'messages'],
+    queryFn: () => AIStudioService.getConversationMessages(currentConversationId!),
+    enabled: shouldFetchMessages,
+    staleTime: 1000 * 30, // 30 seconds
+  });
+
+  // Mutation for updating conversation
+  const updateConversationMutation = useMutation({
+    mutationFn: ({ threadId, update }: { threadId: string; update: { title?: string } }) =>
+      AIStudioService.updateConversation(threadId, update),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-studio', 'conversations'] });
+    },
+  });
+
+  // Mutation for deleting conversation
+  const deleteConversationMutation = useMutation({
+    mutationFn: (threadId: string) => AIStudioService.deleteConversation(threadId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-studio', 'conversations'] });
+    },
+  });
+
+  // Map conversations from API response
+  const conversations = useMemo(() => {
+    if (!conversationsResponse?.conversations) return [];
+    return conversationsResponse.conversations.map(mapConversationMetadata);
+  }, [conversationsResponse]);
 
   /**
    * Create a new conversation
+   * Note: Backend auto-creates conversations on first message, so we just generate a thread ID
    */
   const createConversation = useCallback(
     (model: string = 'openai/gpt-4o'): Conversation => {
       const now = new Date().toISOString();
+      const threadId = `thread-${Date.now()}`;
       const newConversation: Conversation = {
-        id: `conv-${Date.now()}`,
+        id: threadId,
         title: 'New Conversation',
         messages: [],
         createdAt: now,
         updatedAt: now,
-        threadId: `thread-${Date.now()}`,
+        threadId,
         model,
       };
 
-      setConversations((prev) => [newConversation, ...prev]);
-      setCurrentConversationId(newConversation.id);
-
+      setLocalConversation(newConversation);
+      setCurrentConversationId(threadId);
       return newConversation;
     },
     []
@@ -158,46 +171,77 @@ export function useConversations() {
 
   /**
    * Update a conversation
+   * Note: Only title updates are persisted to backend, messages are handled by LangGraph
    */
   const updateConversation = useCallback(
     (id: string, update: ConversationUpdate): void => {
-      setConversations((prev) => {
-        const updated = prev.map((conv) => {
-          if (conv.id !== id) return conv;
-
-          const updatedConv = {
-            ...conv,
+      // Update local conversation if it's the current one
+      if (localConversation && localConversation.id === id) {
+        setLocalConversation((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
             ...update,
+            messages: update.messages || prev.messages,
             updatedAt: new Date().toISOString(),
           };
-
-          // Auto-generate title if messages changed and title is still default
-          if (
-            update.messages &&
-            (conv.title === 'New Conversation' || !update.title)
-          ) {
-            updatedConv.title = generateTitle(update.messages);
-          }
-
-          return updatedConv;
         });
+      }
 
-        // Re-sort by updatedAt
-        return updated.sort(
-          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      // If updating title, persist to backend
+      if (update.title) {
+        updateConversationMutation.mutate({
+          threadId: id,
+          update: { title: update.title },
+        });
+      }
+
+      // Optimistically update messages query cache for immediate UI feedback
+      if (update.messages && currentConversationId === id) {
+        queryClient.setQueryData(
+          ['ai-studio', 'conversations', id, 'messages'],
+          (old: any) => ({
+            ...old,
+            messages: update.messages?.map((msg) => ({
+              role: msg.role,
+              content: msg.content,
+              timestamp: msg.timestamp,
+              metadata: {
+                scheduled_posts: msg.scheduled_posts,
+                previews: msg.previews,
+              },
+            })),
+          })
         );
-      });
+      }
     },
-    []
+    [currentConversationId, queryClient, updateConversationMutation, localConversation]
   );
 
   /**
    * Delete a conversation
    */
-  const deleteConversation = useCallback((id: string): void => {
-    setConversations((prev) => prev.filter((conv) => conv.id !== id));
-    setCurrentConversationId((prev) => (prev === id ? null : prev));
-  }, []);
+  const deleteConversation = useCallback(
+    (id: string): void => {
+      deleteConversationMutation.mutate(id);
+      if (currentConversationId === id) {
+        setCurrentConversationId(null);
+        setLocalConversation(null);
+      }
+    },
+    [currentConversationId, deleteConversationMutation]
+  );
+
+  /**
+   * Clear local conversation when switching to a different conversation
+   */
+  useEffect(() => {
+    if (currentConversationId && localConversation && localConversation.id !== currentConversationId) {
+      // Switching away from local conversation, invalidate queries to sync with backend
+      queryClient.invalidateQueries({ queryKey: ['ai-studio', 'conversations'] });
+      setLocalConversation(null);
+    }
+  }, [currentConversationId, localConversation, queryClient]);
 
   /**
    * Get a specific conversation
@@ -210,16 +254,43 @@ export function useConversations() {
   );
 
   /**
-   * Get current conversation
+   * Get current conversation with messages
    */
-  const currentConversation = currentConversationId
-    ? getConversation(currentConversationId)
-    : null;
+  const currentConversation = useMemo(() => {
+    if (!currentConversationId) return null;
+
+    // If local conversation matches, use it (for new conversations not yet in DB)
+    if (localConversation && localConversation.id === currentConversationId) {
+      return localConversation;
+    }
+
+    // Otherwise, look in API conversations
+    const metadata = conversations.find((conv) => conv.id === currentConversationId);
+    if (!metadata) return null;
+
+    // Add messages from separate query
+    const messages = messagesResponse?.messages?.map((msg: any) => ({
+      id: `${msg.role}-${Date.now()}-${Math.random()}`,
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+      timestamp: msg.timestamp || new Date().toISOString(),
+      scheduled_posts: msg.metadata?.scheduled_posts,
+      previews: msg.metadata?.previews,
+    })) || [];
+
+    return {
+      ...metadata,
+      messages,
+    };
+  }, [currentConversationId, conversations, messagesResponse, localConversation]);
 
   /**
    * Group conversations by date
    */
-  const groupedConversations = groupConversationsByDate(conversations);
+  const groupedConversations = useMemo(
+    () => groupConversationsByDate(conversations),
+    [conversations]
+  );
 
   /**
    * Search conversations
@@ -253,6 +324,8 @@ export function useConversations() {
     deleteConversation,
     getConversation,
     searchConversations,
-    isLoaded,
+    isLoaded: !conversationsLoading, // Loaded when conversations query is not loading
+    isLoadingMessages: messagesLoading,
+    error: conversationsError,
   };
 }

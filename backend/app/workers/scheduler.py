@@ -76,19 +76,23 @@ def publish_post(self, post_id: str) -> Dict[str, Any]:
     """
     Publish a scheduled post to its platform
 
+    NOTE: This is a synchronous Celery task that calls async functions via asyncio.run()
+
     Args:
         post_id: UUID of the scheduled post
 
     Returns:
         Dict with publish result
     """
+    import asyncio
+
     supabase = get_db()
     started_at = datetime.now(timezone.utc)
 
     try:
         # Fetch post details
         post_result = supabase.table("scheduled_posts").select(
-            "*, social_accounts!channel_id(access_token, account_id, metadata)"
+            "*, social_accounts!channel_id(access_token, account_id, platform)"
         ).eq("id", post_id).single().execute()
 
         if not post_result.data:
@@ -99,6 +103,29 @@ def publish_post(self, post_id: str) -> Dict[str, Any]:
         content_json = post["content_json"]
         channel = post["social_accounts"]
 
+        # ============================================================================
+        # CREDIT CHECKS DISABLED FOR TESTING
+        # ============================================================================
+        # TODO: Uncomment this section when ready to enforce credit checks
+        #
+        # from app.services.credits_service import CreditsService
+        # POSTING_CREDIT_COST = 1  # Define cost per post
+        #
+        # credits_service = CreditsService(supabase)
+        # can_publish = asyncio.run(credits_service.check_credits_available(
+        #     post["user_id"], POSTING_CREDIT_COST
+        # ))
+        #
+        # if not can_publish:
+        #     # Mark post as failed due to insufficient credits
+        #     supabase.table("scheduled_posts").update({
+        #         "status": "failed",
+        #         "error_message": "Insufficient credits for publishing",
+        #         "updated_at": datetime.now(timezone.utc).isoformat()
+        #     }).eq("id", post_id).execute()
+        #     return {"success": False, "error": "Insufficient credits"}
+        # ============================================================================
+
         # Create run record
         run_data = {
             "scheduled_post_id": post_id,
@@ -106,11 +133,11 @@ def publish_post(self, post_id: str) -> Dict[str, Any]:
             "status": "success"  # Will update if fails
         }
 
-        # Publish based on platform
+        # Publish based on platform (using asyncio.run for async functions)
         if platform == "whatsapp":
-            platform_post_id = publish_to_whatsapp(channel, content_json)
+            platform_post_id = asyncio.run(publish_to_whatsapp(channel, content_json))
         elif platform == "instagram":
-            platform_post_id = publish_to_instagram(channel, content_json)
+            platform_post_id = asyncio.run(publish_to_instagram(channel, content_json))
         else:
             raise ValueError(f"Unsupported platform: {platform}")
 
@@ -127,6 +154,19 @@ def publish_post(self, post_id: str) -> Dict[str, Any]:
         run_data["finished_at"] = finished_at.isoformat()
         run_data["status"] = "success"
         supabase.table("post_runs").insert(run_data).execute()
+
+        # ============================================================================
+        # CREDIT DEDUCTION DISABLED FOR TESTING
+        # ============================================================================
+        # TODO: Uncomment this section when ready to deduct credits
+        #
+        # asyncio.run(credits_service.deduct_credits(
+        #     user_id=post["user_id"],
+        #     credits_to_deduct=POSTING_CREDIT_COST,
+        #     reason=f"Post published to {platform}",
+        #     metadata={"post_id": post_id, "platform": platform}
+        # ))
+        # ============================================================================
 
         logger.info(f"Successfully published post {post_id} to {platform} (platform_id: {platform_post_id})")
 
@@ -192,65 +232,54 @@ def publish_post(self, post_id: str) -> Dict[str, Any]:
             }
 
 
-def publish_to_whatsapp(channel: Dict[str, Any], content: Dict[str, Any]) -> str:
+async def publish_to_whatsapp(channel: Dict[str, Any], content: Dict[str, Any]) -> str:
     """
     Publish content to WhatsApp
 
     Args:
-        channel: Social account data with access_token, account_id, metadata
-        content: Post content with text and/or media
+        channel: Social account data with access_token, account_id
+        content: Post content with text, media, and recipient
 
     Returns:
         platform_post_id: WhatsApp message ID
     """
-    service = WhatsAppService()
-
-    # Extract phone_number_id from metadata
-    phone_number_id = channel["metadata"].get("phone_number_id") or channel["account_id"]
+    # Initialize service with access_token and phone_number_id from channel
+    service = WhatsAppService(
+        access_token=channel["access_token"],
+        phone_number_id=channel["account_id"]  # account_id is the phone_number_id
+    )
 
     # Get text and media
     text = content.get("text", "")
     media = content.get("media", [])
 
-    # For WhatsApp, we need a recipient. Use broadcast list or status update
-    # This is a simplified implementation - you may need to adjust based on your WhatsApp setup
-
-    # Option 1: Send as status update (if supported)
-    # Option 2: Send to a broadcast list
-    # Option 3: Send to user's own number (for testing)
-
-    # For now, we'll use the WhatsApp Cloud API to send a message
-    # You'll need to specify recipient - this is placeholder logic
-    recipient = channel["metadata"].get("default_recipient", "")
+    # Get recipient from content (must be provided when creating the scheduled post)
+    recipient = content.get("recipient", "")
 
     if not recipient:
-        raise ValueError("WhatsApp posts require a default_recipient in channel metadata")
+        raise ValueError("WhatsApp posts require a 'recipient' field in content_json")
 
     # Send message
     if media:
         # Send media message
         media_item = media[0]  # Take first media
-        result = service.send_media_message(
-            phone_number_id=phone_number_id,
+        result = await service.send_media_message(
             to=recipient,
             media_type=media_item["type"],
             media_url=media_item["url"],
-            caption=text or media_item.get("caption"),
-            access_token=channel["access_token"]
+            caption=text or media_item.get("caption")
         )
     else:
         # Send text message
-        result = service.send_text_message(
-            phone_number_id=phone_number_id,
+        result = await service.send_text_message(
             to=recipient,
-            text=text,
-            access_token=channel["access_token"]
+            text=text
         )
 
     return result.get("message_id") or result.get("id")
 
 
-def publish_to_instagram(channel: Dict[str, Any], content: Dict[str, Any]) -> str:
+async def publish_to_instagram(channel: Dict[str, Any], content: Dict[str, Any]) -> str:
     """
     Publish content to Instagram
 
@@ -275,7 +304,7 @@ def publish_to_instagram(channel: Dict[str, Any], content: Dict[str, Any]) -> st
     media_item = media[0]  # Instagram supports carousel, but we'll do single media for now
 
     # Create media container
-    container_result = service.create_media_container(
+    container_result = await service.create_media_container(
         ig_user_id=ig_user_id,
         image_url=media_item["url"] if media_item["type"] == "image" else None,
         video_url=media_item["url"] if media_item["type"] == "video" else None,
@@ -289,7 +318,7 @@ def publish_to_instagram(channel: Dict[str, Any], content: Dict[str, Any]) -> st
         raise ValueError("Failed to create Instagram media container")
 
     # Publish container
-    publish_result = service.publish_media(
+    publish_result = await service.publish_media(
         ig_user_id=ig_user_id,
         creation_id=container_id,
         access_token=access_token

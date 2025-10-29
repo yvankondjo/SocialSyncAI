@@ -13,10 +13,13 @@ from datetime import datetime, timezone
 
 from app.workers.celery_app import celery
 from app.db.session import get_db
-from app.services.topic_modeling_service import TopicModelingService
+
 
 logger = logging.getLogger(__name__)
 
+def _get_topic_service(user_id: str):
+    from app.services.topic_modeling_service import TopicModelingService
+    return TopicModelingService(user_id)
 
 @celery.task(name="app.workers.topics.run_daily_fit_and_merge")
 def run_daily_fit_and_merge() -> Dict[str, Any]:
@@ -70,7 +73,7 @@ def run_daily_fit_and_merge() -> Dict[str, Any]:
             try:
                 logger.info(f"[TOPIC DAILY] Processing user: {user_id}")
 
-                service = TopicModelingService(user_id)
+                service = _get_topic_service(user_id)
 
                 new_version = asyncio.run(
                     service.merge_and_update_model(min_documents=10)
@@ -164,7 +167,7 @@ def fit_initial_model_for_user(user_id: str) -> Dict[str, Any]:
     try:
         logger.info(f"[TOPIC INIT] Fitting initial model for user: {user_id}")
 
-        service = TopicModelingService(user_id)
+        service = _get_topic_service(user_id)
 
         version = asyncio.run(
             service.fit_initial_model(min_documents=10)

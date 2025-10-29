@@ -13,3 +13,5 @@ yarn-error.log*
 *.tsbuildinfo
 # Ne pas ignorer package-lock.json car il est nécessaire pour npm ci
 !package-lock.json
+dist
+.cache

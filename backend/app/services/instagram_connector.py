@@ -51,8 +51,8 @@ class InstagramConnector(PlatformConnector):
         try:
             url = f'/{post_platform_id}/comments'
             params = {
-                'fields': 'id,username,text,timestamp,from,parent_id,like_count',  # Added parent_id for threads
-                'limit': 50,  # Max 50 per request
+                'fields': 'id,username,text,timestamp,from,parent_id,like_count',
+                'limit': 50,
                 'access_token': self.service.access_token
             }
 
@@ -65,11 +65,8 @@ class InstagramConnector(PlatformConnector):
             resp.raise_for_status()
             data = resp.json()
 
-            # Normalize comments to standard format
             comments = []
             for c in data.get('data', []):
-                # Instagram API returns username in 'from' object: {"from": {"id": "...", "username": "..."}}
-                # Fallback chain: from.username → username (root level) → "Unknown User"
                 from_data = c.get('from', {})
                 author_name = from_data.get('username') or c.get('username') or 'Unknown User'
                 author_id = from_data.get('id')
@@ -80,11 +77,10 @@ class InstagramConnector(PlatformConnector):
                     'author_id': author_id,
                     'text': c['text'],
                     'created_at': c['timestamp'],
-                    'parent_id': c.get('parent_id'),  # For thread reconstruction
+                    'parent_id': c.get('parent_id'),
                     'like_count': c.get('like_count', 0)
                 })
 
-            # Extract next cursor for pagination
             next_cursor = data.get('paging', {}).get('cursors', {}).get('after')
 
             logger.info(
@@ -96,7 +92,6 @@ class InstagramConnector(PlatformConnector):
 
         except Exception as e:
             logger.error(f"[IG_CONNECTOR] Error fetching comments for {post_platform_id}: {e}")
-            # Return empty list on error to avoid breaking the polling loop
             return ([], None)
 
     async def reply_to_comment(
@@ -123,7 +118,6 @@ class InstagramConnector(PlatformConnector):
                 f"{text[:50]}..."
             )
 
-            # Use existing service method
             result = await self.service.reply_to_comment(comment_platform_id, text)
 
             if result.get('success'):
@@ -236,13 +230,12 @@ class InstagramConnector(PlatformConnector):
             List of media objects with fields: id, caption, media_type, media_url, timestamp, etc.
         """
         try:
-            # Get Instagram user ID from page_id
             page_id = self.service.page_id
 
             url = f'/{page_id}/media'
             params = {
                 'fields': 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,comments_count,like_count',
-                'limit': min(limit, 100),  # API max is 100
+                'limit': min(limit, 100),
                 'access_token': self.service.access_token
             }
 
@@ -263,7 +256,6 @@ class InstagramConnector(PlatformConnector):
 
         except Exception as e:
             logger.error(f"[IG_CONNECTOR] Error fetching user media: {e}")
-            # Return empty list on error to avoid breaking the flow
             return []
 
     async def fetch_post_details(

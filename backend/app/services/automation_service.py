@@ -85,7 +85,6 @@ class AutomationService:
         3. Check if conversation has ai_mode='OFF'
         """
         try:
-            # Check if AI is active in general for the user
             response = self.db.table('ai_settings').select('*').eq('user_id', user_id).limit(1).single().execute()
             rules = response.data or {}
             logger.info(f'AI settings for user {user_id}: {rules}')
@@ -98,7 +97,6 @@ class AutomationService:
                     'ai_settings': {}
                 }
 
-            # Check if the conversation exists and is active
             conversation = self.db.table('conversations').select('ai_mode').eq('id', conversation_id).limit(1).single().execute()
             conversation_data = conversation.data or {}
 
@@ -111,7 +109,6 @@ class AutomationService:
                     'ai_settings': {}
                 }
 
-            # AI is disabled for the conversation
             if conversation_data.get('ai_mode') == 'OFF':
                 logger.info(f'Conversation is not active for user {user_id}: {conversation_id}')
                 return {
@@ -121,7 +118,6 @@ class AutomationService:
                     'ai_settings': {}
                 }
 
-            # Return the default rules
             logger.info(f'Conversation is active for user {user_id}: {conversation_id}')
             return {
                 'should_reply': rules.get('is_active', True),
@@ -150,7 +146,6 @@ class AutomationService:
         4. Return should_reply decision
         """
         try:
-            # Get comment with related post and social_account_id
             result = self.db.table("comments") \
                 .select("""
                     *,
@@ -188,8 +183,6 @@ class AutomationService:
 
             social_account_id = post.get("social_accounts", {}).get("id") if "social_accounts" in post else None
 
-            # Query monitoring_rules to check ai_enabled_for_comments flag
-            # First, try account-specific rules
             rules_result = self.db.table("monitoring_rules") \
                 .select("ai_enabled_for_comments") \
                 .eq("user_id", user_id) \
@@ -197,7 +190,6 @@ class AutomationService:
                 .maybe_single() \
                 .execute()
 
-            # If no account-specific rules, fall back to user-level rules
             if not rules_result.data:
                 rules_result = self.db.table("monitoring_rules") \
                     .select("ai_enabled_for_comments") \
@@ -206,7 +198,6 @@ class AutomationService:
                     .maybe_single() \
                     .execute()
 
-            # Check if AI is disabled for comments
             if rules_result.data:
                 ai_enabled = rules_result.data.get("ai_enabled_for_comments", True)
 
@@ -222,7 +213,6 @@ class AutomationService:
                         'ai_settings': {}
                     }
 
-            # AI enabled for comments
             logger.info(f'[AUTOMATION] AI enabled for comments (user_id={user_id}, comment_id={comment_id})')
             return {
                 'should_reply': True,
@@ -232,8 +222,6 @@ class AutomationService:
             }
 
         except Exception as e:
-            # Fail-open strategy: if monitoring_rules query fails, allow processing
-            # (don't block comment processing on config errors)
             logger.warning(
                 f"[AUTOMATION] Failed to check ai_enabled_for_comments for comment {comment_id}: {e}. "
                 f"Continuing with AI processing as fallback (fail-open)."

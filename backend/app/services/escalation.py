@@ -29,7 +29,6 @@ class Escalation:
             str: ID of the escalation or None if failure
         """
         try:
-            # 1. Créer l'escalade en base
             escalation_data = {
                 "user_id": self.user_id,
                 "conversation_id": self.conversation_id,
@@ -45,29 +44,28 @@ class Escalation:
             if not escalation_id:
                 logger.error("Échec de création de l'escalade en base")
                 return None
-
-            # 2. Désactiver l'IA pour cette conversation
+            # Disable AI mode for the conversation
             self.db.table("conversations").update({
                 "ai_mode": "OFF",
                 "updated_at": "now()"
             }).eq("id", self.conversation_id).execute()
 
-            # 3. Récupérer l'email de l'utilisateur
+            # Get user email
             user_result = self.db.table("users").select("email").eq("id", self.user_id).single().execute()
             user_email = user_result.data.get("email") if user_result.data else None
 
             if not user_email:
                 logger.error(f"Email utilisateur non trouvé pour user_id: {self.user_id}")
-                return escalation_id  # L'escalade est créée mais pas d'email
+                return escalation_id  # Escalation created but no email
 
-            # 4. Générer le lien sécurisé vers la conversation
+            # Generate secure link to the conversation
             conversation_link = self.link_service.generate_conversation_link(
                 conversation_id=self.conversation_id,
                 user_id=self.user_id,
                 escalation_id=escalation_id
             )
 
-            # 5. Préparer les données pour l'email
+            # Prepare email data
             email_data = {
                 "id": escalation_id,
                 "conversation_id": self.conversation_id,
@@ -78,16 +76,14 @@ class Escalation:
                 "reason": reason
             }
 
-            # 6. Envoyer l'email de notification à l'équipe de support
-            # L'email du client est récupéré mais utilisé seulement pour le contexte
-            support_email = os.getenv("SUPPORT_EMAIL", "support@yourdomain.com")
+            # Send notification email to the support team
             email_sent = await self.email_service.send_escalation_email(
-                to_email=support_email,
+                to_email=user_email,
                 escalation_data=email_data,
                 conversation_link=conversation_link
             )
 
-            # 7. Marquer comme notifié si l'email a été envoyé
+            # Mark as notified if email has been sent
             if email_sent:
                 self.db.table("support_escalations").update({
                     "notified": True

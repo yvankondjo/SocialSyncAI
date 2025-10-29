@@ -50,7 +50,6 @@ class TopicModelingService:
         if not gemini_api_key or not gemini_base_url:
             raise ValueError("GEMINI_API_KEY or GEMINI_BASE_URL not set")
 
-        # Create OpenAI-compatible client for Gemini
         openai_client = OpenAIClient(
             api_key=gemini_api_key,
             base_url=gemini_base_url
@@ -84,16 +83,12 @@ class TopicModelingService:
             date_end = datetime.now(timezone.utc)
 
             if hours_lookback is None:
-                # Get ALL messages (for initial fit)
                 date_start = None
                 logger.info(f"[TOPIC] Fetching ALL historical messages (no time limit)")
             else:
-                # Get messages from specific time window (for daily updates)
                 date_start = date_end - timedelta(hours=hours_lookback)
                 logger.info(f"[TOPIC] Fetching messages from {date_start} to {date_end}")
 
-            # Build query in 3 steps to avoid complex join syntax
-            # Step 1: Get social_account_ids for this user
             accounts_result = self.db.table("social_accounts").select("id").eq("user_id", self.user_id).execute()
 
             if not accounts_result.data:
@@ -102,7 +97,6 @@ class TopicModelingService:
 
             social_account_ids = [acc["id"] for acc in accounts_result.data]
 
-            # Step 2: Get conversation_ids for these social_accounts
             conversations_result = self.db.table("conversations").select("id").in_("social_account_id", social_account_ids).execute()
 
             if not conversations_result.data:
@@ -138,7 +132,7 @@ class TopicModelingService:
             message_ids = []
             message_texts = []
             for row in result.data:
-                content = row.get("content") or row.get("text", "")  # Support both field names
+                content = row.get("content") or row.get("text", "")
                 if content and content.strip():
                     message_ids.append(str(row["id"]))
                     message_texts.append(content.strip())
@@ -310,9 +304,8 @@ class TopicModelingService:
         try:
             logger.info(f"[TOPIC] Starting initial model fit for user {self.user_id}")
 
-            # Get ALL historical messages and generate embeddings on-the-fly
             message_ids, embeddings, message_texts = await self.get_recent_messages_and_generate_embeddings(
-                hours_lookback=None  # None = ALL messages, not just 24h!
+                hours_lookback=None
             )
 
             if len(message_ids) < min_documents:
@@ -326,8 +319,8 @@ class TopicModelingService:
 
             topic_model = BERTopic(
                 embedding_model=None,
-                representation_model=self.representation_model,  # Auto topic naming with Gemini!
-                min_topic_size=5,  # Lower for daily data
+                representation_model=self.representation_model,
+                min_topic_size=5,
                 nr_topics="auto",
                 calculate_probabilities=False,
                 verbose=True
@@ -337,26 +330,19 @@ class TopicModelingService:
 
             version = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
-            # Extract topic labels from BERTopic's automatic naming
             topic_labels = {}
             topic_info = topic_model.get_topic_info()
             for _, row in topic_info.iterrows():
                 topic_id = int(row['Topic'])
                 if topic_id == -1:
                     continue
-                # BERTopic automatically generates names in the 'Name' column
                 topic_labels[topic_id] = str(row['Name'])
 
-            # Upload model to storage
             storage_path = await self.upload_model_to_storage(topic_model, version)
 
-            # Save model metadata with actual date range from messages
-            # For initial fit, we use the timestamp of first and last message
             date_range_end = datetime.now(timezone.utc)
 
-            # Get the earliest message timestamp (if we have messages)
             if message_texts:
-                # Fetch the actual timestamps of the messages we used
                 first_msg_result = self.db.table("conversation_messages").select("created_at").eq("id", message_ids[0]).execute()
                 if first_msg_result.data:
                     date_range_start = datetime.fromisoformat(first_msg_result.data[0]["created_at"].replace('Z', '+00:00'))
@@ -382,7 +368,6 @@ class TopicModelingService:
                 }
             }).execute()
 
-            # Save top 10 topics to topic_analysis
             await self._save_topics_to_db(
                 topic_model, message_texts, topics, topic_labels
             )
@@ -417,7 +402,6 @@ class TopicModelingService:
         try:
             logger.info(f"[TOPIC] Starting daily fit+merge for user {self.user_id}")
 
-            # Check if active model exists
             active_model_result = self.db.table("bertopic_models").select(
                 "model_version, storage_path"
             ).eq(
@@ -426,7 +410,6 @@ class TopicModelingService:
                 "is_active", True
             ).order("created_at", desc=True).limit(1).execute()
 
-            # Get new messages from last 24h with embeddings on-the-fly
             _, new_embeddings, new_texts = await self.get_recent_messages_and_generate_embeddings(
                 hours_lookback=24
             )
@@ -438,11 +421,10 @@ class TopicModelingService:
                 )
                 return None
 
-            # Fit new model on new messages
             logger.info(f"[TOPIC] Fitting new model on {len(new_texts)} messages from last 24h...")
             new_model = BERTopic(
                 embedding_model=None,
-                representation_model=self.representation_model,  # Auto topic naming with Gemini!
+                representation_model=self.representation_model,
                 min_topic_size=5,
                 nr_topics="auto",
                 calculate_probabilities=False,
@@ -450,13 +432,11 @@ class TopicModelingService:
             )
             new_model.fit(new_texts, new_embeddings)
 
-            # If no active model exists, use new model as initial
             if not active_model_result.data:
                 logger.info(f"[TOPIC] No active model found, using new model as initial")
                 final_model = new_model
                 old_version = None
             else:
-                # Download yesterday's model and merge
                 old_version = active_model_result.data[0]["model_version"]
                 logger.info(f"[TOPIC] Downloading yesterday's model: {old_version}")
 
@@ -465,26 +445,20 @@ class TopicModelingService:
                 logger.info(f"[TOPIC] Merging models...")
                 final_model = BERTopic.merge_models([existing_model, new_model])
 
-            # Create new version
             new_version = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
-            # Transform only new messages with merged/new model
             topics, _ = final_model.transform(new_texts, new_embeddings)
 
-            # Extract topic labels from BERTopic's automatic naming
             topic_labels = {}
             topic_info = final_model.get_topic_info()
             for _, row in topic_info.iterrows():
                 topic_id = int(row['Topic'])
                 if topic_id == -1:
                     continue
-                # BERTopic automatically generates names in the 'Name' column
                 topic_labels[topic_id] = str(row['Name'])
 
-            # Upload merged model to storage
             storage_path = await self.upload_model_to_storage(final_model, new_version)
 
-            # Save model metadata
             date_range_end = datetime.now(timezone.utc)
             date_range_start = date_range_end - timedelta(hours=24)
 
@@ -510,7 +484,6 @@ class TopicModelingService:
                 "metadata": metadata
             }).execute()
 
-            # Save top 10 topics (overwrite old ones)
             await self._save_topics_to_db(
                 final_model, new_texts, topics, topic_labels
             )
@@ -549,7 +522,6 @@ class TopicModelingService:
             logger.info(f"[TOPIC] Deleting old topic_analysis entries for user {self.user_id}")
             self.db.table("topic_analysis").delete().eq("user_id", self.user_id).execute()
 
-            # Prepare top 10 topics (excluding outliers)
             topics_to_insert = []
             date_range_end = datetime.now(timezone.utc)
             date_range_start = date_range_end - timedelta(hours=24)
@@ -558,24 +530,19 @@ class TopicModelingService:
             for _, row in topic_info.iterrows():
                 topic_id = int(row['Topic'])
 
-                # Skip outliers (-1)
                 if topic_id == -1:
                     continue
 
-                # Limit to top 10
                 if count >= 10:
                     break
 
-                # Get sample messages for this topic
                 topic_texts = [
                     texts[i] for i, t in enumerate(topics) if t == topic_id
                 ]
                 sample_messages = topic_texts[:5]
 
-                # Get keywords
                 topic_keywords = [word for word, _ in model.get_topic(topic_id)[:10]]
 
-                # Get label from BERTopic's auto-generated Name column or fallback
                 if topic_labels and topic_id in topic_labels:
                     topic_label = topic_labels[topic_id]
                 elif 'Name' in row:
@@ -596,7 +563,6 @@ class TopicModelingService:
 
                 count += 1
 
-            # Insert new top 10
             if topics_to_insert:
                 self.db.table("topic_analysis").insert(topics_to_insert).execute()
                 logger.info(f"[TOPIC] Saved top {len(topics_to_insert)} topics to database")

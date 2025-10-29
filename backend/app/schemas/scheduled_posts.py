@@ -44,7 +44,6 @@ class PostContent(BaseModel):
     @classmethod
     def validate_content(cls, v, info):
         """At least text or media must be provided"""
-        # This will be called for each field, so we check in the model validator instead
         return v
 
     def model_post_init(self, __context):
@@ -64,14 +63,11 @@ class ScheduledPostCreate(BaseModel):
     @classmethod
     def validate_publish_at(cls, v):
         """Ensure publish_at is in the future (with 2-minute tolerance for 'Post Now')"""
-        # Make v timezone-aware if it's naive
         if v.tzinfo is None:
             v = v.replace(tzinfo=timezone.utc)
 
-        # Get current time in UTC (timezone-aware)
         now_utc = datetime.now(timezone.utc)
 
-        # Allow publish_at to be up to 2 minutes in the past (for "Post Now" functionality)
         tolerance = timedelta(minutes=2)
         if v < (now_utc - tolerance):
             raise ValueError(f"publish_at must be in the future (within 2 minutes tolerance). Got: {v}, Current UTC: {now_utc}")
@@ -91,14 +87,11 @@ class ScheduledPostUpdate(BaseModel):
     def validate_publish_at(cls, v):
         """Ensure publish_at is in the future if provided (with 2-minute tolerance)"""
         if v:
-            # Make v timezone-aware if it's naive
             if v.tzinfo is None:
                 v = v.replace(tzinfo=timezone.utc)
 
-            # Get current time in UTC (timezone-aware)
             now_utc = datetime.now(timezone.utc)
 
-            # Allow publish_at to be up to 2 minutes in the past
             tolerance = timedelta(minutes=2)
             if v < (now_utc - tolerance):
                 raise ValueError(f"publish_at must be in the future (within 2 minutes tolerance). Got: {v}, Current UTC: {now_utc}")

@@ -1,10 +1,3 @@
-"""
-Helpers pour la gestion des webhooks avec idempotence.
-
-Ce module fournit des utilitaires pour éviter le traitement dupliqué
-des webhooks Stripe et Whop en utilisant la table webhook_events.
-"""
-
 import logging
 from typing import Optional
 from supabase import Client
@@ -17,14 +10,14 @@ async def check_event_processed(
     stripe_event_id: str = None,
 ) -> bool:
     """
-    Vérifie si un événement webhook a déjà été traité.
+    Check if a webhook event has already been processed.
 
     Args:
         db: Client Supabase
-        stripe_event_id: ID d'événement Stripe (requis)
+        stripe_event_id: ID of the Stripe event (required)
 
     Returns:
-        True si l'événement a déjà été traité, False sinon
+        True if the event has already been processed, False otherwise
     """
     try:
         query = db.table('webhook_events')
@@ -32,15 +25,13 @@ async def check_event_processed(
         if stripe_event_id:
             result = query.select('id').eq('stripe_event_id', stripe_event_id).execute()
         else:
-            logger.warning("Aucun event_id fourni pour vérification idempotence")
+            logger.warning("No event_id provided for idempotence check")
             return False
 
         return len(result.data) > 0
 
     except Exception as e:
-        logger.warning(f"Erreur vérification idempotence: {e}")
-        # En cas d'erreur, on considère que l'événement n'a pas été traité
-        # pour éviter de perdre des événements importants
+        logger.warning(f"Error checking idempotence: {e}")
         return False
 
 
@@ -52,19 +43,18 @@ async def mark_event_processed(
     source: str = 'stripe'
 ) -> None:
     """
-    Marque un événement webhook comme traité.
+    Mark a webhook event as processed.
 
     Args:
         db: Client Supabase
-        event_id: ID de l'événement
-        event_type: Type d'événement (ex: 'customer.subscription.created')
-        payload: Payload complet du webhook
-        source: Source ('stripe' ou 'whop')
+        event_id: ID of the event
+        event_type: Event type (ex: 'customer.subscription.created')
+        payload: Complete webhook payload
+        source: Source ('stripe' or 'whop')
     """
     try:
-        # Valider les paramètres
         if source != 'stripe':
-            raise ValueError(f"Source invalide: {source}")
+            raise ValueError(f"Invalid source: {source}")
 
         event_data = {
             'event_type': event_type,
@@ -72,51 +62,47 @@ async def mark_event_processed(
             'payload': payload
         }
 
-        # Ajouter l'ID selon la source
         event_data['stripe_event_id'] = event_id
 
-        # Insérer dans la table
         db.table('webhook_events').insert(event_data).execute()
 
-        logger.debug(f"Événement {source}:{event_id} marqué comme traité")
+        logger.debug(f"Event {source}:{event_id} marked as processed")
 
     except Exception as e:
-        logger.error(f"Erreur marquage événement traité {source}:{event_id}: {e}")
-        # Ne pas lever d'exception pour ne pas casser le traitement du webhook
-        # Le webhook sera retraité mais c'est acceptable
+        logger.error(f"Error marking event processed {source}:{event_id}: {e}")
 
 
 async def get_user_from_subscription(db: Client, subscription_id: str, source: str = 'stripe') -> Optional[str]:
     """
-    Récupère l'user_id depuis un subscription_id.
+    Retrieve the user_id from a subscription_id.
 
     Args:
         db: Client Supabase
-        subscription_id: ID de l'abonnement
-        source: Source ('stripe' ou 'whop')
+        subscription_id: ID of the subscription
+        source: Source ('stripe' or 'whop')
 
     Returns:
-        user_id ou None si non trouvé
+        user_id or None if not found
     """
     try:
         result = db.table('subscriptions').select('user_id').eq('id', subscription_id).eq('source', source).single().execute()
         return result.data['user_id'] if result.data else None
     except Exception as e:
-        logger.warning(f"Erreur récupération user pour subscription {subscription_id}: {e}")
+        logger.warning(f"Error retrieving user for subscription {subscription_id}: {e}")
         return None
 
 
 async def get_user_from_customer(db: Client, customer_id: str, source: str = 'stripe') -> Optional[str]:
     """
-    Récupère l'user_id depuis un customer_id.
+    Retrieve the user_id from a customer_id.
 
     Args:
         db: Client Supabase
-        customer_id: ID du customer (stripe_customer_id)
+        customer_id: ID of the customer (stripe_customer_id)
         source: Source ('stripe')
 
     Returns:
-        user_id ou None si non trouvé
+        user_id or None if not found
     """
     try:
         if source == 'stripe':
@@ -126,75 +112,70 @@ async def get_user_from_customer(db: Client, customer_id: str, source: str = 'st
 
         return result.data['id'] if result.data else None
     except Exception as e:
-        logger.warning(f"Erreur récupération user pour customer {customer_id}: {e}")
+        logger.warning(f"Error retrieving user for customer {customer_id}: {e}")
         return None
 
 
 def is_webhook_signature_valid(payload: dict, signature: str, webhook_secret: str, source: str = 'stripe') -> bool:
     """
-    Valide la signature d'un webhook.
+    Validate the signature of a webhook.
 
     Args:
-        payload: Payload du webhook
-        signature: Signature reçue
-        webhook_secret: Secret pour validation
-        source: Source ('stripe' ou 'whop')
+        payload: Webhook payload
+        signature: Received signature (X-Hub-Signature-256)
+        webhook_secret: Secret for validation
+        source: Source ('stripe' or 'whop')
 
     Returns:
-        True si la signature est valide
+        True if the signature is valid
     """
     try:
         if source == 'stripe':
-            # Validation Stripe
             import stripe
             stripe.Webhook.construct_event(payload, signature, webhook_secret)
             return True
 
         elif source != 'stripe':
-            logger.warning(f"Source inconnue pour validation signature: {source}")
+            logger.warning(f"Unknown source for signature validation: {source}")
             return False
 
     except Exception as e:
-        logger.warning(f"Erreur validation signature {source}: {e}")
+        logger.warning(f"Error validating signature {source}: {e}")
         return False
 
 
 async def log_webhook_error(db: Client, event_id: str, event_type: str, error: str, source: str = 'stripe'):
     """
-    Log une erreur de traitement webhook.
+    Log a webhook processing error.
 
     Args:
         db: Client Supabase
-        event_id: ID de l'événement
-        event_type: Type d'événement
-        error: Message d'erreur
-        source: Source ('stripe' ou 'whop')
+        event_id: Event ID
+        event_type: Event type
+        error: Error message
+        source: Source ('stripe' or 'whop')
     """
     try:
-        # Pour l'instant, on log juste. Plus tard, on pourrait créer une table dédiée
         logger.error(f"Webhook {source} error - {event_type} ({event_id}): {error}")
 
-        # Optionnellement, marquer quand même comme traité pour éviter les retraits
-        # Cela dépend de la stratégie de gestion d'erreur souhaitée
-
     except Exception as e:
-        logger.error(f"Erreur logging webhook error: {e}")
+        logger.error(f"Error logging webhook error: {e}")
 
 
 # =====================================================
-# Fonctions utilitaires pour les tests
+# Utility functions for tests
 # =====================================================
 
 async def cleanup_old_webhook_events(db: Client, days_old: int = 30) -> int:
     """
-    Nettoie les anciens événements webhook traités.
+    Clean up old webhook events.
 
     Args:
         db: Client Supabase
-        days_old: Nombre de jours après lesquels supprimer
+        days_old: Number of days after which to delete
 
     Returns:
-        Nombre d'événements supprimés
+        Number of events deleted
     """
     try:
         from datetime import datetime, timedelta, timezone
@@ -204,26 +185,26 @@ async def cleanup_old_webhook_events(db: Client, days_old: int = 30) -> int:
         result = db.table('webhook_events').delete().lt('processed_at', cutoff_date).execute()
 
         deleted_count = len(result.data) if result.data else 0
-        logger.info(f"Nettoyé {deleted_count} anciens événements webhook")
+        logger.info(f"Cleaned up {deleted_count} old webhook events")
 
         return deleted_count
 
     except Exception as e:
-        logger.error(f"Erreur nettoyage webhook events: {e}")
+        logger.error(f"Error cleaning up webhook events: {e}")
         return 0
 
 
 async def get_webhook_stats(db: Client, source: str = None, days: int = 7) -> dict:
     """
-    Récupère des statistiques sur les webhooks traités.
+    Retrieve statistics on processed webhooks.
 
     Args:
         db: Client Supabase
-        source: Filtrer par source ('stripe', 'whop', ou None pour tous)
-        days: Nombre de jours à analyser
+        source: Filter by source ('stripe', 'whop', or None for all)
+        days: Number of days to analyze
 
     Returns:
-        Dictionnaire de statistiques
+        Dictionary of statistics
     """
     try:
         from datetime import datetime, timedelta, timezone
@@ -245,17 +226,15 @@ async def get_webhook_stats(db: Client, source: str = None, days: int = 7) -> di
         }
 
         for event in result.data:
-            # Par type d'événement
             event_type = event['event_type']
             stats['by_type'][event_type] = stats['by_type'].get(event_type, 0) + 1
 
-            # Par source
             event_source = event['source']
             stats['by_source'][event_source] = stats['by_source'].get(event_source, 0) + 1
 
         return stats
 
     except Exception as e:
-        logger.error(f"Erreur récupération stats webhooks: {e}")
+        logger.error(f"Error retrieving webhook stats: {e}")
         return {'error': str(e)}
 

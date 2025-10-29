@@ -28,7 +28,6 @@ class WhatsAppService:
         if not self.phone_number_id:
             raise RuntimeError("WHATSAPP_PHONE_NUMBER_ID manquant")
 
-        # Use META_GRAPH_VERSION from config instead of hardcoded v23.0
         graph_version = os.getenv("META_GRAPH_VERSION", "v24.0")
         self.api_url = f"https://graph.facebook.com/{graph_version}"
         
@@ -63,12 +62,12 @@ class WhatsAppService:
 
     async def send_text_message(self, to: str, text: str, skip_validation: bool = True) -> Dict[str, Any]:
         """
-        Envoyer un message texte WhatsApp
+        Send a WhatsApp text message
         
         Args:
-            to: Numéro de téléphone destinataire (format: 33612345678)
-            text: Contenu du message
-            skip_validation: Éviter la validation pour optimiser les performances
+            to: Phone number recipient (format: 33612345678)
+            text: Message content
+            skip_validation: Avoid validation to optimize performance
         """
         if not skip_validation:
             validation = await self.validate_credentials()
@@ -94,12 +93,12 @@ class WhatsAppService:
 
     async def send_template_message(self, to: str, template_name: str = "hello_world", language_code: str = "en_US") -> Dict[str, Any]:
         """
-        Envoyer un template WhatsApp approuvé
+        Send a approved WhatsApp template
         
         Args:
-            to: Numéro de téléphone destinataire
-            template_name: Nom du template (par défaut: hello_world)
-            language_code: Code langue (par défaut: en_US)
+            to: Phone number recipient
+            template_name: Template name (default: hello_world)
+            language_code: Language code (default: en_US)
         """
         url = f"/{self.phone_number_id}/messages"
         payload = {
@@ -119,13 +118,13 @@ class WhatsAppService:
 
     async def send_media_message(self, to: str, media_type: str, media_url: str, caption: str = "") -> Dict[str, Any]:
         """
-        Envoyer un message avec média (image, vidéo, audio, document)
+        Send a message with media (image, video, audio, document)
         
         Args:
-            to: Numéro de téléphone destinataire
-            media_type: Type de média (image, video, audio, document)
-            media_url: URL du média
-            caption: Légende optionnelle
+            to: Phone number recipient
+            media_type: Media type (image, video, audio, document)
+            media_url: Media URL
+            caption: Optional caption
         """
         url = f"/{self.phone_number_id}/messages"
         
@@ -141,14 +140,14 @@ class WhatsAppService:
         }
         headers = {"Idempotency-Key": str(uuid.uuid4())}
         
-        logger.info(f"Envoi {media_type} vers {to}: {media_url}")
+        logger.info(f"Send {media_type} to {to}: {media_url}")
         
         return await self._send_with_retry(url, payload, headers)
 
 
     async def send_typing_and_mark_read(self, to: str, last_wamid: str, skip_validation: bool = True) -> Dict[str, Any]:
         """
-        Affiche 'typing…' et marque le dernier message comme lu.
+        Display 'typing…' and mark the last message as read.
         """
         if not skip_validation:
             validation = await self.validate_credentials()
@@ -164,29 +163,29 @@ class WhatsAppService:
             "typing_indicator": {"type": "text"}
         }
         headers = {"Idempotency-Key": str(uuid.uuid4())}
-        logger.info(f"Envoi indicateur de frappe vers {to} (wamid={last_wamid})")
+        logger.info(f"Send typing indicator to {to} (wamid={last_wamid})")
         return await self._send_with_retry(url, payload, headers)
 
     async def get_business_profile(self) -> Dict[str, Any]:
-        """Récupérer le profil business WhatsApp"""
+        """Get the WhatsApp business profile"""
         try:
             url = f"/{self.phone_number_id}/whatsapp_business_profile"
             resp = await self.client.get(url)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
-            logger.error(f"Erreur profil business: {e}")
-            raise HTTPException(status_code=500, detail=f"Erreur récupération profil: {e}")
+            logger.error(f"Error business profile: {e}")
+            raise HTTPException(status_code=500, detail=f"Error retrieving profile: {e}")
 
     async def _send_with_retry(self, url: str, payload: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
-        """Méthode interne pour envoyer avec retry automatique"""
+        """Internal method to send with automatic retry"""
         backoff = 0.5
         
         for attempt in range(3):
             try:
                 resp = await self.client.post(url, json=payload, headers=headers)
                 
-                logger.info(f"Tentative {attempt + 1}: Status {resp.status_code}")
+                logger.info(f"Attempt {attempt + 1}: Status {resp.status_code}")
                 
                 if resp.status_code in (429, 500, 502, 503, 504):
                     raise httpx.HTTPStatusError("transient", request=resp.request, response=resp)
@@ -195,16 +194,16 @@ class WhatsAppService:
                 result = resp.json()
                 
                 message_id = result.get('messages', [{}])[0].get('id', 'N/A')
-                logger.info(f"Message envoyé avec succès. ID: {message_id}")
+                logger.info(f"Message sent successfully. ID: {message_id}")
                 
                 return result
                 
             except httpx.HTTPStatusError as e:
                 error_body = e.response.text
-                logger.error(f"Erreur HTTP {e.response.status_code}: {error_body}")
+                logger.error(f"HTTP error {e.response.status_code}: {error_body}")
                 
                 if attempt < 2 and e.response.status_code in (429, 500, 502, 503, 504):
-                    logger.info(f"Retry dans {backoff}s...")
+                    logger.info(f"Retry in {backoff}s...")
                     await asyncio.sleep(backoff)
                     backoff *= 2
                     continue
@@ -212,7 +211,7 @@ class WhatsAppService:
                 raise HTTPException(
                     status_code=502, 
                     detail={
-                        "msg": "Échec envoi WhatsApp", 
+                        "msg": "WhatsApp send failed", 
                         "status": e.response.status_code,
                         "body": error_body,
                         "url": str(e.request.url)
@@ -220,15 +219,15 @@ class WhatsAppService:
                 )
                 
             except httpx.TimeoutException:
-                logger.error(f"Timeout tentative {attempt + 1}")
+                logger.error(f"Timeout attempt {attempt + 1}")
                 if attempt < 2:
                     await asyncio.sleep(backoff)
                     backoff *= 2
                     continue
-                raise HTTPException(status_code=504, detail="Timeout requête WhatsApp")
+                raise HTTPException(status_code=504, detail="Timeout WhatsApp request")
 
     async def close(self):
-        """Fermer le client HTTP"""
+        """Close the HTTP client"""
         await self.client.aclose()
 
     async def __aenter__(self):
@@ -241,7 +240,7 @@ class WhatsAppService:
 _whatsapp_service: Optional[WhatsAppService] = None
 
 async def get_whatsapp_service(access_token: Optional[str] = None, phone_number_id: Optional[str] = None) -> WhatsAppService:
-    """Factory pour obtenir une instance du service WhatsApp"""
+    """Factory to get an instance of the WhatsApp service"""
     global _whatsapp_service
    
     if access_token or phone_number_id:

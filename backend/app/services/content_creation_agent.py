@@ -16,9 +16,7 @@ from dotenv import load_dotenv
 from app.db.session import get_db
 from app.services.content_creation_tools import (
     create_schedule_post_tool,
-    create_preview_post_tool,
-    SchedulePostResult,
-    PreviewPostResult
+    SchedulePostResult
 )
 
 load_dotenv()
@@ -36,14 +34,26 @@ class ContentCreationAgentState(BaseModel):
     """State for the Content Creation Agent"""
     messages: Annotated[List[AnyMessage], operator.add]
     scheduled_posts: List[SchedulePostResult] = []
-    previews: List[PreviewPostResult] = []
     max_iterations: int = 10
     iteration_count: int = 0
 
 
-# Default system prompt for content creation
-CONTENT_CREATION_SYSTEM_PROMPT = """You are an expert social media content creator and strategist. You help users create engaging, high-quality content for their social media platforms (Instagram, WhatsApp, Facebook, Twitter).
 
+
+CONTENT_CREATION_SYSTEM_PROMPT = """You are an expert social media content creator and strategist. You help users create engaging, high-quality content for their social media platforms (Instagram, WhatsApp, Facebook, Twitter).
+**CURRENT DATE AND TIME:**
+Today's date: {current_date_str}
+Current time: {current_time_str}
+
+**IMPORTANT:** When the user says "tomorrow", "next week", etc., calculate the date based on TODAY ({current_date_str}).
+For example:
+- Tomorrow = {tomorrow_str}
+- In 2 days = {in_two_days_str}
+- Next Monday = (calculate from {current_date_str})
+
+Always use dates in the FUTURE (after {current_date_str}). Never use dates from 2023 or earlier.
+
+---
 Your capabilities:
 - Generate creative and engaging post ideas
 - Write compelling copy optimized for each platform
@@ -55,7 +65,6 @@ Your capabilities:
 When helping users create content:
 1. Ask about their target audience and goals if not specified
 2. Suggest platform-specific best practices
-3. Use the preview_post tool to analyze content before scheduling
 4. Use the schedule_post tool when the user is ready to schedule
 5. Provide actionable suggestions for improvement
 
@@ -68,10 +77,6 @@ When using the `schedule_post` tool:
 - CRITICAL: Use the current date/time provided above to calculate future dates
 - Example: If today is 2025-10-25, use "2025-10-26T15:00:00" for tomorrow at 3pm
 - Example tool call: schedule_post(platform="instagram", content_text="Great post!", publish_at="2025-10-26T15:00:00")
-
-When using the `preview_post` tool:
-- Use it BEFORE scheduling to check character count and get suggestions
-- Platform names must be lowercase: "instagram", "whatsapp", "facebook", or "twitter"
 
 Platforms you support:
 - **instagram**: Focus on visual storytelling, use hashtags, first 125 chars matter (2,200 char limit)
@@ -105,14 +110,23 @@ class ContentCreationAgent:
         )
         db = get_db()
         self.schedule_post_tool = create_schedule_post_tool(user_id, db)
-        self.preview_post_tool = create_preview_post_tool(user_id)
 
-
-        self.tools = [self.schedule_post_tool, self.preview_post_tool]
+        self.tools = [self.schedule_post_tool]
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
-
-        self.system_prompt = system_prompt or CONTENT_CREATION_SYSTEM_PROMPT
+        current_datetime = datetime.now()
+        current_date_str = current_datetime.strftime("%Y-%m-%d")
+        current_time_str = current_datetime.strftime("%H:%M:%S")
+        tomorrow_str = (current_datetime + timedelta(days=1)).strftime("%Y-%m-%d")
+        in_two_days_str = (current_datetime + timedelta(days=2)).strftime("%Y-%m-%d")
+        self.system_prompt = [SystemMessage(content=CONTENT_CREATION_SYSTEM_PROMPT.format(
+            current_date_str=current_date_str,
+            current_time_str=current_time_str,
+            tomorrow_str=tomorrow_str,
+            in_two_days_str=in_two_days_str
+        ))]
+        if system_prompt:
+            self.system_prompt.append(SystemMessage(content=system_prompt))
 
         self.graph = self._build_graph(checkpointer)
 
@@ -142,32 +156,6 @@ class ContentCreationAgent:
         try:
             messages = state.messages
 
-            if len(messages) == 1 and isinstance(messages[0], HumanMessage):
-                # Inject current date/time context into system prompt
-                current_datetime = datetime.now()
-                current_date_str = current_datetime.strftime("%Y-%m-%d")
-                current_time_str = current_datetime.strftime("%H:%M:%S")
-                tomorrow_str = (current_datetime + timedelta(days=1)).strftime("%Y-%m-%d")
-                in_two_days_str = (current_datetime + timedelta(days=2)).strftime("%Y-%m-%d")
-
-                contextual_prompt = f"""**CURRENT DATE AND TIME:**
-Today's date: {current_date_str}
-Current time: {current_time_str}
-
-**IMPORTANT:** When the user says "tomorrow", "next week", etc., calculate the date based on TODAY ({current_date_str}).
-For example:
-- Tomorrow = {tomorrow_str}
-- In 2 days = {in_two_days_str}
-- Next Monday = (calculate from {current_date_str})
-
-Always use dates in the FUTURE (after {current_date_str}). Never use dates from 2023 or earlier.
-
----
-
-{self.system_prompt}"""
-
-                messages = [SystemMessage(content=contextual_prompt)] + messages
-
             response = self.llm_with_tools.invoke(messages)
 
             return {
@@ -194,7 +182,6 @@ Always use dates in the FUTURE (after {current_date_str}). Never use dates from 
 
         tool_messages = []
         scheduled_posts = list(state.scheduled_posts)
-        previews = list(state.previews)
 
         for tool_call in tool_calls:
             try:
@@ -204,13 +191,6 @@ Always use dates in the FUTURE (after {current_date_str}). Never use dates from 
                     if tool_call['name'] == 'schedule_post':
                         result = tool.invoke(tool_call['args'])
                         scheduled_posts.append(result)
-                        tool_msg = ToolMessage(
-                            content=result.model_dump_json(),
-                            tool_call_id=tool_call['id']
-                        )
-                    elif tool_call['name'] == 'preview_post':
-                        result = tool.invoke(tool_call['args'])
-                        previews.append(result)
                         tool_msg = ToolMessage(
                             content=result.model_dump_json(),
                             tool_call_id=tool_call['id']
@@ -234,7 +214,6 @@ Always use dates in the FUTURE (after {current_date_str}). Never use dates from 
         return {
             "messages": tool_messages,
             "scheduled_posts": scheduled_posts,
-            "previews": previews
         }
 
     def _should_continue(self, state: ContentCreationAgentState) -> Literal["continue", "end"]:
@@ -256,19 +235,16 @@ Always use dates in the FUTURE (after {current_date_str}). Never use dates from 
                 {
                     "messages": [HumanMessage(content=message)],
                     "scheduled_posts": [],
-                    "previews": [],
                     "max_iterations": self.max_iterations,
                     "iteration_count": 0
                 },
                 config=config
             )
 
-            # Auto-save conversation metadata
             try:
                 self._save_conversation_metadata(config, result)
             except Exception as metadata_error:
                 logger.warning(f"Failed to save conversation metadata: {metadata_error}")
-                # Don't fail the request if metadata save fails
 
             return result
 
@@ -294,20 +270,17 @@ Always use dates in the FUTURE (after {current_date_str}). Never use dates from 
             if not messages:
                 return
 
-            # Generate title from first user message
             title = self._generate_title(messages)
             message_count = len([m for m in messages if isinstance(m, (HumanMessage, AIMessage))])
 
             db = get_db()
 
-            # Check if metadata exists
             existing = db.table("ai_studio_conversation_metadata")\
                 .select("*")\
                 .eq("thread_id", thread_id)\
                 .execute()
 
             if existing.data and len(existing.data) > 0:
-                # Update existing metadata
                 db.table("ai_studio_conversation_metadata")\
                     .update({
                         "message_count": message_count,
@@ -316,7 +289,6 @@ Always use dates in the FUTURE (after {current_date_str}). Never use dates from 
                     .eq("thread_id", thread_id)\
                     .execute()
             else:
-                # Insert new metadata
                 db.table("ai_studio_conversation_metadata")\
                     .insert({
                         "thread_id": thread_id,
@@ -340,7 +312,6 @@ Always use dates in the FUTURE (after {current_date_str}). Never use dates from 
         for msg in messages:
             if isinstance(msg, HumanMessage):
                 content = msg.content
-                # Take first 50 chars or up to first newline
                 title = content.split('\n')[0][:50]
                 return title if len(title) < len(content) else title + "..."
 

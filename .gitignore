@@ -212,7 +212,12 @@ marimo/_lsp/
 __marimo__/
 .cursor/*
 .taskmaster/*
-
+.agent/*
+.claude/agent/*
+.claude/.moat/*
+CLAUDE.md
+.mcp.json
+migrations/
 # Logs
 logs
 npm-debug.log*

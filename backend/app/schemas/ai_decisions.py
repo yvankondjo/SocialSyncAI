@@ -1,9 +1,9 @@
 """
-Pydantic schemas for AI Rules feature
-Simple AI control with instructions and ignore examples
+Pydantic schemas for AI Decisions and Moderation
+Handles AI decision logging, message checking, and escalations
 """
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 from enum import Enum
 
@@ -13,46 +13,6 @@ class AIDecision(str, Enum):
     RESPOND = "respond"
     IGNORE = "ignore"
     ESCALATE = "escalate"
-
-
-class AIRulesCreate(BaseModel):
-    """Schema for creating AI rules"""
-    instructions: Optional[str] = None
-    ignore_examples: Optional[List[str]] = Field(default_factory=list)
-    ai_control_enabled: bool = True
-    ai_enabled_for_chats: bool = True
-    ai_enabled_for_comments: bool = True
-    flagged_keywords: Optional[List[str]] = Field(default_factory=list)
-    flagged_phrases: Optional[List[str]] = Field(default_factory=list)
-
-
-class AIRulesUpdate(BaseModel):
-    """Schema for updating AI rules"""
-    instructions: Optional[str] = None
-    ignore_examples: Optional[List[str]] = None
-    ai_control_enabled: Optional[bool] = None
-    ai_enabled_for_chats: Optional[bool] = None
-    ai_enabled_for_comments: Optional[bool] = None
-    flagged_keywords: Optional[List[str]] = None
-    flagged_phrases: Optional[List[str]] = None
-
-
-class AIRulesResponse(BaseModel):
-    """Schema for AI rules response"""
-    id: str
-    user_id: str
-    instructions: Optional[str]
-    ignore_examples: List[str]
-    ai_control_enabled: bool
-    ai_enabled_for_chats: bool
-    ai_enabled_for_comments: bool
-    flagged_keywords: List[str]
-    flagged_phrases: List[str]
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class AIDecisionCreate(BaseModel):
@@ -92,7 +52,7 @@ class CheckMessageResponse(BaseModel):
     decision: AIDecision
     confidence: float
     reason: str
-    should_respond: bool  # True si decision = "respond"
+    should_respond: bool  # True if decision = "respond"
     matched_rule: Optional[str] = None
 
 

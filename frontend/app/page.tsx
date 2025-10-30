@@ -11,7 +11,8 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.push("/dashboard")
+      // OPEN-SOURCE: Redirect to calendar as default home page
+      router.push("/dashboard/calendar")
     }
   }, [user, loading, router])
 

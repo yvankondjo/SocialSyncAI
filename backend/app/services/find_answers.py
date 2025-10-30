@@ -14,16 +14,19 @@ import json
 from openai import OpenAIError
 from supabase.lib.client_options import ClientOptions
 from httpx import HTTPError
+
 logger = logging.getLogger(__name__)
+
+
 class QuestionAnswer(BaseModel):
     question_id: str
     questions: List[str]
     answer: str
 
+
 class ReferencedAnswer(BaseModel):
     question_id: str
     quotes: list[str]
-
 
 
 class _AnswerSchema(BaseModel):
@@ -35,17 +38,17 @@ class _AnswerSchema(BaseModel):
     collected_relevant_quotes_from_background_info: Optional[list[ReferencedAnswer]] = (
         None
     )
-    concise_and_minimal_synthesized_answer_based_solely_on_relevant_quotes__draft: Optional[
-        str
-    ] = None
+    concise_and_minimal_synthesized_answer_based_solely_on_relevant_quotes__draft: (
+        Optional[str]
+    ) = (None)
     critique: Optional[str] = None
     brief_explanation_of_what_needs_to_change_in_order_to_stay_within_the_boundaries_of_collected_quotes: Optional[
         str
     ] = None
     could_use_better_markdown: Optional[bool] = None
-    concise_and_minimal_synthesized_answer_based_solely_on_relevant_quotes__revised: Optional[
-        str
-    ] = None
+    concise_and_minimal_synthesized_answer_based_solely_on_relevant_quotes__revised: (
+        Optional[str]
+    ) = (None)
     extracted_entities_found_in_background_info_and_referred_to_by_answer: Optional[
         list[str]
     ] = None
@@ -53,62 +56,70 @@ class _AnswerSchema(BaseModel):
     question_answered_partially: bool
     question_not_answered_at_all: bool
 
+
 AnswerGrade: TypeAlias = Literal["partial", "full", "no-answer"]
+
+
 class Answer(BaseModel):
-    content:Optional[str] = None
+    content: Optional[str] = None
     grade: AnswerGrade
     generation_info: Optional[dict] = None
     evaluation: Optional[str] = None
     references: Optional[list[ReferencedAnswer]] = None
     extracted_entities: Optional[list[str]] = None
+
+
 class FindAnswersError(Exception):
     """Exception personnalisée pour les erreurs de FindAnswers"""
+
     def __init__(self, message: str, error_type: str = "UNKNOWN", details: dict = None):
         self.message = message
         self.error_type = error_type
         self.details = details or {}
         super().__init__(self.message)
 
+
 class FindAnswers:
-    def __init__(self, user_id: str, model_name: str = "x-ai/grok-4-fast:free"):
+    def __init__(self, user_id: str, model_name: str = "x-ai/grok-4-fast"):
         if not user_id:
             raise FindAnswersError(
                 "User ID is required and cannot be empty",
                 error_type="INVALID_USER_ID",
-                details={"user_id": user_id}
+                details={"user_id": user_id},
             )
-        
+
         self.user_id = user_id
         self.model_name = model_name
-        
+
         try:
             self.db = get_db()
         except Exception as e:
             raise FindAnswersError(
                 f"Failed to initialize database connection: {str(e)}",
                 error_type="DATABASE_CONNECTION_ERROR",
-                details={"original_error": str(e)}
+                details={"original_error": str(e)},
             )
-        
-        api_key = os.getenv('OPENROUTER_API_KEY')
+
+        api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             raise FindAnswersError(
                 "OPENROUTER_API_KEY environment variable is required but not set",
                 error_type="MISSING_API_KEY",
-                details={"env_var": "OPENROUTER_API_KEY"}
+                details={"env_var": "OPENROUTER_API_KEY"},
             )
-        
+
         try:
             self.llm = ChatOpenAI(
                 api_key=api_key,
-                base_url=os.getenv('OPENROUTER_BASE_URL') or "https://openrouter.ai/api/v1",
-                model=model_name
+                base_url=os.getenv("OPENROUTER_BASE_URL")
+                or "https://openrouter.ai/api/v1",
+                model=model_name,
             )
         except Exception as e:
             raise FindAnswersError(
                 f"Failed to initialize LLM client: {str(e)}",
                 error_type="LLM_INITIALIZATION_ERROR",
-                details={"model_name": model_name, "original_error": str(e)}
+                details={"model_name": model_name, "original_error": str(e)},
             )
 
     def get_question_answers(self) -> list[QuestionAnswer]:
@@ -117,46 +128,57 @@ class FindAnswers:
                 raise FindAnswersError(
                     "User ID is required for retrieving question answers",
                     error_type="INVALID_USER_ID",
-                    details={"user_id": self.user_id}
+                    details={"user_id": self.user_id},
                 )
-            
-            question_answers = self.db.table("faq_qa").select("id, questions, answer").eq("user_id", self.user_id).eq("is_active", True).execute()
-            
+
+            question_answers = (
+                self.db.table("faq_qa")
+                .select("id, questions, answer")
+                .eq("user_id", self.user_id)
+                .eq("is_active", True)
+                .execute()
+            )
+
             if not question_answers.data:
                 logger.warning(f"No question answers found for user {self.user_id}")
                 return []
-            
+
             result = []
             for item in question_answers.data:
                 try:
                     qa = QuestionAnswer(
                         question_id=item["id"],
-                        questions=item["questions"] if isinstance(item["questions"], list) else [item["questions"]],
-                        answer=item["answer"]
+                        questions=(
+                            item["questions"]
+                            if isinstance(item["questions"], list)
+                            else [item["questions"]]
+                        ),
+                        answer=item["answer"],
                     )
                     result.append(qa)
                 except ValidationError as e:
-                    logger.error(f"Validation error for question answer {item.get('id', 'unknown')}: {str(e)}")
+                    logger.error(
+                        f"Validation error for question answer {item.get('id', 'unknown')}: {str(e)}"
+                    )
                     continue
                 except KeyError as e:
                     logger.error(f"Missing required field in question answer: {str(e)}")
                     continue
-            
+
             return result
-            
+
         except HTTPError as e:
             raise FindAnswersError(
                 f"Database API error while retrieving question answers: {str(e)}",
                 error_type="DATABASE_API_ERROR",
-                details={"user_id": self.user_id, "original_error": str(e)}
+                details={"user_id": self.user_id, "original_error": str(e)},
             )
         except Exception as e:
             raise FindAnswersError(
                 f"Unexpected error while retrieving question answers: {str(e)}",
                 error_type="UNEXPECTED_ERROR",
-                details={"user_id": self.user_id, "original_error": str(e)}
+                details={"user_id": self.user_id, "original_error": str(e)},
             )
-    
 
     def find_answers(self, question: str) -> Answer:
         try:
@@ -164,11 +186,11 @@ class FindAnswers:
                 raise FindAnswersError(
                     "Question cannot be empty or only whitespace",
                     error_type="INVALID_QUESTION",
-                    details={"question": question}
+                    details={"question": question},
                 )
-            
+
             logger.info(f"Looking for answers for '{question}' for user {self.user_id}")
-            
+
             try:
                 question_answers = self.get_question_answers()
             except FindAnswersError:
@@ -177,11 +199,15 @@ class FindAnswers:
                 raise FindAnswersError(
                     f"Failed to retrieve question answers: {str(e)}",
                     error_type="QUESTION_RETRIEVAL_ERROR",
-                    details={"question": question, "user_id": self.user_id, "original_error": str(e)}
+                    details={
+                        "question": question,
+                        "user_id": self.user_id,
+                        "original_error": str(e),
+                    },
                 )
-            
+
             logger.info(f"Found {len(question_answers)} question answers")
-            
+
             if not question_answers:
                 logger.warning(f"No question answers available for user {self.user_id}")
                 return Answer(
@@ -190,10 +216,10 @@ class FindAnswers:
                     generation_info=None,
                     evaluation="No question answers found in the knowledge base",
                     references=[],
-                    extracted_entities=[]
+                    extracted_entities=[],
                 )
-            
-            #prompt taken from parlant.io : https://github.com/emcie-co/parlant-qna/blob/main/parlant_qna/app.py
+
+            # prompt taken from parlant.io : https://github.com/emcie-co/parlant-qna/blob/main/parlant_qna/app.py
             prompt = f"""\
 You are a RAG agent who has exactly one job: to answer the user's question
 based ONLY on the background information provided here in-context.
@@ -292,19 +318,27 @@ User Question: ###
                 raise FindAnswersError(
                     f"OpenAI API error during answer generation: {str(e)}",
                     error_type="OPENAI_API_ERROR",
-                    details={"question": question, "model": self.model_name, "original_error": str(e)}
+                    details={
+                        "question": question,
+                        "model": self.model_name,
+                        "original_error": str(e),
+                    },
                 )
             except ValidationError as e:
                 raise FindAnswersError(
                     f"Validation error in LLM response: {str(e)}",
                     error_type="LLM_RESPONSE_VALIDATION_ERROR",
-                    details={"question": question, "original_error": str(e)}
+                    details={"question": question, "original_error": str(e)},
                 )
             except Exception as e:
                 raise FindAnswersError(
                     f"Unexpected error during LLM processing: {str(e)}",
                     error_type="LLM_PROCESSING_ERROR",
-                    details={"question": question, "model": self.model_name, "original_error": str(e)}
+                    details={
+                        "question": question,
+                        "model": self.model_name,
+                        "original_error": str(e),
+                    },
                 )
 
             if (
@@ -333,9 +367,15 @@ User Question: ###
 
             final_answer = None
 
-            if result.concise_and_minimal_synthesized_answer_based_solely_on_relevant_quotes__revised:
-                final_answer = result.concise_and_minimal_synthesized_answer_based_solely_on_relevant_quotes__revised
-            elif not result.brief_explanation_of_what_needs_to_change_in_order_to_stay_within_the_boundaries_of_collected_quotes:
+            if (
+                result.concise_and_minimal_synthesized_answer_based_solely_on_relevant_quotes__revised
+            ):
+                final_answer = (
+                    result.concise_and_minimal_synthesized_answer_based_solely_on_relevant_quotes__revised
+                )
+            elif (
+                not result.brief_explanation_of_what_needs_to_change_in_order_to_stay_within_the_boundaries_of_collected_quotes
+            ):
                 final_answer = (
                     result.concise_and_minimal_synthesized_answer_based_solely_on_relevant_quotes__draft
                     or None
@@ -347,17 +387,25 @@ User Question: ###
                 logger.warning(
                     "Underlying LLM failed to generate a revised answer; falling back to draft"
                 )
-                final_answer = result.concise_and_minimal_synthesized_answer_based_solely_on_relevant_quotes__draft
+                final_answer = (
+                    result.concise_and_minimal_synthesized_answer_based_solely_on_relevant_quotes__draft
+                )
 
             try:
                 # Process final answer for proper encoding
                 processed_content = None
                 if final_answer:
-                    processed_content = final_answer.encode("utf8").decode("unicode-escape").encode("utf16", "surrogatepass").decode("utf16")
-                
+                    processed_content = (
+                        final_answer.encode("utf8")
+                        .decode("unicode-escape")
+                        .encode("utf16", "surrogatepass")
+                        .decode("utf16")
+                    )
+
                 answer = Answer(
                     content=processed_content,
-                    evaluation=result.insights_on_what_could_be_a_legitimate_answer or "",
+                    evaluation=result.insights_on_what_could_be_a_legitimate_answer
+                    or "",
                     grade="full" if result.question_answered_in_full else "partial",
                     generation_info=None,
                     references=[
@@ -367,7 +415,8 @@ User Question: ###
                         )
                         for q in result.collected_relevant_quotes_from_background_info
                     ],
-                    extracted_entities=result.extracted_entities_found_in_background_info_and_referred_to_by_answer or [],
+                    extracted_entities=result.extracted_entities_found_in_background_info_and_referred_to_by_answer
+                    or [],
                 )
 
                 logger.info(
@@ -375,33 +424,35 @@ User Question: ###
                 )
 
                 return answer
-                
+
             except UnicodeError as e:
                 raise FindAnswersError(
                     f"Unicode encoding error while processing answer: {str(e)}",
                     error_type="UNICODE_ENCODING_ERROR",
-                    details={"question": question, "original_error": str(e)}
+                    details={"question": question, "original_error": str(e)},
                 )
             except Exception as e:
                 raise FindAnswersError(
                     f"Error while processing final answer: {str(e)}",
                     error_type="ANSWER_PROCESSING_ERROR",
-                    details={"question": question, "original_error": str(e)}
+                    details={"question": question, "original_error": str(e)},
                 )
-                
+
         except FindAnswersError:
             raise
         except Exception as e:
             raise FindAnswersError(
                 f"Unexpected error in find_answers: {str(e)}",
                 error_type="UNEXPECTED_ERROR",
-                details={"question": question, "user_id": self.user_id, "original_error": str(e)}
+                details={
+                    "question": question,
+                    "user_id": self.user_id,
+                    "original_error": str(e),
+                },
             )
-        
-
 
 
 if __name__ == "__main__":
-    find_answers = FindAnswers(user_id="b46a7229-2c29-4a88-ada1-c21a59f4eda1")
+    find_answers = FindAnswers(user_id="user_id_here")
     answer = find_answers.find_answers("qui est yvan kondjo?")
     print(answer)

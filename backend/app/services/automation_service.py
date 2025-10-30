@@ -224,8 +224,16 @@ class AutomationService:
         except Exception as e:
             logger.warning(
                 f"[AUTOMATION] Failed to check ai_enabled_for_comments for comment {comment_id}: {e}. "
+                f"Error type: {type(e).__name__}, "
+                f"Error details: {str(e)}, "
+                f"User ID: {user_id}, "
+                f"Social Account ID: {social_account_id}. "
                 f"Continuing with AI processing as fallback (fail-open)."
             )
+            # Log full traceback for debugging
+            import traceback
+            logger.debug(f"[AUTOMATION] Full traceback: {traceback.format_exc()}")
+
             return {
                 'should_reply': True,
                 'reason': 'Error checking monitoring_rules, defaulting to enabled (fail-open)',

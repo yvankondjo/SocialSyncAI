@@ -13,7 +13,6 @@ from app.routers import (
     ai_settings,
     media,
     scheduled_posts,
-    ai_rules,
     comments,
     ai_studio,
     instagram_profiles,
@@ -78,30 +77,22 @@ app.include_router(faq_qa.router, prefix="/api")
 app.include_router(ai_settings.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
 
-# Nouvelles routes PRD2
+
 from app.routers import support
 
 app.include_router(support.router, prefix="/api")
 
-# Scheduled posts feature
 app.include_router(scheduled_posts.router, prefix="/api")
-
-# AI Rules feature (simple AI control)
-app.include_router(ai_rules.router, prefix="/api")
-
-# Comments polling feature
 app.include_router(comments.router, prefix="/api")
 
-# AI Studio feature (AI-assisted content creation)
+
 app.include_router(ai_studio.router, prefix="/api")
 
-# Instagram profile refresh (avatar URLs)
 app.include_router(instagram_profiles.router, prefix="/api")
 
-# Comment monitoring system (import posts, toggle monitoring, auto-rules)
+
 app.include_router(monitoring.router, prefix="/api")
 
-# Analytics router (real data)
 app.include_router(analytics.router, prefix="/api")
 
 

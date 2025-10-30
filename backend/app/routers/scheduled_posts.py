@@ -38,6 +38,14 @@ async def create_scheduled_post(
 
     platform = channel.data[0]["platform"]
 
+    # Validate platform-specific requirements
+    if platform == "instagram":
+        if not post.content.media or len(post.content.media) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Instagram posts require at least one media item (image or video)"
+            )
+
     post_data = {
         "user_id": current_user_id,
         "channel_id": post.channel_id,
@@ -126,7 +134,7 @@ async def update_scheduled_post(
     Update a scheduled post
     Only queued posts can be updated
     """
-    existing = db.table("scheduled_posts").select("status").eq("id", post_id).execute()
+    existing = db.table("scheduled_posts").select("status, platform").eq("id", post_id).execute()
 
     if not existing.data:
         raise HTTPException(status_code=404, detail="Scheduled post not found")
@@ -139,7 +147,15 @@ async def update_scheduled_post(
 
     update_data = update.model_dump(exclude_unset=True)
 
+    # Validate platform-specific requirements if content is being updated
     if "content" in update_data and update_data["content"]:
+        platform = existing.data[0]["platform"]
+        if platform == "instagram":
+            if not update_data["content"].media or len(update_data["content"].media) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Instagram posts require at least one media item (image or video)"
+                )
         update_data["content_json"] = update_data.pop("content").model_dump()
 
     if "publish_at" in update_data and update_data["publish_at"]:
@@ -164,7 +180,7 @@ async def delete_scheduled_post(
     db=Depends(get_authenticated_db)
 ):
     """
-    Cancel/delete a scheduled post
+    Delete a scheduled post permanently (hard delete)
     Published posts cannot be deleted
     """
     existing = db.table("scheduled_posts").select("status").eq("id", post_id).execute()
@@ -175,10 +191,8 @@ async def delete_scheduled_post(
     if existing.data[0]["status"] == PostStatus.PUBLISHED.value:
         raise HTTPException(status_code=400, detail="Cannot delete published posts")
 
-    db.table("scheduled_posts").update({
-        "status": PostStatus.CANCELLED.value,
-        "updated_at": datetime.utcnow().isoformat()
-    }).eq("id", post_id).execute()
+    # Hard delete - permanently remove from database
+    db.table("scheduled_posts").delete().eq("id", post_id).execute()
 
     return
 

@@ -45,9 +45,11 @@ class CreditsService:
     async def deduct_credits(
         self,
         user_id: str,
-        amount: float,
-        operation: str,
-        metadata: Optional[Dict[str, Any]] = None
+        amount: float = None,
+        operation: str = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        credits_to_deduct: float = None,
+        reason: str = None
     ) -> Dict[str, Any]:
         """
         Déduit des crédits du compte utilisateur.
@@ -56,20 +58,26 @@ class CreditsService:
 
         Args:
             user_id: ID de l'utilisateur
-            amount: Montant de crédits à déduire
-            operation: Description de l'opération
+            amount: Montant de crédits à déduire (deprecated, use credits_to_deduct)
+            operation: Description de l'opération (deprecated, use reason)
             metadata: Métadonnées additionnelles
+            credits_to_deduct: Montant de crédits à déduire (preferred)
+            reason: Description de l'opération (preferred)
 
         Returns:
             Dict simulant une transaction réussie
         """
-        logger.info(f"[OPEN-SOURCE] Credits deduction for user {user_id}: {amount} credits for {operation} - NO DEDUCTION (unlimited mode)")
+        # Handle both old and new parameter names for backward compatibility
+        deduct_amount = credits_to_deduct if credits_to_deduct is not None else amount
+        operation_desc = reason if reason is not None else operation
+
+        logger.info(f"[OPEN-SOURCE] Credits deduction for user {user_id}: {deduct_amount} credits for {operation_desc} - NO DEDUCTION (unlimited mode)")
 
         return {
             "success": True,
             "user_id": user_id,
-            "amount": amount,
-            "operation": operation,
+            "amount": deduct_amount,
+            "operation": operation_desc,
             "remaining_balance": float('inf'),  # Infini
             "timestamp": datetime.utcnow().isoformat(),
             "mode": "unlimited"
@@ -122,6 +130,8 @@ class CreditsService:
                 self.scheduled_posts = True
                 self.analytics = True
                 self.unlimited = True
+                # Unlimited calls per batch for open-source version
+                self.max_calls_per_batch = 999999
 
         return UnlimitedFeatures()
 
@@ -167,6 +177,22 @@ class CreditsService:
                 'credits_balance': 999999,
                 'mode': 'unlimited'
             }
+
+    async def can_use_model(self, user_id: str, model_name: str) -> bool:
+        """
+        Vérifie si l'utilisateur peut utiliser un modèle AI spécifique.
+
+        VERSION OPEN-SOURCE: Retourne toujours True (tous les modèles disponibles).
+
+        Args:
+            user_id: ID de l'utilisateur
+            model_name: Nom du modèle AI
+
+        Returns:
+            True (toujours - mode illimité)
+        """
+        logger.info(f"[OPEN-SOURCE] Model access check for user {user_id} - model {model_name} - GRANTED (unlimited mode)")
+        return True
 
     async def get_usage_stats(self, user_id: str) -> Dict[str, Any]:
         """

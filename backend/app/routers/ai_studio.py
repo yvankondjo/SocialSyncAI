@@ -2,6 +2,7 @@
 AI Studio API Router
 Endpoints for AI-assisted content creation
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from supabase import Client
 from pydantic import BaseModel
@@ -11,19 +12,22 @@ import logging
 
 from app.db.session import get_authenticated_db
 from app.core.security import get_current_user_id
-from app.services.content_creation_agent import ContentCreationAgent, CONTENT_CREATION_SYSTEM_PROMPT
+from app.services.content_creation_agent import (
+    ContentCreationAgent,
+    CONTENT_CREATION_SYSTEM_PROMPT,
+)
 from app.deps.runtime_prod import CHECKPOINTER_POSTGRES
 from app.schemas.ai_studio_settings import (
     AIStudioSettings,
     AIStudioSettingsUpdate,
-    AIStudioSettingsCreate
+    AIStudioSettingsCreate,
 )
 from app.schemas.ai_studio_conversations import (
     ConversationMetadata,
     ConversationMetadataUpdate,
     ConversationMessages,
     ConversationListResponse,
-    MessageItem
+    MessageItem,
 )
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
@@ -34,6 +38,7 @@ router = APIRouter(prefix="/ai-studio", tags=["ai-studio"])
 
 class ContentCreationRequest(BaseModel):
     """Request for AI content creation"""
+
     thread_id: str
     message: str
     model: Optional[str] = "openai/gpt-4o"
@@ -42,6 +47,7 @@ class ContentCreationRequest(BaseModel):
 
 class ContentCreationResponse(BaseModel):
     """Response from AI content creation"""
+
     response: str
     response_time: float
     scheduled_posts: list = []
@@ -53,7 +59,7 @@ async def create_content(
     request_data: ContentCreationRequest,
     req: Request,
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Create social media content with AI assistance
@@ -67,31 +73,49 @@ async def create_content(
     try:
         start_time = time.time()
 
-        # Load user settings from DB
-        settings_result = db.table("ai_studio_settings").select("*").eq("user_id", current_user_id).execute()
+        settings_result = (
+            db.table("ai_studio_settings")
+            .select("*")
+            .eq("user_id", current_user_id)
+            .execute()
+        )
 
-        # Determine model and system prompt
         if settings_result.data and len(settings_result.data) > 0:
             settings = settings_result.data[0]
-            model_to_use = request_data.model or settings.get("default_model", "openai/gpt-4o")
-            system_prompt_to_use = request_data.system_prompt or settings.get("default_system_prompt") or CONTENT_CREATION_SYSTEM_PROMPT
+            model_to_use = request_data.model or settings.get(
+                "default_model", "openai/gpt-4o"
+            )
+            system_prompt_to_use = (
+                CONTENT_CREATION_SYSTEM_PROMPT
+                + "\n\n"
+                + settings.get("default_system_prompt")
+                if settings.get("default_system_prompt")
+                else (
+                    "" + "\n\n" + request_data.system_prompt
+                    if request_data.system_prompt
+                    else ""
+                )
+            )
         else:
-            # Use request data or defaults if no settings exist
             model_to_use = request_data.model or "openai/gpt-4o"
-            system_prompt_to_use = request_data.system_prompt or CONTENT_CREATION_SYSTEM_PROMPT
+            system_prompt_to_use = (
+                CONTENT_CREATION_SYSTEM_PROMPT + "\n\n" + request_data.system_prompt
+                if request_data.system_prompt
+                else ""
+            )
 
         agent = ContentCreationAgent(
             user_id=current_user_id,
             model_name=model_to_use,
             system_prompt=system_prompt_to_use,
             checkpointer=CHECKPOINTER_POSTGRES,
-            max_iterations=10
+            max_iterations=10,
         )
 
         config = {
             "configurable": {
                 "thread_id": request_data.thread_id,
-                "user_id": current_user_id
+                "user_id": current_user_id,
             }
         }
 
@@ -101,39 +125,42 @@ async def create_content(
         if not messages_list:
             raise HTTPException(status_code=500, detail="No response from AI agent")
 
-        # Find the last AIMessage (not HumanMessage!)
         ai_message = None
         for msg in reversed(messages_list):
-            # Check if it's an AIMessage specifically (not HumanMessage)
-            if isinstance(msg, AIMessage) and hasattr(msg, 'content'):
-                # Skip if it's a tool call message
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            if isinstance(msg, AIMessage) and hasattr(msg, "content"):
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
                     continue
                 ai_message = msg
                 break
 
         if not ai_message:
-            # Fallback: take the last message if no AIMessage found
             ai_message = messages_list[-1]
-            logger.warning(f"No AIMessage found, using last message: {type(ai_message)}")
+            logger.warning(
+                f"No AIMessage found, using last message: {type(ai_message)}"
+            )
 
-        response_text = ai_message.content if hasattr(ai_message, 'content') else str(ai_message)
+        response_text = (
+            ai_message.content if hasattr(ai_message, "content") else str(ai_message)
+        )
         response_time = time.time() - start_time
 
-        scheduled_posts = [post.model_dump() for post in result.get("scheduled_posts", [])]
+        scheduled_posts = [
+            post.model_dump() for post in result.get("scheduled_posts", [])
+        ]
         previews = [preview.model_dump() for preview in result.get("previews", [])]
 
         return ContentCreationResponse(
             response=response_text,
             response_time=response_time,
             scheduled_posts=scheduled_posts,
-            previews=previews
+            previews=previews,
         )
 
     except HTTPException:
         raise
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error creating content: {str(e)}")
 
@@ -158,8 +185,8 @@ async def get_supported_platforms():
                 "best_practices": [
                     "Use high-quality images",
                     "Include relevant hashtags",
-                    "First 125 characters are most important"
-                ]
+                    "First 125 characters are most important",
+                ],
             },
             {
                 "id": "twitter",
@@ -170,8 +197,8 @@ async def get_supported_platforms():
                 "best_practices": [
                     "Be concise and punchy",
                     "Use threads for longer content",
-                    "Include images for better engagement"
-                ]
+                    "Include images for better engagement",
+                ],
             },
             {
                 "id": "whatsapp",
@@ -182,8 +209,8 @@ async def get_supported_platforms():
                 "best_practices": [
                     "Keep messages scannable",
                     "Use emojis appropriately",
-                    "Consider breaking long messages"
-                ]
+                    "Consider breaking long messages",
+                ],
             },
             {
                 "id": "facebook",
@@ -194,9 +221,9 @@ async def get_supported_platforms():
                 "best_practices": [
                     "40-80 characters get best engagement",
                     "Ask questions to drive interaction",
-                    "Mix personal and promotional content"
-                ]
-            }
+                    "Mix personal and promotional content",
+                ],
+            },
         ]
     }
 
@@ -205,30 +232,37 @@ async def get_supported_platforms():
 # AI Studio Settings Endpoints
 # =====================================================
 
+
 @router.get("/settings", response_model=AIStudioSettings)
 async def get_ai_studio_settings(
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Get AI Studio settings for current user
     Creates default settings if none exist
     """
     try:
-        result = db.table("ai_studio_settings").select("*").eq("user_id", current_user_id).execute()
+        result = (
+            db.table("ai_studio_settings")
+            .select("*")
+            .eq("user_id", current_user_id)
+            .execute()
+        )
 
         if result.data and len(result.data) > 0:
             return AIStudioSettings(**result.data[0])
 
-        # Create default settings if none exist
         default_settings = {
             "user_id": current_user_id,
-            "default_system_prompt": None,  # Will use CONTENT_CREATION_SYSTEM_PROMPT
+            "default_system_prompt": None,
             "default_model": "openai/gpt-4o",
-            "temperature": 0.70
+            "temperature": 0.70,
         }
 
-        create_result = db.table("ai_studio_settings").insert(default_settings).execute()
+        create_result = (
+            db.table("ai_studio_settings").insert(default_settings).execute()
+        )
         if create_result.data and len(create_result.data) > 0:
             return AIStudioSettings(**create_result.data[0])
 
@@ -238,25 +272,36 @@ async def get_ai_studio_settings(
         raise
     except Exception as e:
         logger.error(f"Error fetching AI Studio settings: {e}")
-        raise HTTPException(status_code=500, detail=f"Error fetching settings: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error fetching settings: {str(e)}"
+        )
 
 
 @router.put("/settings", response_model=AIStudioSettings)
 async def update_ai_studio_settings(
     settings_update: AIStudioSettingsUpdate,
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Update AI Studio settings for current user
     """
     try:
-        update_data = {k: v for k, v in settings_update.model_dump(exclude_unset=True).items() if v is not None}
+        update_data = {
+            k: v
+            for k, v in settings_update.model_dump(exclude_unset=True).items()
+            if v is not None
+        }
 
         if not update_data:
             raise HTTPException(status_code=400, detail="No update data provided")
 
-        result = db.table("ai_studio_settings").update(update_data).eq("user_id", current_user_id).execute()
+        result = (
+            db.table("ai_studio_settings")
+            .update(update_data)
+            .eq("user_id", current_user_id)
+            .execute()
+        )
 
         if result.data and len(result.data) > 0:
             return AIStudioSettings(**result.data[0])
@@ -267,123 +312,122 @@ async def update_ai_studio_settings(
         raise
     except Exception as e:
         logger.error(f"Error updating AI Studio settings: {e}")
-        raise HTTPException(status_code=500, detail=f"Error updating settings: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error updating settings: {str(e)}"
+        )
 
 
 # =====================================================
 # Conversation Metadata Endpoints
 # =====================================================
 
+
 @router.get("/conversations", response_model=ConversationListResponse)
 async def list_conversations(
     limit: int = 100,
     offset: int = 0,
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     List all AI Studio conversations for current user
     Ordered by updated_at DESC
     """
     try:
-        result = db.table("ai_studio_conversation_metadata")\
-            .select("*")\
-            .eq("user_id", current_user_id)\
-            .order("updated_at", desc=True)\
-            .limit(limit)\
-            .offset(offset)\
+        result = (
+            db.table("ai_studio_conversation_metadata")
+            .select("*")
+            .eq("user_id", current_user_id)
+            .order("updated_at", desc=True)
+            .limit(limit)
+            .offset(offset)
             .execute()
+        )
 
-        conversations = [ConversationMetadata(**conv) for conv in result.data] if result.data else []
+        conversations = (
+            [ConversationMetadata(**conv) for conv in result.data]
+            if result.data
+            else []
+        )
 
-        # Get total count
-        count_result = db.table("ai_studio_conversation_metadata")\
-            .select("*", count="exact")\
-            .eq("user_id", current_user_id)\
+        count_result = (
+            db.table("ai_studio_conversation_metadata")
+            .select("*", count="exact")
+            .eq("user_id", current_user_id)
             .execute()
+        )
 
         total = count_result.count if count_result.count else 0
 
-        return ConversationListResponse(
-            conversations=conversations,
-            total=total
-        )
+        return ConversationListResponse(conversations=conversations, total=total)
 
     except Exception as e:
         logger.error(f"Error listing conversations: {e}")
-        raise HTTPException(status_code=500, detail=f"Error listing conversations: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error listing conversations: {str(e)}"
+        )
 
 
 @router.get("/conversations/{thread_id}/messages", response_model=ConversationMessages)
 async def get_conversation_messages(
     thread_id: str,
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Get messages for a specific conversation from LangGraph checkpoints
     """
     try:
-        # Verify user owns this conversation
-        metadata_result = db.table("ai_studio_conversation_metadata")\
-            .select("*")\
-            .eq("thread_id", thread_id)\
-            .eq("user_id", current_user_id)\
+        metadata_result = (
+            db.table("ai_studio_conversation_metadata")
+            .select("*")
+            .eq("thread_id", thread_id)
+            .eq("user_id", current_user_id)
             .execute()
-
-        # If metadata doesn't exist, this is a new conversation with no messages yet
-        # Return empty messages array instead of 404
-        if not metadata_result.data or len(metadata_result.data) == 0:
-            logger.info(f"No metadata found for thread {thread_id}, returning empty messages (new conversation)")
-            return ConversationMessages(
-                thread_id=thread_id,
-                messages=[],
-                total_messages=0
-            )
-
-        # Create agent to access checkpoints
-        agent = ContentCreationAgent(
-            user_id=current_user_id,
-            model_name="openai/gpt-4o",  # Doesn't matter for state retrieval
-            checkpointer=CHECKPOINTER_POSTGRES
         )
 
-        # Use same config format as invoke() but for get_state()
-        # Note: checkpoint_ns causes issues with get_state() interpreting ":" as subgraph paths
-        # We use thread_id only for retrieval, which should be sufficient
-        config = {
-            "configurable": {
-                "thread_id": thread_id,
-                "user_id": current_user_id
-            }
-        }
+        if not metadata_result.data or len(metadata_result.data) == 0:
+            logger.info(
+                f"No metadata found for thread {thread_id}, returning empty messages (new conversation)"
+            )
+            return ConversationMessages(
+                thread_id=thread_id, messages=[], total_messages=0
+            )
 
-        # Get state from LangGraph checkpoints
+        agent = ContentCreationAgent(
+            user_id=current_user_id,
+            model_name="openai/gpt-4o",
+            checkpointer=CHECKPOINTER_POSTGRES,
+        )
+
+        config = {"configurable": {"thread_id": thread_id, "user_id": current_user_id}}
+
         try:
-            # Try to get state from the main graph (no subgraph navigation)
             state = agent.graph.get_state(config)
-            messages_raw = state.values.get("messages", []) if state and state.values else []
+            messages_raw = (
+                state.values.get("messages", []) if state and state.values else []
+            )
         except Exception as checkpoint_error:
-            logger.warning(f"Could not retrieve checkpoint for thread {thread_id}: {checkpoint_error}")
+            logger.warning(
+                f"Could not retrieve checkpoint for thread {thread_id}: {checkpoint_error}"
+            )
             messages_raw = []
 
-        # Serialize messages
         messages = []
         for msg in messages_raw:
             if isinstance(msg, (HumanMessage, AIMessage)):
-                messages.append(MessageItem(
-                    role="user" if isinstance(msg, HumanMessage) else "assistant",
-                    content=msg.content,
-                    metadata=getattr(msg, 'additional_kwargs', None)
-                ))
+                messages.append(
+                    MessageItem(
+                        role="user" if isinstance(msg, HumanMessage) else "assistant",
+                        content=msg.content,
+                        metadata=getattr(msg, "additional_kwargs", None),
+                    )
+                )
             elif isinstance(msg, SystemMessage):
-                # Skip system messages in conversation view
                 continue
 
         return ConversationMessages(
-            thread_id=thread_id,
-            messages=messages,
-            total_messages=len(messages)
+            thread_id=thread_id, messages=messages, total_messages=len(messages)
         )
 
     except HTTPException:
@@ -391,36 +435,37 @@ async def get_conversation_messages(
     except Exception as e:
         logger.error(f"Error fetching conversation messages: {e}")
         import traceback
+
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error fetching messages: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error fetching messages: {str(e)}"
+        )
 
 
 @router.delete("/conversations/{thread_id}")
 async def delete_conversation(
     thread_id: str,
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Delete a conversation (metadata only, checkpoints remain for audit)
     """
     try:
-        # Verify user owns this conversation
-        metadata_result = db.table("ai_studio_conversation_metadata")\
-            .select("*")\
-            .eq("thread_id", thread_id)\
-            .eq("user_id", current_user_id)\
+        metadata_result = (
+            db.table("ai_studio_conversation_metadata")
+            .select("*")
+            .eq("thread_id", thread_id)
+            .eq("user_id", current_user_id)
             .execute()
+        )
 
         if not metadata_result.data or len(metadata_result.data) == 0:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
-        # Delete metadata
-        db.table("ai_studio_conversation_metadata")\
-            .delete()\
-            .eq("thread_id", thread_id)\
-            .eq("user_id", current_user_id)\
-            .execute()
+        db.table("ai_studio_conversation_metadata").delete().eq(
+            "thread_id", thread_id
+        ).eq("user_id", current_user_id).execute()
 
         return {"message": "Conversation deleted successfully", "thread_id": thread_id}
 
@@ -428,7 +473,9 @@ async def delete_conversation(
         raise
     except Exception as e:
         logger.error(f"Error deleting conversation: {e}")
-        raise HTTPException(status_code=500, detail=f"Error deleting conversation: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error deleting conversation: {str(e)}"
+        )
 
 
 @router.patch("/conversations/{thread_id}", response_model=ConversationMetadata)
@@ -436,32 +483,39 @@ async def update_conversation(
     thread_id: str,
     update_data: ConversationMetadataUpdate,
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Update conversation metadata (e.g., rename title)
     """
     try:
-        # Verify user owns this conversation
-        metadata_result = db.table("ai_studio_conversation_metadata")\
-            .select("*")\
-            .eq("thread_id", thread_id)\
-            .eq("user_id", current_user_id)\
+        metadata_result = (
+            db.table("ai_studio_conversation_metadata")
+            .select("*")
+            .eq("thread_id", thread_id)
+            .eq("user_id", current_user_id)
             .execute()
+        )
 
         if not metadata_result.data or len(metadata_result.data) == 0:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
-        update_dict = {k: v for k, v in update_data.model_dump(exclude_unset=True).items() if v is not None}
+        update_dict = {
+            k: v
+            for k, v in update_data.model_dump(exclude_unset=True).items()
+            if v is not None
+        }
 
         if not update_dict:
             raise HTTPException(status_code=400, detail="No update data provided")
 
-        result = db.table("ai_studio_conversation_metadata")\
-            .update(update_dict)\
-            .eq("thread_id", thread_id)\
-            .eq("user_id", current_user_id)\
+        result = (
+            db.table("ai_studio_conversation_metadata")
+            .update(update_dict)
+            .eq("thread_id", thread_id)
+            .eq("user_id", current_user_id)
             .execute()
+        )
 
         if result.data and len(result.data) > 0:
             return ConversationMetadata(**result.data[0])
@@ -472,4 +526,6 @@ async def update_conversation(
         raise
     except Exception as e:
         logger.error(f"Error updating conversation: {e}")
-        raise HTTPException(status_code=500, detail=f"Error updating conversation: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error updating conversation: {str(e)}"
+        )

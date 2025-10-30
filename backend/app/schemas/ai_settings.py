@@ -31,15 +31,29 @@ LangType = Literal[
 ]
 
 class AISettingsBase(BaseModel):
+    # LLM Configuration
     system_prompt: str = Field(..., min_length=10, max_length=5000)
     ai_model: str = Field(default="openai/gpt-4o", description="AI model identifier")
     temperature: float = Field(default=0.20, ge=0.0, le=2.0)
     top_p: float = Field(default=1.00, ge=0.0, le=1.0)
     lang: LangType = "en"
     tone: ToneType = "friendly"
-    is_active: bool = True
-    ai_enabled_for_conversations: bool = Field(default=True, description="Enable AI processing and auto-replies for DM/chat conversations")
     doc_lang: Optional[List[str]] = Field(default_factory=list, description="Liste des langues des documents de l'utilisateur")
+
+    # AI Control Flags (consolidated from ai_rules)
+    is_active: bool = True
+    ai_control_enabled: bool = Field(default=True, description="Master toggle: if false, AI never responds automatically")
+    ai_enabled_for_conversations: bool = Field(default=True, description="Enable AI processing and auto-replies for DM/chat conversations")
+    ai_enabled_for_chats: bool = Field(default=True, description="Enable/disable AI for private messages (DMs, WhatsApp) - alias for ai_enabled_for_conversations")
+    ai_enabled_for_comments: bool = Field(default=True, description="Enable/disable AI for public comments on posts")
+
+    # Content Guardrails (consolidated from ai_rules)
+    flagged_keywords: List[str] = Field(default_factory=list, description="Keywords to flag and block (can contain spaces, separated by comma)")
+    flagged_phrases: List[str] = Field(default_factory=list, description="Phrases to flag and block (one phrase per array element)")
+
+    # Custom Instructions (consolidated from ai_rules)
+    instructions: Optional[str] = Field(None, description="Free-text instructions for AI behavior")
+    ignore_examples: List[str] = Field(default_factory=list, description="Array of example messages to NOT respond to")
 
     @field_validator('doc_lang', mode='before')
     @classmethod
@@ -70,15 +84,29 @@ class AISettingsCreate(AISettingsBase):
     pass
 
 class AISettingsUpdate(BaseModel):
+    # LLM Configuration
     system_prompt: Optional[str] = Field(None, min_length=10, max_length=5000)
     ai_model: Optional[str] = Field(None, description="AI model identifier")
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
     top_p: Optional[float] = Field(None, ge=0.0, le=1.0)
     lang: Optional[LangType] = None
     tone: Optional[ToneType] = None
-    is_active: Optional[bool] = None
-    ai_enabled_for_conversations: Optional[bool] = Field(None, description="Enable AI processing and auto-replies for DM/chat conversations")
     doc_lang: Optional[List[str]] = Field(None, description="Liste des langues des documents de l'utilisateur")
+
+    # AI Control Flags (consolidated from ai_rules)
+    is_active: Optional[bool] = None
+    ai_control_enabled: Optional[bool] = Field(None, description="Master toggle for AI responses")
+    ai_enabled_for_conversations: Optional[bool] = Field(None, description="Enable AI for DM/chat conversations")
+    ai_enabled_for_chats: Optional[bool] = Field(None, description="Enable AI for private messages")
+    ai_enabled_for_comments: Optional[bool] = Field(None, description="Enable AI for public comments")
+
+    # Content Guardrails (consolidated from ai_rules)
+    flagged_keywords: Optional[List[str]] = Field(None, description="Keywords to flag and block")
+    flagged_phrases: Optional[List[str]] = Field(None, description="Phrases to flag and block")
+
+    # Custom Instructions (consolidated from ai_rules)
+    instructions: Optional[str] = Field(None, description="Free-text instructions for AI")
+    ignore_examples: Optional[List[str]] = Field(None, description="Example messages to ignore")
 
 class AISettings(AISettingsBase):
     model_config = ConfigDict(from_attributes=True, extra='ignore')

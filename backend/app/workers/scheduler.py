@@ -2,6 +2,7 @@
 Celery Workers for Scheduled Posts Publishing
 Automatically publishes posts at scheduled times
 """
+
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
@@ -27,9 +28,13 @@ def enqueue_due_posts() -> Dict[str, int]:
     now = datetime.now(timezone.utc)
 
     try:
-        # Find posts that are due to be published
-        # Status = queued AND publish_at <= NOW
-        result = supabase.table("scheduled_posts").select("id, platform").eq("status", "queued").lte("publish_at", now.isoformat()).execute()
+        result = (
+            supabase.table("scheduled_posts")
+            .select("id, platform")
+            .eq("status", "queued")
+            .lte("publish_at", now.isoformat())
+            .execute()
+        )
 
         posts_found = len(result.data)
         posts_enqueued = 0
@@ -37,15 +42,15 @@ def enqueue_due_posts() -> Dict[str, int]:
         for post in result.data:
             post_id = post["id"]
 
-            # Update status to "publishing" to prevent double-processing
-            update_result = supabase.table("scheduled_posts").update({
-                "status": "publishing",
-                "updated_at": now.isoformat()
-            }).eq("id", post_id).eq("status", "queued").execute()  # Only update if still queued
+            update_result = (
+                supabase.table("scheduled_posts")
+                .update({"status": "publishing", "updated_at": now.isoformat()})
+                .eq("id", post_id)
+                .eq("status", "queued")
+                .execute()
+            )
 
-            # Only enqueue if update succeeded (prevents race condition)
             if update_result.data:
-                # Enqueue publish task
                 publish_post.delay(post_id)
                 posts_enqueued += 1
 
@@ -54,23 +59,19 @@ def enqueue_due_posts() -> Dict[str, int]:
         return {
             "posts_found": posts_found,
             "posts_enqueued": posts_enqueued,
-            "timestamp": now.isoformat()
+            "timestamp": now.isoformat(),
         }
 
     except Exception as e:
         logger.error(f"Error in enqueue_due_posts: {str(e)}")
-        return {
-            "posts_found": 0,
-            "posts_enqueued": 0,
-            "error": str(e)
-        }
+        return {"posts_found": 0, "posts_enqueued": 0, "error": str(e)}
 
 
 @celery.task(
     name="app.workers.scheduler.publish_post",
     bind=True,
     max_retries=3,
-    default_retry_delay=300  # 5 minutes
+    default_retry_delay=300,
 )
 def publish_post(self, post_id: str) -> Dict[str, Any]:
     """
@@ -90,18 +91,38 @@ def publish_post(self, post_id: str) -> Dict[str, Any]:
     started_at = datetime.now(timezone.utc)
 
     try:
-        # Fetch post details
-        post_result = supabase.table("scheduled_posts").select(
-            "*, social_accounts!channel_id(access_token, account_id, platform)"
-        ).eq("id", post_id).single().execute()
+        post_result = (
+            supabase.table("scheduled_posts")
+            .select("*, social_accounts!channel_id(access_token, account_id, platform)")
+            .eq("id", post_id)
+            .execute()
+        )
 
-        if not post_result.data:
+        if not post_result.data or len(post_result.data) == 0:
             raise ValueError(f"Post {post_id} not found")
 
-        post = post_result.data
+        post = post_result.data[0]
         platform = post["platform"]
         content_json = post["content_json"]
-        channel = post["social_accounts"]
+        channel = post.get("social_accounts")
+
+        logger.info(f"Publishing post {post_id} - Platform: {platform}")
+        logger.info(f"Channel data type: {type(channel)}")
+        logger.info(f"Channel data: {channel}")
+
+        if not channel:
+            raise ValueError(
+                f"Social account not found for channel_id in post {post_id}"
+            )
+
+        if not channel.get("access_token"):
+            raise ValueError(
+                f"Access token not found for social account {post.get('channel_id')}"
+            )
+
+        logger.info(
+            f"Access token found: {bool(channel.get('access_token'))}, length: {len(channel.get('access_token', '')) if channel.get('access_token') else 0}"
+        )
 
         # ============================================================================
         # CREDIT CHECKS DISABLED FOR TESTING
@@ -126,14 +147,12 @@ def publish_post(self, post_id: str) -> Dict[str, Any]:
         #     return {"success": False, "error": "Insufficient credits"}
         # ============================================================================
 
-        # Create run record
         run_data = {
             "scheduled_post_id": post_id,
             "started_at": started_at.isoformat(),
-            "status": "success"  # Will update if fails
+            "status": "success",
         }
 
-        # Publish based on platform (using asyncio.run for async functions)
         if platform == "whatsapp":
             platform_post_id = asyncio.run(publish_to_whatsapp(channel, content_json))
         elif platform == "instagram":
@@ -141,16 +160,16 @@ def publish_post(self, post_id: str) -> Dict[str, Any]:
         else:
             raise ValueError(f"Unsupported platform: {platform}")
 
-        # Mark post as published
         finished_at = datetime.now(timezone.utc)
-        supabase.table("scheduled_posts").update({
-            "status": "published",
-            "platform_post_id": platform_post_id,
-            "updated_at": finished_at.isoformat(),
-            "retry_count": 0
-        }).eq("id", post_id).execute()
+        supabase.table("scheduled_posts").update(
+            {
+                "status": "published",
+                "platform_post_id": platform_post_id,
+                "updated_at": finished_at.isoformat(),
+                "retry_count": 0,
+            }
+        ).eq("id", post_id).execute()
 
-        # Update run record
         run_data["finished_at"] = finished_at.isoformat()
         run_data["status"] = "success"
         supabase.table("post_runs").insert(run_data).execute()
@@ -168,14 +187,16 @@ def publish_post(self, post_id: str) -> Dict[str, Any]:
         # ))
         # ============================================================================
 
-        logger.info(f"Successfully published post {post_id} to {platform} (platform_id: {platform_post_id})")
+        logger.info(
+            f"Successfully published post {post_id} to {platform} (platform_id: {platform_post_id})"
+        )
 
         return {
             "success": True,
             "post_id": post_id,
             "platform": platform,
             "platform_post_id": platform_post_id,
-            "duration_seconds": (finished_at - started_at).total_seconds()
+            "duration_seconds": (finished_at - started_at).total_seconds(),
         }
 
     except Exception as e:
@@ -184,51 +205,60 @@ def publish_post(self, post_id: str) -> Dict[str, Any]:
 
         logger.error(f"Error publishing post {post_id}: {error_msg}")
 
-        # Get current retry count
-        post_result = supabase.table("scheduled_posts").select("retry_count").eq("id", post_id).single().execute()
-        current_retries = post_result.data.get("retry_count", 0) if post_result.data else 0
+        post_result = (
+            supabase.table("scheduled_posts")
+            .select("retry_count")
+            .eq("id", post_id)
+            .single()
+            .execute()
+        )
+        current_retries = (
+            post_result.data.get("retry_count", 0) if post_result.data else 0
+        )
 
-        # Increment retry count
         new_retry_count = current_retries + 1
 
-        # Check if we should retry
         if new_retry_count < self.max_retries:
-            # Update retry count and keep status as "publishing"
-            supabase.table("scheduled_posts").update({
-                "retry_count": new_retry_count,
-                "error_message": error_msg,
-                "updated_at": finished_at.isoformat()
-            }).eq("id", post_id).execute()
+            supabase.table("scheduled_posts").update(
+                {
+                    "retry_count": new_retry_count,
+                    "error_message": error_msg,
+                    "updated_at": finished_at.isoformat(),
+                }
+            ).eq("id", post_id).execute()
 
-            # Retry task
-            logger.info(f"Retrying post {post_id} (attempt {new_retry_count + 1}/{self.max_retries})")
+            logger.info(
+                f"Retrying post {post_id} (attempt {new_retry_count + 1}/{self.max_retries})"
+            )
             raise self.retry(exc=e)
         else:
-            # Max retries reached, mark as failed
-            supabase.table("scheduled_posts").update({
-                "status": "failed",
-                "retry_count": new_retry_count,
-                "error_message": error_msg,
-                "updated_at": finished_at.isoformat()
-            }).eq("id", post_id).execute()
+            supabase.table("scheduled_posts").update(
+                {
+                    "status": "failed",
+                    "retry_count": new_retry_count,
+                    "error_message": error_msg,
+                    "updated_at": finished_at.isoformat(),
+                }
+            ).eq("id", post_id).execute()
 
-            # Create failed run record
             run_data = {
                 "scheduled_post_id": post_id,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),
                 "status": "failed",
-                "error": error_msg
+                "error": error_msg,
             }
             supabase.table("post_runs").insert(run_data).execute()
 
-            logger.error(f"Post {post_id} failed after {new_retry_count} retries: {error_msg}")
+            logger.error(
+                f"Post {post_id} failed after {new_retry_count} retries: {error_msg}"
+            )
 
             return {
                 "success": False,
                 "post_id": post_id,
                 "error": error_msg,
-                "retries": new_retry_count
+                "retries": new_retry_count,
             }
 
 
@@ -243,38 +273,28 @@ async def publish_to_whatsapp(channel: Dict[str, Any], content: Dict[str, Any]) 
     Returns:
         platform_post_id: WhatsApp message ID
     """
-    # Initialize service with access_token and phone_number_id from channel
     service = WhatsAppService(
-        access_token=channel["access_token"],
-        phone_number_id=channel["account_id"]  # account_id is the phone_number_id
+        access_token=channel["access_token"], phone_number_id=channel["account_id"]
     )
 
-    # Get text and media
     text = content.get("text", "")
     media = content.get("media", [])
 
-    # Get recipient from content (must be provided when creating the scheduled post)
     recipient = content.get("recipient", "")
 
     if not recipient:
         raise ValueError("WhatsApp posts require a 'recipient' field in content_json")
 
-    # Send message
     if media:
-        # Send media message
-        media_item = media[0]  # Take first media
+        media_item = media[0]
         result = await service.send_media_message(
             to=recipient,
             media_type=media_item["type"],
             media_url=media_item["url"],
-            caption=text or media_item.get("caption")
+            caption=text or media_item.get("caption"),
         )
     else:
-        # Send text message
-        result = await service.send_text_message(
-            to=recipient,
-            text=text
-        )
+        result = await service.send_text_message(to=recipient, text=text)
 
     return result.get("message_id") or result.get("id")
 
@@ -290,26 +310,27 @@ async def publish_to_instagram(channel: Dict[str, Any], content: Dict[str, Any])
     Returns:
         platform_post_id: Instagram media ID
     """
-    service = InstagramService()
-
     ig_user_id = channel["account_id"]
     access_token = channel["access_token"]
+
+    service = InstagramService(access_token=access_token, page_id=ig_user_id)
 
     text = content.get("text", "")
     media = content.get("media", [])
 
     if not media:
-        raise ValueError("Instagram posts require at least one media item (image or video)")
+        raise ValueError(
+            "Instagram posts require at least one media item (image or video)"
+        )
 
-    media_item = media[0]  # Instagram supports carousel, but we'll do single media for now
+    media_item = media[0]
 
-    # Create media container
+    # Step 1: Create media container
     container_result = await service.create_media_container(
         ig_user_id=ig_user_id,
         image_url=media_item["url"] if media_item["type"] == "image" else None,
         video_url=media_item["url"] if media_item["type"] == "video" else None,
         caption=text,
-        access_token=access_token
     )
 
     container_id = container_result.get("id")
@@ -317,11 +338,18 @@ async def publish_to_instagram(channel: Dict[str, Any], content: Dict[str, Any])
     if not container_id:
         raise ValueError("Failed to create Instagram media container")
 
-    # Publish container
+    # Step 2: Wait for container to be ready (Instagram needs time to process media)
+    # This prevents "Media ID is not available" errors
+    await service.wait_for_container_ready(
+        container_id=container_id,
+        access_token=access_token,
+        max_wait_seconds=60,
+        poll_interval=3
+    )
+
+    # Step 3: Publish the container
     publish_result = await service.publish_media(
-        ig_user_id=ig_user_id,
-        creation_id=container_id,
-        access_token=access_token
+        ig_user_id=ig_user_id, creation_id=container_id
     )
 
     return publish_result.get("id")

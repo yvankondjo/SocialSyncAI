@@ -5,7 +5,7 @@ Schemas for public comments on scheduled posts
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
-from app.schemas.ai_rules import AIDecision
+from app.schemas.ai_decisions import AIDecision
 
 
 class CommentBase(BaseModel):

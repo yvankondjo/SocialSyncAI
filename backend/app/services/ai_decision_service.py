@@ -3,14 +3,16 @@ AI Decision Service
 Service pour évaluer si l'IA doit répondre à un message basé sur les règles utilisateur
 et OpenAI Moderation API
 """
+
 import os
 import logging
 from typing import Tuple, Optional, Dict, Any
 from difflib import SequenceMatcher
 from supabase import Client
 from openai import OpenAI
-from app.schemas.ai_rules import AIDecision
+from app.schemas.ai_decisions import AIDecision
 from app.db.session import get_db
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,13 +22,11 @@ class AIDecisionService:
     def __init__(self, user_id: str):
         self.user_id = user_id
         self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.moderation_enabled = os.getenv("OPENAI_MODERATION_ENABLED", "true").lower() == "true"
+        self.moderation_enabled = True
         self.db = get_db()
 
     def check_message(
-        self,
-        message_text: str,
-        context_type: str = "chat"
+        self, message_text: str, context_type: str = "chat", message_content: Any = None
     ) -> Tuple[AIDecision, float, str, str]:
         """
         Check if the AI should respond to a message based on user rules and OpenAI Moderation API
@@ -41,6 +41,7 @@ class AIDecisionService:
         Args:
             message_text: The text of the message to analyze
             context_type: Context type - "chat" (DMs) or "comment" (posts publics)
+            message_content: Optional multimodal content (for image moderation)
 
         Returns:
             Tuple (decision, confidence, reason, matched_rule)
@@ -51,14 +52,13 @@ class AIDecisionService:
         """
         rules = self._get_user_rules()
 
-
         if context_type == "chat":
             if rules and not rules.get("ai_enabled_for_chats", True):
                 return (
                     AIDecision.IGNORE,
                     1.0,
                     "AI disabled for private messages (chats)",
-                    "chats_disabled"
+                    "chats_disabled",
                 )
         elif context_type == "comment":
             if rules and not rules.get("ai_enabled_for_comments", True):
@@ -66,7 +66,7 @@ class AIDecisionService:
                     AIDecision.IGNORE,
                     1.0,
                     "AI disabled for comments",
-                    "comments_disabled"
+                    "comments_disabled",
                 )
 
         if rules is not None:
@@ -75,18 +75,18 @@ class AIDecisionService:
                     AIDecision.IGNORE,
                     1.0,
                     "AI Control disabled by user",
-                    "ai_control_disabled"
+                    "ai_control_disabled",
                 )
 
         if self.moderation_enabled:
-            moderation_result = self._check_openai_moderation(message_text)
+            moderation_result = self._check_openai_moderation(message_text, message_content)
 
             if moderation_result["flagged"]:
                 return (
                     AIDecision.IGNORE,
                     0.95,
                     f"OpenAI Moderation: {moderation_result['reason']}",
-                    "openai_moderation"
+                    "openai_moderation",
                 )
 
         flagged_keywords = rules.get("flagged_keywords", []) if rules else []
@@ -100,7 +100,7 @@ class AIDecisionService:
                     AIDecision.IGNORE,
                     0.95,
                     reason,
-                    f"flagged_keyword:{keyword[:30]}"
+                    f"flagged_keyword:{keyword[:30]}",
                 )
 
         for phrase in flagged_phrases:
@@ -110,24 +110,18 @@ class AIDecisionService:
                     AIDecision.IGNORE,
                     0.95,
                     reason,
-                    f"flagged_phrase:{phrase[:30]}"
+                    f"flagged_phrase:{phrase[:30]}",
                 )
 
-        
+        return (AIDecision.RESPOND, 1.0, "No blocking rule detected", "default_respond")
 
-        return (
-            AIDecision.RESPOND,
-            1.0,
-            "No blocking rule detected",
-            "default_respond"
-        )
-
-    def _check_openai_moderation(self, text: str) -> Dict[str, Any]:
+    def _check_openai_moderation(self, text: str, message_content: Any = None) -> Dict[str, Any]:
         """
-        Call OpenAI Moderation API
+        Call OpenAI Moderation API with support for multimodal content (text + images)
 
         Args:
             text: Text to moderate
+            message_content: Optional multimodal content (list of dicts with type="text" or "image_url")
 
         Returns:
             Dict avec {
@@ -139,9 +133,56 @@ class AIDecisionService:
             }
         """
         try:
+            import httpx
+            import base64
+
+            # Build moderation input
+            moderation_input = []
+
+            # Add text
+            if text:
+                moderation_input.append({"type": "text", "text": text})
+
+            # Add images (download Instagram URLs and convert to base64)
+            if message_content and isinstance(message_content, list):
+                for part in message_content:
+                    if isinstance(part, dict) and part.get("type") == "image_url":
+                        image_url = part.get("image_url", {}).get("url", "")
+
+                        if image_url and not image_url.startswith("data:"):
+                            # Download image from Instagram CDN
+                            try:
+                                with httpx.Client(timeout=10.0) as client:
+                                    response = client.get(image_url)
+                                    response.raise_for_status()
+
+                                    # Convert to base64
+                                    image_data = base64.b64encode(response.content).decode('utf-8')
+                                    content_type = response.headers.get('Content-Type', 'image/jpeg')
+
+                                    # Add as base64 data URL
+                                    moderation_input.append({
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{content_type};base64,{image_data}"
+                                        }
+                                    })
+
+                                    logger.info(f"[MODERATION] Downloaded and converted image to base64 ({len(image_data)} chars)")
+
+                            except Exception as img_error:
+                                logger.warning(f"[MODERATION] Failed to download image {image_url[:50]}...: {img_error}. Continuing without image.")
+                        elif image_url.startswith("data:"):
+                            # Already base64, use as-is
+                            moderation_input.append(part)
+
+            # If no multimodal content, fallback to simple text
+            if not moderation_input:
+                moderation_input = text
+
             response = self.openai_client.moderations.create(
                 model="omni-moderation-latest",
-                input=text
+                input=moderation_input
             )
 
             result = response.results[0]
@@ -150,16 +191,20 @@ class AIDecisionService:
                 categories_dict = result.categories.model_dump()
                 flagged_cats = [cat for cat, val in categories_dict.items() if val]
 
-                logger.info(f"[MODERATION] Content flagged for user {self.user_id}: {flagged_cats}")
+                logger.info(
+                    f"[MODERATION] Content flagged for user {self.user_id}: {flagged_cats}"
+                )
 
                 return {
                     "flagged": True,
                     "categories": categories_dict,
                     "category_scores": result.category_scores.model_dump(),
-                    "reason": f"Violates: {', '.join(flagged_cats)}"
+                    "reason": f"Violates: {', '.join(flagged_cats)}",
                 }
 
-            logger.debug(f"[MODERATION] Content passed moderation for user {self.user_id}")
+            logger.debug(
+                f"[MODERATION] Content passed moderation for user {self.user_id}"
+            )
             return {"flagged": False}
 
         except Exception as e:
@@ -167,17 +212,19 @@ class AIDecisionService:
             return {"flagged": False, "error": str(e)}
 
     def _get_user_rules(self) -> Optional[Dict[str, Any]]:
-        """Retrieve AI rules for the user from DB"""
+        """Retrieve AI settings (consolidated rules) for the user from DB"""
         try:
-            result = self.db.table("ai_rules") \
-                .select("*") \
-                .eq("user_id", self.user_id) \
-                .maybe_single() \
+            result = (
+                self.db.table("ai_settings")
+                .select("*")
+                .eq("user_id", self.user_id)
+                .maybe_single()
                 .execute()
+            )
 
             return result.data if result.data else None
         except Exception as e:
-            logger.error(f"Error fetching AI rules for user {self.user_id}: {e}")
+            logger.error(f"Error fetching AI settings for user {self.user_id}: {e}")
             return None
 
     def _text_similarity(self, text1: str, text2: str) -> float:
@@ -194,7 +241,7 @@ class AIDecisionService:
         decision: AIDecision,
         confidence: float,
         reason: str,
-        matched_rule: str
+        matched_rule: str,
     ) -> Optional[Dict[str, Any]]:
         """
         Log an AI decision in DB for tracking
@@ -219,7 +266,7 @@ class AIDecisionService:
                 "reason": reason,
                 "matched_rule": matched_rule,
                 "message_text": message_text[:500],  # Limiter taille
-                "snapshot_json": {"version": "1.0"}
+                "snapshot_json": {"version": "1.0"},
             }
 
             result = self.db.table("ai_decisions").insert(data).execute()

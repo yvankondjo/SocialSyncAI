@@ -14,8 +14,9 @@ const BACKEND_URL = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  props: { params: Promise<{ path: string[] }> }
 ) {
+  const params = await props.params;
   const path = params.path.join('/');
   const searchParams = request.nextUrl.searchParams.toString();
   const url = `${BACKEND_URL}/api/analytics/${path}${searchParams ? `?${searchParams}` : ''}`;
@@ -58,8 +59,9 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  props: { params: Promise<{ path: string[] }> }
 ) {
+  const params = await props.params;
   const path = params.path.join('/');
   const url = `${BACKEND_URL}/api/analytics/${path}`;
 

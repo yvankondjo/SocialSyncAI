@@ -1,7 +1,6 @@
 import re
 import logging
-from typing import Dict, Any, List, Tuple, Optional
-from app.services.rag_agent import RAGAgent
+from typing import Dict, Any, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +18,12 @@ class CommentTriageService:
         """
         self.user_id = user_id
         self.owner_username = owner_username.lower().strip('@')
-        self.rag_agent = RAGAgent(user_id=user_id)
+        # Note: RAGAgent removed - not needed for triage logic
 
     def should_ai_respond(
         self,
         comment: Dict[str, Any],
-        post: Dict[str, Any],
+        post: Dict[str, Any],  # noqa: ARG002 - kept for API compatibility
         all_comments: List[Dict[str, Any]]
     ) -> Tuple[bool, str]:
         """
@@ -49,14 +48,16 @@ class CommentTriageService:
         comment_text = comment.get("text", "")
         author_name = comment.get("author_name", "")
 
-        # Skip if comment is from the owner themselves and not a reply to another user
-        if author_name.lower().strip('@') == self.owner_username and not self._check_reply_to_others(comment, all_comments) and not self._check_mentions(comment_text):
+        # CRITICAL: NEVER respond to owner's own comments to prevent infinite loops
+        # Even if the owner is replying to others, we should NOT generate AI responses
+        # because that would mean the AI responding to the owner's manual replies
+        if author_name.lower().strip('@') == self.owner_username:
             logger.info(
-                f"[TRIAGE] Self-comment from owner @{author_name}, ignoring"
+                f"[TRIAGE] Comment from owner @{author_name}, ignoring to prevent loop"
             )
             return False, "ignore"
 
-        # Comment is not from the owner themselves and is not a reply to another user and not a mention to another user
+        # Comment is not from the owner themselves OR owner is engaging with others
         logger.info(
             f"[TRIAGE] Comment from @{author_name} will be processed by AI"
         )

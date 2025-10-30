@@ -125,6 +125,10 @@ export default function AISettingsPage() {
   const [hasChanges, setHasChanges] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
+  // États locaux temporaires pour les textareas (permet la saisie libre)
+  const [localKeywordsText, setLocalKeywordsText] = useState<string>("")
+  const [localPhrasesText, setLocalPhrasesText] = useState<string>("")
+
   // Initialiser les settings locaux quand les vrais settings sont chargés
   React.useEffect(() => {
     if (aiSettings && !localSettings) {
@@ -138,7 +142,19 @@ export default function AISettingsPage() {
         tone: aiSettings.tone,
         doc_lang: aiSettings.doc_lang,
         ai_enabled_for_conversations: aiSettings.ai_enabled_for_conversations ?? true,
+        // Consolidated fields from ai_rules
+        ai_control_enabled: aiSettings.ai_control_enabled ?? true,
+        ai_enabled_for_chats: aiSettings.ai_enabled_for_chats ?? true,
+        ai_enabled_for_comments: aiSettings.ai_enabled_for_comments ?? true,
+        flagged_keywords: aiSettings.flagged_keywords || [],
+        flagged_phrases: aiSettings.flagged_phrases || [],
+        instructions: aiSettings.instructions || "",
+        ignore_examples: aiSettings.ignore_examples || [],
       })
+      // Initialiser les textareas avec les valeurs formatées
+      // Note: flagged_keywords/phrases are now part of ai_settings (consolidated from ai_rules)
+      setLocalKeywordsText((aiSettings.flagged_keywords || []).join(", "))
+      setLocalPhrasesText((aiSettings.flagged_phrases || []).join("\n"))
     }
   }, [aiSettings, localSettings])
 
@@ -174,9 +190,34 @@ export default function AISettingsPage() {
       // Remettre les settings locaux à null pour utiliser les données de la BD
       setLocalSettings(null)
       setHasChanges(false)
+      // Réinitialiser les textareas
+      if (aiSettings) {
+        setLocalKeywordsText((aiSettings.flagged_keywords || []).join(", "))
+        setLocalPhrasesText((aiSettings.flagged_phrases || []).join("\n"))
+      }
     } catch (error) {
       console.error('Erreur lors du reset:', error)
     }
+  }
+
+  // Handler pour transformer le texte des keywords en array (au blur)
+  // Consolidated: flagged_keywords is now part of ai_settings
+  const handleKeywordsBlur = () => {
+    const keywords = localKeywordsText
+      .split(",")
+      .map(k => k.trim())
+      .filter(k => k.length > 0)
+    handleSettingChange("flagged_keywords", keywords)
+  }
+
+  // Handler pour transformer le texte des phrases en array (au blur)
+  // Consolidated: flagged_phrases is now part of ai_settings
+  const handlePhrasesBlur = () => {
+    const phrases = localPhrasesText
+      .split("\n")
+      .map(p => p.trim())
+      .filter(p => p.length > 0)
+    handleSettingChange("flagged_phrases", phrases)
   }
 
   const getCostColor = (cost: string) => {
@@ -462,36 +503,51 @@ export default function AISettingsPage() {
           </Alert>
 
           <div className="space-y-2">
-            <Label>Flagged Keywords</Label>
+            <div className="flex items-center justify-between">
+              <Label>Flagged Keywords</Label>
+              {currentSettings?.flagged_keywords && currentSettings.flagged_keywords.length > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  {currentSettings.flagged_keywords.length} keyword{currentSettings.flagged_keywords.length > 1 ? 's' : ''} detected
+                </Badge>
+              )}
+            </div>
             <Textarea
-              value={(currentSettings?.flagged_keywords || []).join(", ")}
+              value={localKeywordsText}
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                const keywords = (e.target as HTMLTextAreaElement).value.split(",").map(k => k.trim()).filter(k => k.length > 0)
-                handleSettingChange("flagged_keywords", keywords)
+                setLocalKeywordsText((e.target as HTMLTextAreaElement).value)
               }}
-              placeholder="exemple: refund, scam, lawsuit, cancel (comma-separated)"
+              onBlur={handleKeywordsBlur}
+              placeholder="Example: refund, money back, scam, lawsuit, cancel
+Separate keywords with commas. Keywords can contain spaces."
               className="min-h-[80px]"
               disabled={!currentSettings?.is_active}
             />
             <p className="text-xs text-muted-foreground">
-              Separate keywords with commas. Any message containing these will be blocked and escalated.
+              Separate keywords with commas. Keywords can contain spaces (e.g., "money back"). Any message containing these will be blocked and escalated.
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label>Flagged Phrases</Label>
+            <div className="flex items-center justify-between">
+              <Label>Flagged Phrases</Label>
+              {currentSettings?.flagged_phrases && currentSettings.flagged_phrases.length > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  {currentSettings.flagged_phrases.length} phrase{currentSettings.flagged_phrases.length > 1 ? 's' : ''} detected
+                </Badge>
+              )}
+            </div>
             <Textarea
-              value={(currentSettings?.flagged_phrases || []).join("\n")}
+              value={localPhrasesText}
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                const phrases = (e.target as HTMLTextAreaElement).value.split("\n").map(p => p.trim()).filter(p => p.length > 0)
-                handleSettingChange("flagged_phrases", phrases)
+                setLocalPhrasesText((e.target as HTMLTextAreaElement).value)
               }}
-              placeholder="Example:&#10;I want my money back&#10;This is a scam&#10;I will sue you&#10;(one per line)"
+              onBlur={handlePhrasesBlur}
+              placeholder={`Example:\nI want my money back\nThis is a scam, give me refund\nI will sue you\n(one per line, phrases can contain commas)`}
               className="min-h-[120px]"
               disabled={!currentSettings?.is_active}
             />
             <p className="text-xs text-muted-foreground">
-              One phrase per line. Full phrases will be matched in messages.
+              One phrase per line. Full phrases will be matched in messages. Phrases can contain commas and special characters.
             </p>
           </div>
         </CardContent>

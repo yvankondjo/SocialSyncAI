@@ -53,7 +53,9 @@ export function PostListItem({ post, onEdit, onPreview, onHistory, onDelete }: P
   const publishDate = new Date(post.publish_at);
   const isPostPast = isPast(publishDate) && post.status !== 'published';
   const hasMedia = post.content_json.media && post.content_json.media.length > 0;
-  const textPreview = post.content_json.text.slice(0, 70) + (post.content_json.text.length > 70 ? '...' : '');
+  const textPreview = post.content_json.text
+    ? (post.content_json.text.slice(0, 70) + (post.content_json.text.length > 70 ? '...' : ''))
+    : (hasMedia ? '[Media only]' : '[No content]');
 
   const platformConfig = PLATFORM_CONFIG[post.platform];
   const statusConfig = STATUS_CONFIG[post.status];

@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from supabase import Client
 from app.db.session import get_authenticated_db
 from app.schemas.ai_settings import AISettings, AISettingsCreate, AISettingsUpdate, AITestRequest, AITestResponse, AIResponse
+from app.schemas.ai_decisions import CheckMessageRequest, CheckMessageResponse, AIDecisionResponse, AIDecision
+from app.services.ai_decision_service import AIDecisionService
 from app.core.security import get_current_user_id
 import time
 import random
@@ -11,6 +13,8 @@ from dotenv import load_dotenv
 from app.services.rag_agent import RAGAgent
 from app.deps.runtime_test import CHECKPOINTER_REDIS
 from langchain_core.messages import HumanMessage
+from typing import List, Optional
+from datetime import datetime
 load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL","https://openrouter.ai/api/v1")
@@ -78,7 +82,16 @@ async def get_ai_settings(
                 "lang": "en",
                 "tone": "friendly",
                 "is_active": True,
-                "doc_lang": []
+                "doc_lang": [],
+                # Consolidated fields from ai_rules
+                "ai_control_enabled": True,
+                "ai_enabled_for_conversations": True,
+                "ai_enabled_for_chats": True,
+                "ai_enabled_for_comments": True,
+                "flagged_keywords": [],
+                "flagged_phrases": [],
+                "instructions": None,
+                "ignore_examples": []
             }
             
             create_result = db.table("ai_settings").insert(default_settings).execute()
@@ -179,7 +192,7 @@ async def test_ai_response(
         print(f"Last message type: {type(reponse)}")
         print(f"Last message content preview: {reponse.content[:100]}")
 
-       
+
         try:
             ai_response = AIResponse.model_validate_json(reponse.content)
             response_text = ai_response.response
@@ -188,7 +201,10 @@ async def test_ai_response(
         except Exception as json_error:
             print(f"Failed to parse as JSON: {json_error}, using raw content")
             response_text = reponse.content
-            confidence = getattr(reponse, 'confidence', 0.8)
+            # Since we now use llm_with_tools (for escalation), the LLM returns plain text
+            # We use a default confidence of 0.85 (high confidence for successful responses)
+            confidence = 0.85
+            print(f"Using default confidence: {confidence}")
 
         result = AITestResponse(
             response=response_text,
@@ -221,20 +237,181 @@ async def reset_to_template(
     try:
         if template_type not in PROMPT_TEMPLATES:
             raise HTTPException(status_code=400, detail="Invalid template type")
-        
+
         update_data = {
             "system_prompt": PROMPT_TEMPLATES[template_type],
             "updated_at": "NOW()"
         }
-        
+
         result = db.table("ai_settings").update(update_data).eq("user_id", current_user_id).execute()
-        
+
         if result.data:
             return {"message": f"Settings reset to {template_type} template"}
         else:
             raise HTTPException(status_code=404, detail="AI settings not found")
-            
+
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/toggle", response_model=AISettings)
+async def toggle_ai_control(
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Toggle AI control ON/OFF (master switch)
+    Toggles ai_control_enabled between true and false
+    """
+    try:
+        # Get current value
+        existing = db.table("ai_settings").select("ai_control_enabled").eq("user_id", current_user_id).execute()
+
+        if not existing.data:
+            # Create default settings with AI disabled
+            default_settings = {
+                "user_id": current_user_id,
+                "system_prompt": PROMPT_TEMPLATES["social"],
+                "ai_model": "openai/gpt-4o",
+                "temperature": 0.20,
+                "top_p": 1.00,
+                "lang": "en",
+                "tone": "friendly",
+                "is_active": True,
+                "ai_control_enabled": False,
+                "ai_enabled_for_chats": True,
+                "ai_enabled_for_comments": True,
+                "doc_lang": []
+            }
+            result = db.table("ai_settings").insert(default_settings).execute()
+        else:
+            # Toggle existing value
+            current_value = existing.data[0].get("ai_control_enabled", True)
+            result = db.table("ai_settings").update({
+                "ai_control_enabled": not current_value,
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("user_id", current_user_id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to toggle AI control")
+
+        return AISettings(**result.data[0])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/check-message", response_model=CheckMessageResponse)
+async def check_message(
+    request: CheckMessageRequest,
+    context_type: str = "chat",
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Test if AI should respond to a message (dry-run)
+    Does NOT log the decision to ai_decisions table
+
+    Args:
+        context_type: "chat" or "comment" for granular control
+    """
+    try:
+        service = AIDecisionService(current_user_id)
+        decision, confidence, reason, matched_rule = service.check_message(
+            request.message_text,
+            context_type=context_type
+        )
+
+        return CheckMessageResponse(
+            decision=decision,
+            confidence=confidence,
+            reason=reason,
+            should_respond=(decision == AIDecision.RESPOND),
+            matched_rule=matched_rule if matched_rule else None
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/decisions", response_model=List[AIDecisionResponse])
+async def get_decisions_history(
+    limit: int = 50,
+    offset: int = 0,
+    decision_filter: Optional[str] = None,
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Get history of AI decisions for current user
+
+    Args:
+        limit: Max number of results (default 50, max 100)
+        offset: Pagination offset
+        decision_filter: Filter by decision type (respond, ignore, escalate)
+    """
+    try:
+        # Validate limit
+        if limit > 100:
+            limit = 100
+
+        # Build query
+        query = db.table("ai_decisions").select("*").eq("user_id", current_user_id)
+
+        # Apply decision filter if provided
+        if decision_filter:
+            if decision_filter not in ["respond", "ignore", "escalate"]:
+                raise HTTPException(status_code=400, detail="Invalid decision_filter. Must be: respond, ignore, or escalate")
+            query = query.eq("decision", decision_filter)
+
+        # Apply pagination and ordering
+        result = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+
+        return [AIDecisionResponse(**item) for item in result.data]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/decisions/stats")
+async def get_decisions_stats(
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Get statistics on AI decisions
+    Returns count of RESPOND, IGNORE, ESCALATE decisions
+    """
+    try:
+        # Count by decision type
+        all_decisions = db.table("ai_decisions").select("decision").eq("user_id", current_user_id).execute()
+
+        stats = {
+            "respond": 0,
+            "ignore": 0,
+            "escalate": 0,
+            "total": len(all_decisions.data)
+        }
+
+        for item in all_decisions.data:
+            decision = item.get("decision")
+            if decision in stats:
+                stats[decision] += 1
+
+        # Calculate percentages
+        total = stats["total"]
+        if total > 0:
+            stats["respond_pct"] = round((stats["respond"] / total) * 100, 1)
+            stats["ignore_pct"] = round((stats["ignore"] / total) * 100, 1)
+            stats["escalate_pct"] = round((stats["escalate"] / total) * 100, 1)
+        else:
+            stats["respond_pct"] = 0.0
+            stats["ignore_pct"] = 0.0
+            stats["escalate_pct"] = 0.0
+
+        return stats
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

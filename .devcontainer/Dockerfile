@@ -1,7 +1,4 @@
-# ==============================================================================
-# MULTI-STAGE DOCKERFILE FOR FASTAPI BACKEND
-# Optimized for: Security (non-root), Performance (cache layers), Size
-# ==============================================================================
+
 
 # ------------------------------------------------------------------------------
 # STAGE 1: Builder - Install dependencies
@@ -41,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client socat iproute2 netcat-openbsd \
   && rm -rf /var/lib/apt/lists/*
 
-# [RECOMMANDÉ] Docker CLI + Compose v2 (pour `supabase start`)
+# [RECOMMANDÉ] Docker CLI + Compose v2
 RUN curl -fsSL https://download.docker.com/linux/debian/gpg \
       | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
   && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bookworm stable" \
@@ -50,25 +47,24 @@ RUN curl -fsSL https://download.docker.com/linux/debian/gpg \
   && rm -rf /var/lib/apt/lists/* \
   && docker --version && docker compose version
 
-# Supabase CLI (version épinglée) — paquets Linux via Releases officiels
+# Supabase CLI (version épinglée)
 ARG SUPABASE_VERSION=2.54.13
 RUN curl -L -o /tmp/supabase.deb "https://github.com/supabase/cli/releases/download/v${SUPABASE_VERSION}/supabase_${SUPABASE_VERSION}_linux_amd64.deb" \
   && dpkg -i /tmp/supabase.deb || apt-get -f install -y \
   && rm -f /tmp/supabase.deb \
   && supabase --version
 
-# Claude Code (installation native correcte : domaine .ai, pas .com)
-# Le script met le binaire dans ~/.local/bin ; on crée un lien global.
+
 RUN mkdir -p /root/.local/bin \
   && curl -fsSL https://claude.ai/install.sh | bash \
   && ln -sf /root/.local/bin/claude /usr/local/bin/claude \
   && claude --version
 
-# Venv depuis le builder
+
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Code app
+
 COPY . .
 
 RUN mkdir -p /app/logs && chmod -R 777 /app

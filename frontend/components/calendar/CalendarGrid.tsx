@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from 'react';
 import { DayCell } from './DayCell';
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, format, isSameMonth } from 'date-fns';
 import type { ScheduledPost } from '@/types/scheduled-posts';
@@ -26,17 +27,22 @@ export function CalendarGrid({ currentDate, posts, onPostClick }: CalendarGridPr
   const calendarStart = startOfWeek(monthStart);
   const calendarEnd = endOfWeek(monthEnd);
 
-  const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+  const days = useMemo(
+    () => eachDayOfInterval({ start: calendarStart, end: calendarEnd }),
+    [calendarStart, calendarEnd]
+  );
 
-  // Group posts by day
-  // Ensure posts is always an array, even if API fails or returns unexpected data
-  const postsArray = Array.isArray(posts) ? posts : [];
-  const postsByDay = postsArray.reduce((acc, post) => {
-    const dayKey = format(new Date(post.publish_at), 'yyyy-MM-dd');
-    if (!acc[dayKey]) acc[dayKey] = [];
-    acc[dayKey].push(post);
-    return acc;
-  }, {} as Record<string, ScheduledPost[]>);
+  // Group posts by day - memoized to prevent recalculation on every render
+  const postsByDay = useMemo(() => {
+    // Ensure posts is always an array, even if API fails or returns unexpected data
+    const postsArray = Array.isArray(posts) ? posts : [];
+    return postsArray.reduce((acc, post) => {
+      const dayKey = format(new Date(post.publish_at), 'yyyy-MM-dd');
+      if (!acc[dayKey]) acc[dayKey] = [];
+      acc[dayKey].push(post);
+      return acc;
+    }, {} as Record<string, ScheduledPost[]>);
+  }, [posts]);
 
   return (
     <div className="flex-1 flex flex-col overflow-auto bg-background/95 p-4 sm:p-6">

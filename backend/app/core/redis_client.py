@@ -47,9 +47,8 @@ class RedisClient:
         try:
             # Configuration du retry
             retry = Retry(
-                backoff=ExponentialBackoff(cap=10, base=1),
-                retries=3,
-                jitter=True
+                backoff=ExponentialBackoff(cap=10, base=1, jitter=True),
+                retries=3
             )
 
             # Configuration du pool
@@ -194,7 +193,7 @@ class RedisClient:
             logger.error(f"Erreur EVAL Redis: {e}")
             return None
 
-    async def pipeline(self) -> Optional[redis.Pipeline]:
+    async def pipeline(self):
         """Crée un pipeline Redis pour les opérations atomiques."""
         if not await self._ensure_connection():
             return None

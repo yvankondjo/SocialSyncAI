@@ -24,7 +24,7 @@ from app.services.ai_decision_service import AIDecisionService
 from app.services.email_service import EmailService
 from app.services.rag_agent import RAGAgent
 from app.services.comment_triage import CommentTriageService, get_owner_username
-from app.schemas.ai_rules import AIDecision
+from app.schemas.ai_decisions import AIDecision
 
 logger = logging.getLogger(__name__)
 
@@ -432,6 +432,13 @@ def process_comment(self, comment_id: str):
             f"{comment.get('author_name')} on {platform} post"
         )
 
+        # Check if we already replied to this comment
+        if comment.get("replied_at"):
+            logger.info(
+                f"[PROCESS] Comment {comment_id} already has a reply at {comment['replied_at']}, skipping"
+            )
+            return
+
         from app.services.automation_service import AutomationService
 
         automation_service = AutomationService()
@@ -486,10 +493,22 @@ def process_comment(self, comment_id: str):
                 ).execute()
 
                 return
-        # Check if AI should respond
-        decision_service = AIDecisionService(user_id, db)
+
+        # Prepare multimodal content for moderation (comment text + post image)
+        moderation_content = []
+        media_url = post.get("media_url")
+        if media_url:
+            moderation_content.append(
+                {"type": "image_url", "image_url": {"url": media_url}}
+            )
+        moderation_content.append({"type": "text", "text": comment["text"]})
+
+        # Check if AI should respond (with multimodal content for image moderation)
+        decision_service = AIDecisionService(user_id)
         decision, confidence, reason, rule = decision_service.check_message(
-            comment["text"], context_type="comment"
+            comment["text"],
+            context_type="comment",
+            message_content=moderation_content,  # Pass multimodal content (text + image)
         )
 
         logger.info(
@@ -534,14 +553,65 @@ def process_comment(self, comment_id: str):
             if music_title:
                 context_text += f"🎵 Music: {music_title}\n\n"
 
-            thread_comments = all_comments if all_comments else []
-            if thread_comments and len(thread_comments) > 1:
-                context_text += "💬 Comment Thread:\n"
-                for c in thread_comments[:10]:
-                    author = c.get("author_name", "Unknown")
-                    text = c.get("text", "")
-                    context_text += f"  - @{author}: {text}\n"
-                context_text += "\n"
+            # Build the specific comment thread (parent chain + replies)
+            thread_comments = []
+            if all_comments:
+                # If comment has a parent_id, build the parent chain
+                current_comment_id = comment.get("platform_comment_id")
+                parent_id = comment.get("parent_id")
+
+                # Build parent chain (from root to current comment's parent)
+                if parent_id:
+                    parent_chain = []
+                    current_parent_id = parent_id
+
+                    # Traverse up to find all parents
+                    while current_parent_id:
+                        parent_comment = next(
+                            (
+                                c
+                                for c in all_comments
+                                if c.get("platform_comment_id") == current_parent_id
+                            ),
+                            None,
+                        )
+                        if parent_comment:
+                            parent_chain.insert(
+                                0, parent_comment
+                            )  # Insert at beginning to maintain order
+                            current_parent_id = parent_comment.get("parent_id")
+                        else:
+                            break
+
+                    thread_comments.extend(parent_chain)
+
+                # Add replies to the current comment
+                replies = [
+                    c for c in all_comments if c.get("parent_id") == current_comment_id
+                ]
+
+                # If we have a thread (parent chain or replies), add it to context
+                if thread_comments or replies:
+                    context_text += "💬 Comment Thread:\n"
+
+                    # Show parent chain
+                    for c in thread_comments:
+                        author = c.get("author_name", "Unknown")
+                        text = c.get("text", "")
+                        context_text += f"  - @{author}: {text}\n"
+
+                    # Show current comment
+                    context_text += (
+                        f"  - @{comment.get('author_name')}: {comment['text']}\n"
+                    )
+
+                    # Show replies (if any)
+                    for c in replies[:5]:  # Limit to 5 replies
+                        author = c.get("author_name", "Unknown")
+                        text = c.get("text", "")
+                        context_text += f"  - @{author}: {text}\n"
+
+                    context_text += "\n"
 
             context_text += (
                 f"❓ New Comment from @{comment.get('author_name')}: {comment['text']}"
@@ -553,9 +623,38 @@ def process_comment(self, comment_id: str):
 
             enriched_message = HumanMessage(content=context_parts)
 
-            agent = RAGAgent(user_id=user_id)
+            ai_settings_result = (
+                db.table("ai_settings")
+                .select("*")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            ai_settings = ai_settings_result.data[0] if ai_settings_result.data else {}
+
+            logger.info(f"AI settings for user {user_id}: {ai_settings}")
+
+            from app.services.response_manager import SYSTEM_PROMPT
+
+            doc_lang = ai_settings.get("doc_lang", ["french"])
+            if isinstance(doc_lang, list):
+                doc_lang = ", ".join(doc_lang)
+            local_system_prompt = SYSTEM_PROMPT.format(doc_lang=doc_lang)
+
+            custom_prompt = ai_settings.get("system_prompt", "")
+            if custom_prompt:
+                local_system_prompt = f"{local_system_prompt}\n\n{custom_prompt}"
+
+            model_name = ai_settings.get("ai_model", "x-ai/grok-4-fast")
+
+            agent = RAGAgent(
+                user_id=user_id,
+                conversation_id=f"comment:{comment_id}",
+                system_prompt=local_system_prompt,
+                model_name=model_name,
+            )
             response_data = asyncio.run(
-                agent.graph.ainvoke(
+                agent.graph.invoke(
                     {"messages": [enriched_message]},
                     config={"configurable": {"thread_id": f"comment:{comment_id}"}},
                 )

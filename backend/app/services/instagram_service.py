@@ -223,6 +223,114 @@ class InstagramService:
             logger.error(f"Instagram create_media_container unexpected error: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    async def check_container_status(
+        self,
+        container_id: str,
+        access_token: str = None
+    ) -> Dict[str, Any]:
+        """
+        Check the status of a media container.
+
+        Args:
+            container_id: Container ID from create_media_container
+            access_token: Access token for the request
+
+        Returns:
+            Dict with 'status_code' field. Possible values:
+            - EXPIRED: Container expired (after 24h)
+            - ERROR: Processing error
+            - FINISHED: Ready to publish
+            - IN_PROGRESS: Still processing
+            - PUBLISHED: Already published
+
+        Docs: https://developers.facebook.com/docs/instagram-api/reference/ig-container
+        """
+        token = access_token or self.access_token
+
+        params = {
+            "fields": "id,status_code",
+            "access_token": token
+        }
+
+        try:
+            response = await self.client.get(
+                f"/{container_id}",
+                params=params
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Instagram check_container_status error: {e.response.text}")
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=f"Failed to check container status: {e.response.text}"
+            )
+        except Exception as e:
+            logger.error(f"Instagram check_container_status unexpected error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def wait_for_container_ready(
+        self,
+        container_id: str,
+        access_token: str = None,
+        max_wait_seconds: int = 60,
+        poll_interval: int = 3
+    ) -> bool:
+        """
+        Wait for a media container to be ready for publishing.
+
+        Args:
+            container_id: Container ID from create_media_container
+            access_token: Access token for the request
+            max_wait_seconds: Maximum time to wait (default 60 seconds)
+            poll_interval: Seconds between status checks (default 3 seconds)
+
+        Returns:
+            True if container is ready (FINISHED status)
+
+        Raises:
+            HTTPException if container status is ERROR or EXPIRED, or timeout
+        """
+        token = access_token or self.access_token
+        elapsed = 0
+
+        logger.info(f"Waiting for container {container_id} to be ready (max {max_wait_seconds}s)")
+
+        while elapsed < max_wait_seconds:
+            status_data = await self.check_container_status(container_id, token)
+            status = status_data.get('status_code')
+
+            logger.info(f"Container {container_id} status: {status} (waited {elapsed}s)")
+
+            if status == 'FINISHED':
+                logger.info(f"Container {container_id} is ready to publish")
+                return True
+            elif status == 'ERROR':
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Container processing failed with ERROR status"
+                )
+            elif status == 'EXPIRED':
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Container expired (24h limit)"
+                )
+            elif status == 'PUBLISHED':
+                logger.warning(f"Container {container_id} already published")
+                return True
+
+            # Status is IN_PROGRESS, wait and retry
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        # Timeout reached
+        logger.error(f"Timeout waiting for container {container_id} (waited {elapsed}s)")
+        raise HTTPException(
+            status_code=408,
+            detail=f"Timeout waiting for media processing. Container still in IN_PROGRESS status after {max_wait_seconds}s. Try again later."
+        )
+
     async def publish_media(
         self,
         ig_user_id: str,

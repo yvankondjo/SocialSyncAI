@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -26,9 +27,12 @@ export function SidebarPanel({
   onHistoryPost,
   onDeletePost,
 }: SidebarPanelProps) {
-  const draftPosts = posts.filter(p => p.status === 'draft');
-  const scheduledPosts = posts.filter(p => ['queued', 'publishing'].includes(p.status));
-  const publishedPosts = posts.filter(p => p.status === 'published');
+  // Memoize filtered posts to prevent recalculation on every render
+  const { draftPosts, scheduledPosts, publishedPosts } = useMemo(() => ({
+    draftPosts: posts.filter(p => p.status === 'draft'),
+    scheduledPosts: posts.filter(p => ['queued', 'publishing'].includes(p.status)),
+    publishedPosts: posts.filter(p => p.status === 'published'),
+  }), [posts]);
 
   return (
     <aside className="flex flex-col h-full bg-background/50 border-l border-border/60">

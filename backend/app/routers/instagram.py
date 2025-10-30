@@ -261,10 +261,17 @@ async def process_instagram_message_event(message_event: dict, user_info: dict):
     """Process an Instagram messaging event (direct message, comment, etc.)"""
     try:
         if "message" in message_event:
+            message = message_event["message"]
+
+            # ⚠️ CRITICAL: Ignore echo messages (sent BY the user/page, not TO the user)
+            # is_echo: True means the message was sent by the page itself
+            if message.get("is_echo", False):
+                logger.info(f"Ignoring echo message (sent by page): {message.get('text', '')[:50]}")
+                return
+
             # Extract sender information from the webhook
             sender = message_event.get("sender", {})
             sender_id = sender.get("id")
-            message = message_event["message"]
 
             # Build contact info from sender data
             contact_info = None

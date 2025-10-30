@@ -42,7 +42,19 @@
       "Bash(docker-compose:*)",
       "Bash(docker cp:*)",
       "Bash(timeout 180 python:*)",
-      "Bash(timeout 120 python:*)"
+      "Bash(timeout 120 python:*)",
+      "Bash(export SUPABASE_URL:*)",
+      "Bash(export:*)",
+      "Bash(xargs:*)",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__list_tables",
+      "Bash(PYTHONPATH=/workspace/backend:$PYTHONPATH python:*)",
+      "Bash(PYTHONPATH=/workspace/backend:$PYTHONPATH timeout 180 python:*)",
+      "Bash(PYTHONPATH=/workspace/backend:$PYTHONPATH timeout 240 python:*)",
+      "Bash(PYTHONPATH=/workspace/backend:$PYTHONPATH timeout 300 python:*)",
+      "Bash(tee:*)",
+      "Bash(PYTHONPATH=/workspace/backend:$PYTHONPATH timeout 120 python:*)",
+      "Bash(PYTHONPATH=/workspace/backend:$PYTHONPATH timeout 60 python:*)"
     ],
     "deny": [],
     "ask": []

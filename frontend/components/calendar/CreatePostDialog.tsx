@@ -33,6 +33,10 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
 
   const createMutation = useCreateScheduledPost();
 
+  // Get selected channel platform
+  const selectedChannel = channels.find(ch => ch.id === selectedChannelId);
+  const isInstagram = selectedChannel?.platform === 'instagram';
+
   useEffect(() => {
     if (open) {
       loadChannels();
@@ -43,7 +47,8 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
     try {
       setIsLoadingChannels(true);
       const { accounts } = await SocialAccountsService.getSocialAccounts();
-      setChannels(Array.isArray(accounts) ? accounts.filter(a => a.is_active) : []);
+      // Only show Instagram accounts for scheduled posts (WhatsApp is not supported)
+      setChannels(Array.isArray(accounts) ? accounts.filter(a => a.is_active && a.platform === 'instagram') : []);
     } catch (error) {
       console.error('Failed to load channels:', error);
       // Set empty array on error to prevent crashes
@@ -65,6 +70,11 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
       return;
     }
 
+    // Instagram requires media
+    if (isInstagram && !mediaUrl) {
+      return;
+    }
+
     let publishAt: Date;
 
     if (postMode === 'now') {
@@ -81,7 +91,7 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
       channel_id: selectedChannelId,
       content: {
         text: content,
-        media: mediaUrl ? [{ type: 'image' as const, url: mediaUrl }] : undefined,
+        media: mediaUrl ? [{ type: 'image' as const, url: mediaUrl }] : [],
       },
       publish_at: publishAt.toISOString(),
     };
@@ -202,10 +212,14 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
             </div>
           </div>
 
-          {/* Media URL (Optional) */}
+          {/* Media URL */}
           <div className="space-y-2.5">
             <Label htmlFor="media" className="text-sm font-medium">
-              Media URL <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+              Media URL {isInstagram ? (
+                <span className="text-destructive">*</span>
+              ) : (
+                <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+              )}
             </Label>
             <Input
               id="media"
@@ -214,7 +228,13 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
               value={mediaUrl}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMediaUrl(e.target.value)}
               className="h-11"
+              required={isInstagram}
             />
+            {isInstagram && (
+              <p className="text-xs text-muted-foreground">
+                Instagram posts require at least one media item (image or video)
+              </p>
+            )}
           </div>
 
           {/* Publish Date & Time - Only show if scheduling */}
@@ -271,7 +291,7 @@ export function CreatePostDialog({ open, onOpenChange }: CreatePostDialogProps) 
             </Button>
             <Button
               type="submit"
-              disabled={createMutation.isPending || !selectedChannelId || !content || (postMode === 'schedule' && !publishDate)}
+              disabled={createMutation.isPending || !selectedChannelId || !content || (postMode === 'schedule' && !publishDate) || (isInstagram && !mediaUrl)}
               className="h-10 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
             >
               {createMutation.isPending ? (

@@ -26,24 +26,16 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className="light">
       <head>
         <script
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
-                const storageKey = 'moat-theme';
-                const theme = localStorage.getItem(storageKey) || 'system';
-                let resolved = 'light';
-
-                if (theme === 'system') {
-                  resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-                } else {
-                  resolved = theme;
-                }
-
-                document.documentElement.setAttribute('data-moat-theme', resolved);
-                document.documentElement.classList.add(resolved);
+                // OPEN-SOURCE VERSION: Force light theme only
+                document.documentElement.setAttribute('data-moat-theme', 'light');
+                document.documentElement.classList.add('light');
+                document.documentElement.classList.remove('dark');
               })();
             `,
           }}

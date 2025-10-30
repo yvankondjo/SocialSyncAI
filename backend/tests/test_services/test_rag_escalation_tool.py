@@ -12,11 +12,13 @@ async def test_escalation_tool_success():
 
         tool = create_escalation_tool(user_id="user-123", conversation_id="conv-456")
 
-        result = await tool.ainvoke({
-            "message": "Need human",
-            "confidence": 88.0,
-            "reason": "Difficult question"
-        })
+        result = await tool.invoke(
+            {
+                "message": "Need human",
+                "confidence": 88.0,
+                "reason": "Difficult question",
+            }
+        )
 
         assert isinstance(result, EscalationResult)
         assert result.escalated is True
@@ -33,11 +35,9 @@ async def test_escalation_tool_failure():
 
         tool = create_escalation_tool(user_id="user-123", conversation_id="conv-456")
 
-        result = await tool.ainvoke({
-            "message": "Need human",
-            "confidence": 30.0,
-            "reason": "Unclear"
-        })
+        result = await tool.invoke(
+            {"message": "Need human", "confidence": 30.0, "reason": "Unclear"}
+        )
 
         assert isinstance(result, EscalationResult)
         assert result.escalated is False
@@ -47,19 +47,18 @@ async def test_escalation_tool_failure():
 
 @pytest.mark.asyncio
 async def test_escalation_tool_exception():
-    with patch("app.services.rag_agent.Escalation") as escalation_cls, \
-         patch("app.services.rag_agent.logging") as logging_module:
+    with patch("app.services.rag_agent.Escalation") as escalation_cls, patch(
+        "app.services.rag_agent.logging"
+    ) as logging_module:
         instance = escalation_cls.return_value
         instance.create_escalation = AsyncMock(side_effect=RuntimeError("boom"))
 
         logging_module.getLogger.return_value = MagicMock()
         tool = create_escalation_tool(user_id="user-123", conversation_id="conv-456")
 
-        result = await tool.ainvoke({
-            "message": "Need human",
-            "confidence": 70.0,
-            "reason": "Error"
-        })
+        result = await tool.invoke(
+            {"message": "Need human", "confidence": 70.0, "reason": "Error"}
+        )
 
         assert isinstance(result, EscalationResult)
         assert result.escalated is False

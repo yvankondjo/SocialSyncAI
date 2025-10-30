@@ -11,10 +11,16 @@ load_dotenv()
 
 # Importer les modules nécessaires
 from app.services.rag_agent import create_rag_agent
+from app.deps.system_prompt import SYSTEM_PROMPT
 
 # Créer l'agent
 print('Création de l\'agent RAG...')
-agent = create_rag_agent()
+agent = create_rag_agent(
+    user_id="test_user_id",
+    conversation_id="test_conversation_id",
+    system_prompt=SYSTEM_PROMPT,
+    test_mode=True
+)
 
 # Accéder au graphique
 print('Accès au graphique...')

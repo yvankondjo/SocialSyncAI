@@ -47,6 +47,12 @@ export function CommentItem({ comment, onReply, onOpenReplyDialog }: CommentItem
           className: 'bg-red-100 dark:bg-red-950/40 text-red-900 dark:text-red-300 border-red-300 dark:border-red-700',
           icon: AlertTriangle,
         }
+      default:
+        return {
+          label: 'PENDING',
+          className: 'bg-slate-100 dark:bg-slate-900/50 text-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700',
+          icon: MessageSquare,
+        }
     }
   }
 

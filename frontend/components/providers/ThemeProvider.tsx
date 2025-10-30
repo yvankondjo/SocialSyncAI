@@ -1,66 +1,45 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useContext, useEffect, ReactNode } from 'react'
 
-type Theme = 'light' | 'dark' | 'system'
+// OPEN-SOURCE VERSION: Light theme only
+type Theme = 'light'
 
 type ThemeProviderProps = {
   children: ReactNode
-  defaultTheme?: Theme
-  storageKey?: string
 }
 
 type ThemeProviderState = {
   theme: Theme
   setTheme: (theme: Theme) => void
-  resolvedTheme: 'light' | 'dark'
+  resolvedTheme: 'light'
 }
 
 const ThemeProviderContext = createContext<ThemeProviderState | undefined>(undefined)
 
 export function ThemeProvider({
   children,
-  defaultTheme = 'system',
-  storageKey = 'moat-theme',
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(defaultTheme)
-  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light')
-
-  useEffect(() => {
-    // Load theme from storage on mount
-    const storedTheme = localStorage.getItem(storageKey) as Theme | null
-    if (storedTheme) {
-      setTheme(storedTheme)
-    }
-  }, [storageKey])
+  // Always use light theme
+  const theme: Theme = 'light'
+  const resolvedTheme: 'light' = 'light'
 
   useEffect(() => {
     const root = window.document.documentElement
 
-    // Calculate resolved theme
-    let resolved: 'light' | 'dark' = 'light'
-    if (theme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-      resolved = systemTheme
-    } else {
-      resolved = theme
-    }
-
-    setResolvedTheme(resolved)
-
-    // Update DOM
-    root.setAttribute('data-moat-theme', resolved)
-    root.classList.remove('light', 'dark')
-    root.classList.add(resolved)
-
-    // Save to storage
-    localStorage.setItem(storageKey, theme)
-  }, [theme, storageKey])
+    // Force light theme
+    root.setAttribute('data-moat-theme', 'light')
+    root.classList.remove('dark')
+    root.classList.add('light')
+  }, [])
 
   const value = {
     theme,
-    setTheme,
+    setTheme: () => {
+      // No-op: theme is locked to light mode
+      console.log('[OPEN-SOURCE] Theme is locked to light mode')
+    },
     resolvedTheme,
   }
 

@@ -12,18 +12,23 @@ logger = logging.getLogger(__name__)
 class MessageBatcher:
     """
     Service of batching for WhatsApp/Instagram messages
-    
+
     Logique simplifiée:
     1. Messages sauvegardés immédiatement en BDD
     2. Messages ajoutés à Redis pour groupement
-    3. Fenêtre glissante de 15s (debounce)
+    3. Fenêtre glissante de 8s (debounce) - permet à Instagram d'envoyer texte + image séparément
     4. Scanner traite les batches dus
+
+    Note: Instagram envoie souvent 2 webhooks séparés pour un message avec image:
+    - Webhook 1: texte seul
+    - Webhook 2: image seule (arrive 1-3s plus tard)
+    La fenêtre de 8s permet de les combiner en une seule requête au LLM.
     """
 
     def __init__(self, redis_url: str = None):
         self.redis_url = redis_url or os.getenv('REDIS_URL', 'redis://localhost:6379/0')
         self._redis_pools = {}  # Store pools per event loop
-        self.batch_window_seconds = 2
+        self.batch_window_seconds = 8  # Augmenté de 2s à 8s pour permettre à Instagram d'envoyer texte + image
         self.cache_ttl_hours = 0.5
 
     async def get_redis(self) -> redis.Redis:

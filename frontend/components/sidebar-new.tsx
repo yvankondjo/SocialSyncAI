@@ -98,9 +98,19 @@ export function Sidebar() {
     Sources: false,
     Settings: false,
   })
-  const [subscription, setSubscription] = useState<any>(null)
-  const [storageUsage, setStorageUsage] = useState<any>(null)
-  const [availableModels, setAvailableModels] = useState<any[]>([])
+
+  // Open-Source V3.0: Unlimited credits, no API calls needed
+  const subscription = {
+    plan_name: "Open Source",
+    credits_balance: Infinity,
+    credits_included: Infinity,
+  }
+
+  const storageUsage = {
+    used_mb: 0,
+    quota_mb: Infinity,
+    percentage_used: 0,
+  }
 
   const toggleSection = (sectionName: string) => {
     setExpandedSections(prev => ({
@@ -112,33 +122,6 @@ export function Sidebar() {
   const handleSignOut = async () => {
     await signOut()
   }
-
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        // Try to load subscription data, but don't fail if endpoints don't exist
-        const [subData, storageData, modelsData] = await Promise.allSettled([
-          ApiClient.get('/api/subscriptions/me').catch(() => null),
-          ApiClient.get('/api/subscriptions/storage/usage').catch(() => null),
-          ApiClient.get('/api/subscriptions/models').catch(() => null)
-        ])
-
-        if (subData.status === 'fulfilled' && subData.value) {
-          setSubscription(subData.value)
-        }
-        if (storageData.status === 'fulfilled' && storageData.value) {
-          setStorageUsage(storageData.value)
-        }
-        if (modelsData.status === 'fulfilled' && modelsData.value) {
-          setAvailableModels(modelsData.value)
-        }
-      } catch (error) {
-        console.error("Erreur chargement données:", error)
-      }
-    }
-
-    loadData()
-  }, [])
 
   return (
     <div
@@ -349,16 +332,16 @@ export function Sidebar() {
                   <div className="space-y-2 mb-3">
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4" />
+                        <Sparkles className="w-4 h-4 text-yellow-500" />
                         <span>Crédits</span>
                       </div>
-                      <span className="font-bold">
-                        {subscription.credits_balance} / {subscription.credits_included}
+                      <span className="font-bold text-green-600">
+                        ∞ Illimités
                       </span>
                     </div>
-                    <Progress 
-                      value={(subscription.credits_balance / subscription.credits_included) * 100} 
-                      className="h-2"
+                    <Progress
+                      value={100}
+                      className="h-2 bg-green-500/20"
                     />
                   </div>
                 )}
@@ -368,50 +351,22 @@ export function Sidebar() {
                   <div className="space-y-2 mb-3">
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
-                        <HardDrive className="w-4 h-4" />
+                        <HardDrive className="w-4 h-4 text-blue-500" />
                         <span>Storage</span>
                       </div>
-                      <span className="font-bold">
-                        {storageUsage.used_mb?.toFixed(1)} / {storageUsage.quota_mb} MB
+                      <span className="font-bold text-green-600">
+                        ∞ Illimité
                       </span>
                     </div>
-                    <Progress 
-                      value={storageUsage.percentage_used || 0} 
-                      className="h-2"
+                    <Progress
+                      value={100}
+                      className="h-2 bg-green-500/20"
                     />
                   </div>
                 )}
 
-                {/* Crédits par modèle */}
-                {subscription.credits_balance !== undefined && availableModels.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-xs font-medium text-muted-foreground mb-2">
-                      Crédits restants par modèle
-                    </div>
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {availableModels.slice(0, 5).map((model) => {
-                        const remainingCalls = Math.floor(subscription.credits_balance / model.credits_cost)
-                        return (
-                          <div key={model.id} className="flex items-center justify-between text-xs">
-                            <span className="truncate flex-1">{model.name}</span>
-                            <span className="text-muted-foreground ml-2">
-                              {remainingCalls} appels
-                            </span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
-
-            <DropdownMenuSeparator />
-
-            <DropdownMenuItem>
-              <Crown className="mr-2 h-4 w-4" />
-              <span>Passer au plan supérieur</span>
-            </DropdownMenuItem>
             
             <DropdownMenuSeparator />
             

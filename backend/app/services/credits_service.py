@@ -98,21 +98,32 @@ class CreditsService:
             "last_updated": datetime.utcnow().isoformat()
         }
 
-    async def get_feature_access(self, user_id: str, feature: str) -> bool:
+    async def get_feature_access(self, user_id: str) -> Dict[str, Any]:
         """
-        Vérifie si l'utilisateur a accès à une fonctionnalité.
+        Vérifie si l'utilisateur a accès aux fonctionnalités.
 
         VERSION OPEN-SOURCE: Tous les utilisateurs ont accès à toutes les fonctionnalités.
 
         Args:
             user_id: ID de l'utilisateur
-            feature: Nom de la fonctionnalité
 
         Returns:
-            True (toujours - accès illimité)
+            Dict avec toutes les fonctionnalités activées (mode illimité)
         """
-        logger.info(f"[OPEN-SOURCE] Feature access check for user {user_id}: {feature} - GRANTED (unlimited mode)")
-        return True
+        logger.info(f"[OPEN-SOURCE] Feature access check for user {user_id} - ALL FEATURES GRANTED (unlimited mode)")
+
+        # Return an object with all features enabled
+        class UnlimitedFeatures:
+            def __init__(self):
+                self.images = True
+                self.audio = True
+                self.video = True
+                self.ai_responses = True
+                self.scheduled_posts = True
+                self.analytics = True
+                self.unlimited = True
+
+        return UnlimitedFeatures()
 
     async def ensure_user_credits_exist(self, user_id: str) -> Dict[str, Any]:
         """

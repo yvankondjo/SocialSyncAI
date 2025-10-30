@@ -55,20 +55,15 @@ export default function DataPage() {
     }
   }
 
-  // Charger l'usage de stockage
+  // Open-Source V3.0: Set unlimited storage
   const loadStorageUsage = async () => {
-    try {
-      const data = await ApiClient.get('/api/subscriptions/storage/usage')
-      setStorageUsage({
-        usedMb: data.used_mb,
-        quotaMb: data.quota_mb,
-        availableMb: data.available_mb,
-        percentageUsed: data.percentage_used,
-        isFull: data.is_full
-      })
-    } catch (error) {
-      console.error("Erreur chargement usage stockage:", error)
-    }
+    setStorageUsage({
+      usedMb: 0,
+      quotaMb: Infinity,
+      availableMb: Infinity,
+      percentageUsed: 0,
+      isFull: false
+    })
   }
 
   useEffect(() => {

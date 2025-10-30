@@ -72,121 +72,74 @@ export interface CreditsBalance {
 }
 
 export function usePricing() {
-  const [pricing, setPricing] = useState<PublicPricingResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Open-Source V3.0: No pricing plans, everything is unlimited
+  const [pricing] = useState<PublicPricingResponse | null>(null)
+  const [loading] = useState(false)
+  const [error] = useState<string | null>(null)
 
   const fetchPricing = async () => {
-    try {
-      setLoading(true)
-      // Note: L'API pricing publique ne nécessite pas d'authentification
-      const data = await ApiClient.getPublic("/api/subscriptions/public/pricing")
-      setPricing(data)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inconnue")
-    } finally {
-      setLoading(false)
-    }
+    // No-op in open-source version
   }
-
-  useEffect(() => {
-    fetchPricing()
-  }, [])
 
   return { pricing, loading, error, refetch: fetchPricing }
 }
 
 export function useSubscriptionPlans() {
-  const { user } = useAuth()
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Open-Source V3.0: No subscription plans, everything is unlimited
+  const [plans] = useState<SubscriptionPlan[]>([])
+  const [loading] = useState(false)
+  const [error] = useState<string | null>(null)
 
   const fetchPlans = async () => {
-    if (!user) return
-
-    try {
-      setLoading(true)
-      const data = await ApiClient.get("/api/subscriptions/plans")
-      setPlans(data)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inconnue")
-    } finally {
-      setLoading(false)
-    }
+    // No-op in open-source version
   }
-
-  useEffect(() => {
-    if (user) {
-      fetchPlans()
-    }
-  }, [user])
 
   return { plans, loading, error, refetch: fetchPlans }
 }
 
 export function useUserSubscription() {
   const { user } = useAuth()
-  const [subscription, setSubscription] = useState<UserSubscription | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Open-Source V3.0: Return unlimited subscription data
+  const [subscription] = useState<UserSubscription | null>(
+    user ? {
+      id: 'open-source',
+      status: 'active',
+      current_period_end: '2099-12-31T23:59:59Z',
+      plan: {
+        name: 'Open Source',
+        price_eur: 0,
+        credits_included: Infinity,
+      },
+      can_upgrade: false,
+    } : null
+  )
+  const [loading] = useState(false)
+  const [error] = useState<string | null>(null)
 
   const fetchSubscription = async () => {
-    if (!user) return
-
-    try {
-      setLoading(true)
-      const data = await ApiClient.get("/api/subscriptions/me")
-      setSubscription(data)
-      setError(null)
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("404")) {
-        setSubscription(null)
-      } else {
-        setError(err instanceof Error ? err.message : "Erreur inconnue")
-      }
-    } finally {
-      setLoading(false)
-    }
+    // No-op in open-source version
   }
-
-  useEffect(() => {
-    if (user) {
-      fetchSubscription()
-    }
-  }, [user])
 
   return { subscription, loading, error, refetch: fetchSubscription }
 }
 
 export function useCredits() {
   const { user } = useAuth()
-  const [credits, setCredits] = useState<CreditsBalance | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Open-Source V3.0: Return unlimited credits
+  const [credits] = useState<CreditsBalance | null>(
+    user ? {
+      credits_balance: Infinity,
+      plan_credits: Infinity,
+      credits_used_this_month: 0,
+      last_refill_at: new Date().toISOString(),
+    } : null
+  )
+  const [loading] = useState(false)
+  const [error] = useState<string | null>(null)
 
   const fetchCredits = async () => {
-    if (!user) return
-
-    try {
-      setLoading(true)
-      const data = await ApiClient.get("/api/subscriptions/credits/balance")
-      setCredits(data)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inconnue")
-    } finally {
-      setLoading(false)
-    }
+    // No-op in open-source version
   }
-
-  useEffect(() => {
-    if (user) {
-      fetchCredits()
-    }
-  }, [user])
 
   return { credits, loading, error, refetch: fetchCredits }
 }

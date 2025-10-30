@@ -13,8 +13,9 @@ class LinkService:
     def __init__(self):
         self.jwt_secret = os.getenv("JWT_SECRET_KEY")
         if not self.jwt_secret:
-            logger.warning("JWT_SECRET_KEY not configured - link generation and admin management limited")
-            self.jwt_secret = "dev-secret-key-change-in-production"
+            logger.warning("JWT_SECRET_KEY not configured - link generation limited")
+            # Default key for open-source development (change in production!)
+            self.jwt_secret = "opensource-dev-key-please-change-in-production"
 
         self.frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
         self.link_expiration_hours = int(os.getenv("LINK_EXPIRATION_HOURS", "24"))

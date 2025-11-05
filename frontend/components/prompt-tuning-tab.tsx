@@ -1,19 +1,18 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Clock, Zap, Save, RotateCcw, Sparkles } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { useAISettings } from "@/lib/api"
 import { logos } from "@/lib/logos"
+import { Clock, RotateCcw, Save, Sparkles, Zap } from "lucide-react"
 import Image from "next/image"
+import { useEffect, useState } from "react"
 
 // AI Settings interface
 interface AISettings {
@@ -131,7 +130,7 @@ Your responsibilities:
 - Provide creative and authentic advice`
   },
   ecommerce: {
-    name: "E-commerce", 
+    name: "E-commerce",
     prompt: `You are an AI expert in e-commerce for {{brand_name}}.
 
 Your responsibilities:
@@ -160,13 +159,13 @@ Your responsibilities:
 
 export function PromptTuningTab() {
   const { toast } = useToast()
-  const { 
-    settings: currentSettings, 
-    isLoading: apiLoading, 
-    updateSettings, 
-    testAIResponse 
+  const {
+    settings: currentSettings,
+    isLoading: apiLoading,
+    updateSettings,
+    testAIResponse
   } = useAISettings()
-  
+
   // Working settings state (unsaved modifications)
   const [workingSettings, setWorkingSettings] = useState<AISettings>({
     system_prompt: PROMPT_TEMPLATES.social.prompt,
@@ -178,7 +177,7 @@ export function PromptTuningTab() {
     is_active: true,
     doc_lang: []
   })
-  
+
   // UI states
   const [isLoading, setIsLoading] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -196,7 +195,7 @@ export function PromptTuningTab() {
   }, [currentSettings])
 
   const variables = [
-    { name: "brand_name", value: "ConversAI" },
+    { name: "brand_name", value: "SocialSyncAI" },
     { name: "lang", value: workingSettings.lang },
     { name: "tone", value: workingSettings.tone },
   ]
@@ -230,7 +229,7 @@ export function PromptTuningTab() {
         message: testInput,
         settings: workingSettings
       })
-      
+
       setTestResponse(result.response)
       setTestMetrics({
         responseTime: result.response_time,
@@ -322,17 +321,17 @@ export function PromptTuningTab() {
             <div className="flex flex-wrap gap-2">
               <p className="text-xs text-muted-foreground w-full mb-2">Available variables:</p>
               {variables.map((variable) => (
-                <Badge 
-                  key={variable.name} 
-                  variant="secondary" 
+                <Badge
+                  key={variable.name}
+                  variant="secondary"
                   className="cursor-pointer text-xs hover:bg-secondary/80"
                   onClick={() => {
                     const textarea = document.querySelector('textarea') as HTMLTextAreaElement
                     if (textarea) {
                       const cursorPos = textarea.selectionStart
-                      const newValue = workingSettings.system_prompt.slice(0, cursorPos) + 
-                                     `{{${variable.name}}}` + 
-                                     workingSettings.system_prompt.slice(cursorPos)
+                      const newValue = workingSettings.system_prompt.slice(0, cursorPos) +
+                        `{{${variable.name}}}` +
+                        workingSettings.system_prompt.slice(cursorPos)
                       updateWorkingSetting('system_prompt', newValue)
                     }
                   }}
@@ -359,11 +358,10 @@ export function PromptTuningTab() {
                   return (
                     <div
                       key={model.id}
-                      className={`border rounded-lg p-3 cursor-pointer transition-all hover:shadow-md ${
-                        isSelected 
-                          ? 'border-primary bg-primary/5 shadow-md' 
+                      className={`border rounded-lg p-3 cursor-pointer transition-all hover:shadow-md ${isSelected
+                          ? 'border-primary bg-primary/5 shadow-md'
                           : 'border-border hover:border-primary/50'
-                      }`}
+                        }`}
                       onClick={() => updateWorkingSetting('ai_model', model.id)}
                     >
                       <div className="flex items-center gap-3">
@@ -397,8 +395,8 @@ export function PromptTuningTab() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="tone">Response Tone</Label>
-                <Select 
-                  value={workingSettings.tone} 
+                <Select
+                  value={workingSettings.tone}
                   onValueChange={(value) => updateWorkingSetting('tone', value)}
                 >
                   <SelectTrigger>
@@ -412,11 +410,11 @@ export function PromptTuningTab() {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="language">Language</Label>
-                <Select 
-                  value={workingSettings.lang} 
+                <Select
+                  value={workingSettings.lang}
                   onValueChange={(value) => updateWorkingSetting('lang', value)}
                 >
                   <SelectTrigger>
@@ -456,7 +454,7 @@ export function PromptTuningTab() {
                 className="text-sm"
                 rows={3}
               />
-              <Button 
+              <Button
                 onClick={handleTestAIResponse}
                 disabled={isTesting || !testInput.trim()}
                 className="w-full gradient-primary text-white border-0"

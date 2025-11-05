@@ -7,7 +7,6 @@ import logging
 import uuid as uuid_lib
 from app.schemas.knowledge_documents import KnowledgeDocument
 from app.core.security import get_current_user_id
-from app.services.storage_service import get_storage_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/knowledge_documents", tags=["Knowledge Documents"])
@@ -16,28 +15,27 @@ router = APIRouter(prefix="/knowledge_documents", tags=["Knowledge Documents"])
 async def upload_knowledge_document(
     file: UploadFile = File(...),
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id),
-    storage_service = Depends(get_storage_service)
+    current_user_id: str = Depends(get_current_user_id)
 ):
     """
-    Upload un document de connaissance avec vérification du quota de stockage.
-    Le fichier est vérifié côté backend avant d'être uploadé au bucket.
+    Upload un document de connaissance.
+    VERSION OPEN-SOURCE: Stockage illimité, pas de vérification de quota.
     """
     try:
         # Vérifier le type de fichier
         allowed_extensions = ['.pdf', '.txt', '.md']
         file_ext = '.' + file.filename.split('.')[-1].lower() if '.' in file.filename else ''
-        
+
         if file_ext not in allowed_extensions:
             raise HTTPException(
                 status_code=400,
                 detail=f"Type de fichier non supporté. Seuls PDF, TXT et MD sont acceptés."
             )
-        
+
         # Lire le fichier pour obtenir sa taille
         file_content = await file.read()
         file_size_bytes = len(file_content)
-        
+
         # Vérifier la taille maximale (10 MB)
         max_size_bytes = 10 * 1024 * 1024
         if file_size_bytes > max_size_bytes:
@@ -45,20 +43,10 @@ async def upload_knowledge_document(
                 status_code=400,
                 detail=f"Fichier trop volumineux ({file_size_bytes / (1024 * 1024):.1f} MB). Maximum 10 MB."
             )
-        
-        # Vérifier le quota de stockage
-        can_upload, usage = await storage_service.check_storage_available(current_user_id, file_size_bytes)
-        
-        if not can_upload:
-            file_size_mb = file_size_bytes / (1024 * 1024)
-            raise HTTPException(
-                status_code=400,
-                detail=f"Quota de stockage insuffisant. Disponible: {usage.available_mb:.2f} MB, Requis: {file_size_mb:.2f} MB"
-            )
-        
+
         # Générer un nom unique pour le fichier
         file_path = f"{uuid_lib.uuid4()}/{file.filename}"
-        
+
         # Uploader vers le bucket Supabase
         upload_result = db.storage.from_("kb").upload(
             file_path,
@@ -69,21 +57,16 @@ async def upload_knowledge_document(
                 "upsert": "false"
             }
         )
-        
+
         logger.info(f"✅ Document uploadé: {file.filename} ({file_size_bytes} bytes) pour utilisateur {current_user_id}")
-        
+
         return {
             "success": True,
             "message": f"Document {file.filename} uploadé avec succès",
             "file_path": file_path,
-            "file_size_bytes": file_size_bytes,
-            "storage_usage": {
-                "used_mb": usage.used_mb,
-                "quota_mb": usage.quota_mb,
-                "available_mb": usage.available_mb
-            }
+            "file_size_bytes": file_size_bytes
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:

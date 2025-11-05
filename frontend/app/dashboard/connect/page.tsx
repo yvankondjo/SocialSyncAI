@@ -33,6 +33,13 @@ const socialPlatforms = [
     logoPath: "/logos/instagram.svg",
     color: "bg-pink-500",
   },
+  {
+    id: "messenger",
+    name: "Facebook Messenger",
+    description: "Connectez vos Pages Facebook pour gérer les messages Messenger",
+    logoPath: "/logos/facebook.svg",
+    color: "bg-blue-600",
+  },
 ]
 
 export default function ConnectPage() {

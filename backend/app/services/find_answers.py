@@ -91,14 +91,7 @@ class FindAnswers:
         self.user_id = user_id
         self.model_name = model_name
 
-        try:
-            self.db = get_db()
-        except Exception as e:
-            raise FindAnswersError(
-                f"Failed to initialize database connection: {str(e)}",
-                error_type="DATABASE_CONNECTION_ERROR",
-                details={"original_error": str(e)},
-            )
+        # No longer store db client (will use async client per-call)
 
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
@@ -122,7 +115,11 @@ class FindAnswers:
                 details={"model_name": model_name, "original_error": str(e)},
             )
 
-    def get_question_answers(self) -> list[QuestionAnswer]:
+    async def get_question_answers(self) -> list[QuestionAnswer]:
+        """
+        Retrieve all active FAQ question-answers for the user.
+        Now using async Supabase client for better performance.
+        """
         try:
             if not self.user_id:
                 raise FindAnswersError(
@@ -131,13 +128,15 @@ class FindAnswers:
                     details={"user_id": self.user_id},
                 )
 
-            question_answers = (
-                self.db.table("faq_qa")
-                .select("id, questions, answer")
-                .eq("user_id", self.user_id)
-                .eq("is_active", True)
+            # Use async Supabase client
+            from app.db.session import get_async_db
+            db = await get_async_db()
+
+            question_answers = await db.table("faq_qa") \
+                .select("id, questions, answer") \
+                .eq("user_id", self.user_id) \
+                .eq("is_active", True) \
                 .execute()
-            )
 
             if not question_answers.data:
                 logger.warning(f"No question answers found for user {self.user_id}")
@@ -180,7 +179,11 @@ class FindAnswers:
                 details={"user_id": self.user_id, "original_error": str(e)},
             )
 
-    def find_answers(self, question: str) -> Answer:
+    async def find_answers(self, question: str) -> Answer:
+        """
+        Find answers to a question using FAQ database and LLM reasoning.
+        Now fully async for better performance in parallel execution.
+        """
         try:
             if not question or not question.strip():
                 raise FindAnswersError(
@@ -192,7 +195,7 @@ class FindAnswers:
             logger.info(f"Looking for answers for '{question}' for user {self.user_id}")
 
             try:
-                question_answers = self.get_question_answers()
+                question_answers = await self.get_question_answers()
             except FindAnswersError:
                 raise
             except Exception as e:
@@ -312,7 +315,8 @@ User Question: ###
 """
 
             try:
-                result = self.llm.with_structured_output(_AnswerSchema).invoke(prompt)
+                # Use async ainvoke instead of sync invoke
+                result = await self.llm.with_structured_output(_AnswerSchema).ainvoke(prompt)
                 logger.debug(result.model_dump_json(indent=2))
             except OpenAIError as e:
                 raise FindAnswersError(

@@ -145,19 +145,7 @@ export default function DataPage() {
       return
     }
 
-    // Vérifier le quota de stockage
-    if (storageUsage) {
-      const totalFileSizeMb = validFiles.reduce((total, file) => total + (file.size / (1024 * 1024)), 0)
-
-      if (totalFileSizeMb > storageUsage.availableMb) {
-        toast({
-          title: "Quota de stockage insuffisant",
-          description: `Espace disponible: ${storageUsage.availableMb.toFixed(2)} MB, Requis: ${totalFileSizeMb.toFixed(2)} MB`,
-          variant: "destructive",
-        })
-        return
-      }
-    }
+    // Open-Source V3.0: Pas de limite de stockage
 
     setIsUploading(true)
     toast({

@@ -123,9 +123,13 @@ async def send_error_notification_to_user(
     logger.info(
         f"📝 Typing indicator + read receipt sent for error message to {platform}:{contact_id}"
     )
-    import time
 
-    time.sleep(5)
+    # ✅ PERFORMANCE FIX (2025-11-02): Async sleep prevents blocking event loop
+    # Previously: time.sleep(5) blocked ALL requests for 5 seconds (DoS risk)
+    # Now: asyncio.sleep(5) allows concurrent request handling
+    import asyncio
+    await asyncio.sleep(5)
+
     result = await send_response(platform, user_credentials, contact_id, message)
     if not result:
         logger.error(f"Error sending notification to user {contact_id}: {message}")
@@ -169,7 +173,16 @@ async def process_incoming_message_for_user(
         UnifiedMessageType,
     )
 
-    platform_enum = Platform.WHATSAPP if platform == "whatsapp" else Platform.INSTAGRAM
+    # Map platform string to enum
+    if platform == "whatsapp":
+        platform_enum = Platform.WHATSAPP
+    elif platform == "instagram":
+        platform_enum = Platform.INSTAGRAM
+    elif platform == "messenger":
+        platform_enum = Platform.MESSENGER
+    else:
+        logger.warning(f"Unknown platform: {platform}, defaulting to WHATSAPP")
+        platform_enum = Platform.WHATSAPP
 
     # Open-source version: all features enabled (images, audio, video, etc.)
     extraction_request = MessageExtractionRequest(
@@ -741,6 +754,29 @@ async def send_typing_indicator_and_mark_read(
             else:
                 logger.warning("Message ID requis pour Instagram sender actions")
                 return False
+        elif platform == "messenger":
+            from app.services.messenger_service import MessengerService
+
+            service = MessengerService(
+                user_credentials.get("access_token"), user_credentials.get("account_id")
+            )
+
+            if message_id:
+                result = await service.send_typing_and_mark_read(contact_id, message_id)
+
+                if result.get("success"):
+                    logger.info(
+                        f'Messenger: Sender actions successful to {contact_id} - {result.get("message")}'
+                    )
+                else:
+                    logger.warning(
+                        f'❌ Failed sender actions Messenger to {contact_id}: {result.get("error")}'
+                    )
+
+                return result.get("success", False)
+            else:
+                logger.warning("Message ID required for Messenger sender actions")
+                return False
         else:
             logger.error(f"Platform not supported for typing indicator: {platform}")
             return False
@@ -768,6 +804,13 @@ async def send_response(
                 user_credentials.get("access_token"), user_credentials.get("account_id")
             )
             result = await service.send_direct_message(contact_id, content)
+            return result.get("success", False)
+        elif platform == "messenger":
+            from app.services.messenger_service import MessengerService
+            service = MessengerService(
+                user_credentials.get("access_token"), user_credentials.get("account_id")
+            )
+            result = await service.send_message(contact_id, content)
             return result.get("success", False)
         else:
             return False
@@ -809,7 +852,7 @@ async def extract_message_content_unified(
     request: MessageExtractionRequest,
 ) -> Optional[UnifiedMessageContent]:
     """
-    unified function to extract the content of WhatsApp and Instagram messages
+    unified function to extract the content of WhatsApp, Instagram and Messenger messages
     """
     try:
         if request.platform == Platform.WHATSAPP:
@@ -818,6 +861,10 @@ async def extract_message_content_unified(
             )
         elif request.platform == Platform.INSTAGRAM:
             return await extract_instagram_message_content(
+                request.raw_message, request.user_credentials
+            )
+        elif request.platform == Platform.MESSENGER:
+            return await extract_messenger_message_content(
                 request.raw_message, request.user_credentials
             )
         else:
@@ -1126,6 +1173,205 @@ async def extract_instagram_message_content(
             message_id=message.get("mid"),
             message_from=message.get("from"),
             platform=Platform.INSTAGRAM,
+            customer_name=None,
+            metadata={"unsupported_type": message_type},
+        )
+
+
+async def extract_messenger_message_content(
+    message: Dict[str, Any], user_credentials: Dict[str, Any]
+) -> Optional[UnifiedMessageContent]:
+    """
+    Extract content from Messenger messages based on webhook structure.
+
+    Messenger uses the same webhook structure as Instagram for messages.
+    Supports: text, images, video, audio, files.
+
+    Args:
+        message: Raw message dict from Messenger webhook
+        user_credentials: User credentials dict with access_token
+
+    Returns:
+        UnifiedMessageContent or None if extraction fails
+    """
+    import tiktoken
+
+    enc = tiktoken.get_encoding("o200k_harmony")
+
+    if not message:
+        return None
+
+    # Check for text and attachments (Messenger can send text + media in one message)
+    message_type = "text"
+    has_text = "text" in message and message.get("text", "").strip()
+    has_attachments = "attachments" in message and message["attachments"]
+
+    if has_attachments:
+        attachment = message["attachments"][0]
+        message_type = attachment.get("type", "unknown")
+    elif has_text:
+        message_type = "text"
+    else:
+        logger.warning(f"Type of Messenger message not recognized: {message}")
+        return None
+
+    # TEXT MESSAGE
+    if message_type == "text" and not has_attachments:
+        content = message.get("text", "")
+        return UnifiedMessageContent(
+            content=content,
+            token_count=len(enc.encode(content)),
+            message_type=UnifiedMessageType.TEXT,
+            message_id=message.get("mid"),
+            message_from=message.get("from"),
+            platform=Platform.MESSENGER,
+            customer_name=None,
+        )
+
+    # IMAGE MESSAGE
+    elif message_type == "image":
+        import uuid
+
+        attachments = message.get("attachments", [])
+        if not attachments:
+            logger.error("No attachments found for Messenger image message")
+            return None
+
+        attachment = attachments[0]
+        payload = attachment.get("payload", {})
+        media_url = payload.get("url")
+
+        if not media_url:
+            logger.error("Media URL not found in Messenger attachment")
+            return None
+
+        message_id = message.get("mid")
+        caption = message.get("text", "").strip() if has_text else ""
+
+        try:
+            import httpx
+
+            # Messenger images don't require auth header (unlike Instagram)
+            async with httpx.AsyncClient() as client:
+                response = await client.get(media_url)
+                response.raise_for_status()
+                media_content = response.content
+
+            width, height = extract_image_dimensions(media_content)
+
+            # Resize if needed
+            if width and height and (width > 768 or height > 768):
+                media_content = resize_image(media_content, 768, 768)
+                width, height = (768, 768)
+
+            image_tokens = calculate_image_tokens(width or 0, height or 0)
+            object_path = f"{uuid.uuid4()}/{message_id}.jpg"
+            saved_path = save_data_to_bucket(
+                media_content,
+                bucket_id="message",
+                object_name=object_path,
+                content_type="image/jpeg",
+            )
+
+            if not saved_path:
+                logger.error("Error saving Messenger image in Supabase Storage")
+                return None
+
+            image_url = get_signed_url(
+                saved_path, bucket_id="message", expires_in=3600 * 24
+            )
+            if not image_url:
+                logger.error("Error generating signed URL for Messenger image")
+                return None
+
+            # Combine text + image if both present
+            if caption:
+                text_tokens = len(enc.encode(caption))
+                content = [
+                    {"type": "text", "text": caption},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ]
+                total_tokens = text_tokens + image_tokens
+            else:
+                content = [{"type": "image_url", "image_url": {"url": image_url}}]
+                total_tokens = image_tokens
+
+            total_tokens = int(total_tokens)
+
+            return UnifiedMessageContent(
+                content=content,
+                token_count=total_tokens,
+                message_type=UnifiedMessageType.IMAGE,
+                message_id=message_id,
+                message_from=message.get("from"),
+                platform=Platform.MESSENGER,
+                customer_name=None,
+                storage_object_name=saved_path,
+                media_type="image",
+                caption=caption if caption else None,
+                media_url=image_url,
+                metadata={
+                    "width": width,
+                    "height": height,
+                    "file_size": len(media_content),
+                },
+            )
+        except Exception as e:
+            logger.error(f"Error downloading Messenger image: {e}")
+            return None
+
+    # VIDEO MESSAGE
+    elif message_type == "video":
+        logger.warning("Messenger video message received, not supported currently")
+        return UnifiedMessageContent(
+            content="Video not supported",
+            token_count=0,
+            message_type=UnifiedMessageType.UNSUPPORTED,
+            message_id=message.get("mid"),
+            message_from=message.get("from"),
+            platform=Platform.MESSENGER,
+            customer_name=None,
+            metadata={"unsupported_type": "video"},
+        )
+
+    # AUDIO MESSAGE
+    elif message_type == "audio":
+        logger.warning("Messenger audio message received, not supported currently")
+        return UnifiedMessageContent(
+            content="Audio not supported",
+            token_count=0,
+            message_type=UnifiedMessageType.UNSUPPORTED,
+            message_id=message.get("mid"),
+            message_from=message.get("from"),
+            platform=Platform.MESSENGER,
+            customer_name=None,
+            metadata={"unsupported_type": "audio"},
+        )
+
+    # FILE MESSAGE
+    elif message_type == "file":
+        logger.warning("Messenger file message received, not supported currently")
+        return UnifiedMessageContent(
+            content="File not supported",
+            token_count=0,
+            message_type=UnifiedMessageType.UNSUPPORTED,
+            message_id=message.get("mid"),
+            message_from=message.get("from"),
+            platform=Platform.MESSENGER,
+            customer_name=None,
+            metadata={"unsupported_type": "file"},
+        )
+
+    # UNSUPPORTED TYPE
+    else:
+        logger.warning(f"Type of Messenger message not supported: {message_type}")
+        return UnifiedMessageContent(
+            content="This type of message is not supported yet",
+            token_count=0,
+            message_type=UnifiedMessageType.UNSUPPORTED,
+            message_id=message.get("mid"),
+            message_from=message.get("from"),
+            platform=Platform.MESSENGER,
             customer_name=None,
             metadata={"unsupported_type": message_type},
         )

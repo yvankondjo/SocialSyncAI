@@ -265,7 +265,9 @@ def poll_post_comments():
     try:
         result = (
             db.table("monitored_posts")
-            .select("*, social_accounts!inner(platform, access_token, account_id)")
+            .select(
+                "*, social_accounts!inner(platform, access_token, account_id, username)"
+            )
             .eq("monitoring_enabled", True)
             .lte("next_check_at", datetime.utcnow().isoformat())
             .gt("monitoring_ends_at", datetime.utcnow().isoformat())
@@ -316,11 +318,34 @@ def poll_post_comments():
                     )
                 )
 
+                # Get bot username to filter out bot's own comments
+                bot_username = (
+                    post.get("social_accounts", {})
+                    .get("username", "")
+                    .lower()
+                    .strip("@")
+                )
+
                 for comment in new_comments:
                     comment_id = _save_comment(db, post_id, comment)
                     if comment_id:
-                        process_comment.delay(comment_id)
-                        metrics["comments_found"] += 1
+                        # Skip processing if this is a comment from the bot itself
+                        comment_author = (
+                            comment.get("author_name", "").lower().strip("@")
+                        )
+                        if comment_author == bot_username:
+                            logger.info(
+                                f"[POLL] Skipping bot's own comment {comment_id} "
+                                f"from @{comment_author}"
+                            )
+                            # Mark as ignored (bot's own comment)
+                            db.table("comments").update({"triage": "ignore"}).eq(
+                                "id", comment_id
+                            ).execute()
+                        else:
+                            # Only process comments from other users
+                            process_comment.delay(comment_id)
+                            metrics["comments_found"] += 1
 
                 if new_comments:
                     latest_ts = max(
@@ -437,6 +462,22 @@ def process_comment(self, comment_id: str):
             logger.info(
                 f"[PROCESS] Comment {comment_id} already has a reply at {comment['replied_at']}, skipping"
             )
+            return
+
+        # Check if this is a bot's own comment (safety check)
+        bot_username = (
+            post["social_accounts"].get("username", "").lower().strip("@")
+            if "social_accounts" in post
+            else ""
+        )
+        comment_author = comment.get("author_name", "").lower().strip("@")
+        if bot_username and comment_author == bot_username:
+            logger.info(
+                f"[PROCESS] Skipping bot's own comment {comment_id} from @{comment_author}"
+            )
+            db.table("comments").update({"triage": "ignore"}).eq(
+                "id", comment_id
+            ).execute()
             return
 
         from app.services.automation_service import AutomationService
@@ -653,12 +694,19 @@ def process_comment(self, comment_id: str):
                 system_prompt=local_system_prompt,
                 model_name=model_name,
             )
-            response_data = asyncio.run(
-                agent.graph.invoke(
-                    {"messages": [enriched_message]},
-                    config={"configurable": {"thread_id": f"comment:{comment_id}"}},
+
+            try:
+                response_data = asyncio.run(
+                    agent.graph.ainvoke(
+                        {"messages": [enriched_message]},
+                        config={"configurable": {"thread_id": f"comment:{comment_id}"}},
+                    )
                 )
-            )
+            except Exception as e:
+                logger.error(
+                    f"[PROCESS] Error invoking RAG agent for comment {comment_id}: {e}"
+                )
+                raise Exception(f"RAG agent invocation failed: {e}")
 
             if response_data and "messages" in response_data:
                 ai_messages = [

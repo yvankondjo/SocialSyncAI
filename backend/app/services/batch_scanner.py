@@ -173,18 +173,22 @@ class BatchScanner:
             
             logger.info(f"🔑 Conversation ID: {conversation_id}")
             logger.info("-" * 60)
-            
-            # Debug: Log the full structure
-            logger.info(f"🔍 DEBUG - Full messages structure: {messages}")
-            logger.info(f"🔍 DEBUG - content extracted: '{content}'")
-            
+
+            # ✅ PRIVACY FIX (2025-11-02): Removed DEBUG logs exposing customer PII
+            # Previously logged: Full message structure + raw content (credit cards, SSN, health info)
+            # Now: Only safe metadata (type, length, direction)
+
             direction = "user"
             if isinstance(messages, dict) and "message_data" in messages:
                 direction = messages.get("message_data", {}).get("role", "user")
             elif isinstance(messages, dict):
                 direction = messages.get("role", "user")
-                
-            logger.info(f"💬 Batch Message (concatenated) ({direction}): {content[:200]}{'...' if len(content) > 200 else ''}")
+
+            logger.info(
+                f"💬 Processing batch message: direction={direction}, "
+                f"content_length={len(str(content))}, "
+                f"type={type(messages).__name__}"
+            )
 
             logger.info("-" * 60)
             
@@ -365,32 +369,41 @@ class BatchScanner:
     
     def _format_messages(self, messages: Dict[str, Any]) -> List[HumanMessage]:
         """
-        Format the messages for the agent
+        Format the messages for the agent.
+
+        ✅ PRIVACY FIX (2025-11-02): Removed PII-exposing DEBUG logs
+        Only logs metadata (structure type, content type) - NOT raw content
         """
-        logger.info(f"🔍 DEBUG _format_messages - Input messages: {messages}")
-        
+
         # La structure peut être soit:
         # 1. {"message_data": {"content": "...", "role": "user"}} (ancienne structure texte)
         # 2. {"message_data": {"content": [{"type": "text"}, {"type": "image_url"}], "role": "user"}} (structure multimédia)
         # 3. {"content": "...", "role": "user"} (nouvelle structure)
-        
+
         if isinstance(messages, dict) and "message_data" in messages:
             # Ancienne structure
             message_data = messages.get("message_data", {})
             content = message_data.get("content", "")
-            logger.info(f"🔍 DEBUG _format_messages - content from message_data: '{content}'")
+            structure_type = "message_data"
         else:
             # Nouvelle structure ou structure directe
             content = messages.get("content", "")
-            logger.info(f"🔍 DEBUG _format_messages - content from messages: '{content}'")
-        
+            structure_type = "direct"
+
         # Nettoyer le contenu uniquement si c'est une chaîne
         if isinstance(content, str):
             content = content.strip()
-            logger.info(f"🔍 DEBUG _format_messages - Final content (cleaned): '{content}'")
+            content_type = "string"
         else:
-            logger.info(f"🔍 DEBUG _format_messages - Final content (complex): {type(content)}")
-        
+            content_type = type(content).__name__
+
+        # Safe metadata logging (no PII)
+        logger.debug(
+            f"Formatting message: structure={structure_type}, "
+            f"content_type={content_type}, "
+            f"content_length={len(str(content))}"
+        )
+
         return [HumanMessage(content=content)]
 
     # 📊 Méthodes de monitoring

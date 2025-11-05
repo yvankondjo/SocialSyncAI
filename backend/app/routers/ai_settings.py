@@ -154,6 +154,7 @@ async def test_ai_response(
 
         agent = RAGAgent(
             user_id=current_user_id,
+            conversation_id=test_request.thread_id,
             model_name=test_request.settings.ai_model,
             system_prompt=test_request.settings.system_prompt,
             checkpointer=CHECKPOINTER_REDIS,

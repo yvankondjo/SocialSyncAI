@@ -1,15 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { useSidebarStore } from '@/hooks/useSidebarStore'
-import Image from "next/image"
-import { useAuth } from "@/hooks/useAuth"
-import { ApiClient } from "@/lib/api"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,18 +12,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Progress } from "@/components/ui/progress"
-import { Badge } from "@/components/ui/badge"
+import { useAuth } from "@/hooks/useAuth"
+import { useSidebarStore } from '@/hooks/useSidebarStore'
+import { cn } from "@/lib/utils"
 import {
-  X,
   ChevronDown,
-  Plus,
-  LogOut,
-  User,
-  Settings as SettingsIcon,
   Crown,
-  Sparkles,
   HardDrive,
+  LogOut,
+  Plus,
+  Sparkles,
+  X
 } from "lucide-react"
+import Image from "next/image"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import { useState } from "react"
 
 const navigation = [
   {
@@ -137,13 +134,13 @@ export function Sidebar() {
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center overflow-hidden">
               <Image
                 src="/logos/logo-connect.svg"
-                alt="ConversAI"
+                alt="SocialSyncAI"
                 width={20}
                 height={20}
                 className="w-5 h-5"
               />
             </div>
-            <span className="font-semibold text-sidebar-foreground">ConversAI</span>
+            <span className="font-semibold text-sidebar-foreground">SocialSyncAI</span>
           </div>
         )}
         <Button
@@ -294,8 +291,8 @@ export function Sidebar() {
               </div>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent 
-            className="w-80" 
+          <DropdownMenuContent
+            className="w-80"
             align={isCollapsed ? "end" : "end"}
             side="top"
           >
@@ -309,7 +306,7 @@ export function Sidebar() {
                 </p>
               </div>
             </DropdownMenuLabel>
-            
+
             <DropdownMenuSeparator />
 
             {/* Plan Info */}
@@ -367,9 +364,9 @@ export function Sidebar() {
 
               </div>
             )}
-            
+
             <DropdownMenuSeparator />
-            
+
             <DropdownMenuItem onClick={handleSignOut} className="text-red-600">
               <LogOut className="mr-2 h-4 w-4" />
               <span>Se déconnecter</span>

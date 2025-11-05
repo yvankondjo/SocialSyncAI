@@ -5,6 +5,7 @@ from enum import Enum
 class Platform(str, Enum):
     WHATSAPP = "whatsapp"
     INSTAGRAM = "instagram"
+    MESSENGER = "messenger"
 
 class UnifiedMessageType(str, Enum):
     TEXT = "text"

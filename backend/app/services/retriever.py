@@ -27,18 +27,11 @@ class Retriever:
                 error_type="INVALID_USER_ID",
                 details={"user_id": user_id}
             )
-        
+
         self.user_id = user_id
-        
-        try:
-            self.db = get_db()
-        except Exception as e:
-            raise RetrieverError(
-                f"Failed to initialize database connection: {str(e)}",
-                error_type="DATABASE_CONNECTION_ERROR",
-                details={"user_id": user_id, "original_error": str(e)}
-            )
-        
+
+        # No longer store db client (will use async client per-call)
+
         try:
             self.embed_texts = embed_texts
         except Exception as e:
@@ -73,15 +66,17 @@ class Retriever:
                 details={"texts": texts, "original_error": str(e)}
             )
     
-    def retrieve_from_knowledge_chunks(self, query: str, k: int = 10, type: str = 'text', query_lang: str = 'simple') -> List[Dict[str, Any]]:
+    async def retrieve_from_knowledge_chunks(self, query: str, k: int = 10, type: str = 'text', query_lang: str = 'simple') -> List[Dict[str, Any]]:
         """
-        Retrieve from knowledge
+        Retrieve from knowledge chunks using async Supabase client.
+        Now supports parallel execution with other async operations.
+
         Args:
             query: The query to retrieve from knowledge
             k: The number of results to retrieve
             type: The type of search to perform
             query_lang: The language of the query
-            
+
         Returns:
             List of dictionaries with content and score
         """
@@ -92,36 +87,38 @@ class Retriever:
                     error_type="INVALID_QUERY",
                     details={"query": query}
                 )
-            
+
             if k <= 0:
                 raise RetrieverError(
                     "Number of results (k) must be positive",
                     error_type="INVALID_K_VALUE",
                     details={"k": k}
                 )
-            
+
             if type not in ['text', 'vector', 'hybrid']:
                 raise RetrieverError(
                     "Type must be one of: text, vector, hybrid",
                     error_type="INVALID_TYPE",
                     details={"type": type, "valid_types": ['text', 'vector', 'hybrid']}
                 )
-            
+
             if query_lang not in ['simple', 'french', 'english', 'spanish']:
                 raise RetrieverError(
                     "Query language must be one of: simple, french, english, spanish",
                     error_type="INVALID_QUERY_LANG",
                     details={"query_lang": query_lang, "valid_langs": ['simple', 'french', 'english', 'spanish']}
                 )
-            
-            db = get_db()
+
+            # Use async Supabase client
+            from app.db.session import get_async_db
+            db = await get_async_db()
             result = None
             
             try:
                 if type == 'text':
                     query = " ".join(query.split())
                     query = re.sub(r'\s+', ' | ', query)
-                    result = db.rpc(f'{type}_knowledge_chunks_search_v2', {
+                    result = await db.rpc(f'{type}_knowledge_chunks_search_v2', {
                         'p_user_id': self.user_id,
                         'query_text': query,
                         'query_lang': query_lang,
@@ -129,7 +126,10 @@ class Retriever:
                     }).execute()
                 elif type == 'vector':
                     try:
-                        embedding = self._embed_texts([query])[0]
+                        # Embedding generation is sync, wrap in asyncio.to_thread
+                        import asyncio
+                        embedding = await asyncio.to_thread(self._embed_texts, [query])
+                        embedding = embedding[0]
                     except RetrieverError:
                         raise
                     except Exception as e:
@@ -138,8 +138,8 @@ class Retriever:
                             error_type="EMBEDDING_GENERATION_ERROR",
                             details={"query": query, "original_error": str(e)}
                         )
-                    
-                    result = db.rpc(f'{type}_knowledge_chunks_search_v2', {
+
+                    result = await db.rpc(f'{type}_knowledge_chunks_search_v2', {
                         'p_user_id': self.user_id,
                         'query_text': query,
                         'query_embedding': embedding,
@@ -147,7 +147,10 @@ class Retriever:
                     }).execute()
                 elif type == 'hybrid':
                     try:
-                        embedding = self._embed_texts([query])[0]
+                        # Embedding generation is sync, wrap in asyncio.to_thread
+                        import asyncio
+                        embedding = await asyncio.to_thread(self._embed_texts, [query])
+                        embedding = embedding[0]
                     except RetrieverError:
                         raise
                     except Exception as e:
@@ -158,7 +161,7 @@ class Retriever:
                         )
                     query = " ".join(query.split())
                     query = re.sub(r'\s+', ' | ', query)
-                    result = db.rpc(f'{type}_knowledge_chunks_search_v2', {
+                    result = await db.rpc(f'{type}_knowledge_chunks_search_v2', {
                         'p_user_id': self.user_id,
                         'query_text': query,
                         'query_embedding': embedding,

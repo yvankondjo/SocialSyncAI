@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 from dotenv import load_dotenv
@@ -262,6 +262,171 @@ class SocialAuthService:
     async def handle_whatsapp_callback(self, code: str) -> dict:
         """Compatibilité: échange le code via le flux OAuth standard."""
         return await self.exchange_whatsapp_code(code)
+
+    def get_messenger_auth_url(self, state: str) -> str:
+        """
+        Generate Facebook OAuth URL for Messenger (Page access).
+
+        Args:
+            state: JWT state token for CSRF protection
+
+        Returns:
+            Authorization URL string
+        """
+        if not self.META_APP_ID:
+            raise HTTPException(status_code=500, detail='Messenger auth is not configured on the server.')
+
+        # Scopes needed for Messenger DMs
+        scopes = [
+            'pages_messaging',           # Send/receive messages
+            'pages_read_engagement',     # Read engagement data
+            'pages_manage_metadata',     # Manage page metadata
+        ]
+
+        redirect_uri = os.getenv('MESSENGER_REDIRECT_URI')
+        if not redirect_uri:
+            raise HTTPException(status_code=500, detail='MESSENGER_REDIRECT_URI not configured.')
+
+        params = {
+            'client_id': self.META_APP_ID,
+            'redirect_uri': redirect_uri,
+            'scope': ','.join(scopes),
+            'response_type': 'code',
+            'state': state
+        }
+
+        auth_url = f'https://www.facebook.com/v{self.META_GRAPH_VERSION}/dialog/oauth?{urlencode(params)}'
+        logger.info(f"Generated Messenger auth URL with scopes: {scopes}")
+        return auth_url
+
+    async def handle_messenger_callback(self, code: str) -> dict:
+        """
+        Exchange authorization code for user access token.
+        Note: This returns a user token. We'll need to fetch Page tokens separately.
+
+        Args:
+            code: Authorization code from Facebook OAuth
+
+        Returns:
+            Dict with 'access_token' and other token data
+        """
+        if not self.META_APP_ID or not self.META_APP_SECRET:
+            raise HTTPException(status_code=500, detail='Messenger auth is not configured on the server.')
+
+        token_url = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/oauth/access_token'
+        redirect_uri = os.getenv('MESSENGER_REDIRECT_URI')
+
+        params = {
+            'client_id': self.META_APP_ID,
+            'client_secret': self.META_APP_SECRET,
+            'code': code,
+            'redirect_uri': redirect_uri
+        }
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(token_url, params=params)
+                response.raise_for_status()
+                token_data = response.json()
+
+                logger.info(f"✅ Messenger user token obtained: {token_data.get('access_token', 'N/A')[:20]}...")
+                return token_data
+            except httpx.HTTPStatusError as e:
+                logger.error(f'❌ Error exchanging Messenger code: {e.response.text}')
+                raise HTTPException(
+                    status_code=400,
+                    detail=f'Failed to exchange code for Messenger token: {e.response.text}'
+                )
+            except Exception as e:
+                logger.error(f'❌ Unexpected error during Messenger auth: {e}')
+                raise HTTPException(
+                    status_code=500,
+                    detail='Unexpected error during Messenger authentication.'
+                )
+
+    async def get_facebook_pages(self, user_access_token: str) -> List[Dict[str, Any]]:
+        """
+        Get all Facebook Pages managed by the user with their Page access tokens.
+
+        Args:
+            user_access_token: User's access token from OAuth
+
+        Returns:
+            List of dicts with page info including:
+            - id: Page ID
+            - name: Page name
+            - access_token: Page access token (for API calls)
+            - category: Page category
+            - tasks: List of permissions
+        """
+        url = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/me/accounts'
+        params = {
+            'access_token': user_access_token,
+            'fields': 'id,name,access_token,category,tasks'
+        }
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
+
+                pages = data.get('data', [])
+                logger.info(f"✅ Retrieved {len(pages)} Facebook Pages for user")
+
+                return pages
+            except httpx.HTTPStatusError as e:
+                logger.error(f'❌ Error fetching Facebook Pages: {e.response.text}')
+                raise HTTPException(
+                    status_code=400,
+                    detail=f'Failed to fetch Facebook Pages: {e.response.text}'
+                )
+            except Exception as e:
+                logger.error(f'❌ Unexpected error fetching Pages: {e}')
+                raise HTTPException(
+                    status_code=500,
+                    detail='Unexpected error while fetching Facebook Pages.'
+                )
+
+    async def subscribe_page_to_webhooks(
+        self,
+        page_id: str,
+        page_access_token: str,
+        subscribed_fields: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Subscribe a Facebook Page to app webhooks.
+
+        Args:
+            page_id: Facebook Page ID
+            page_access_token: Page access token
+            subscribed_fields: List of webhook fields to subscribe to
+
+        Returns:
+            Dict with subscription result
+        """
+        fields = subscribed_fields or ['messages', 'messaging_postbacks', 'message_reads']
+
+        url = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/{page_id}/subscribed_apps'
+        params = {
+            'subscribed_fields': ','.join(fields),
+            'access_token': page_access_token
+        }
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(url, params=params)
+                response.raise_for_status()
+                result = response.json()
+
+                logger.info(f"✅ Page {page_id} subscribed to webhooks: {fields}")
+                return result
+            except httpx.HTTPStatusError as e:
+                logger.warning(f'⚠️ Webhook subscription failed for Page {page_id}: {e.response.text}')
+                return {'error': e.response.text, 'success': False}
+            except Exception as e:
+                logger.warning(f'⚠️ Unexpected error subscribing webhooks for Page {page_id}: {e}')
+                return {'error': str(e), 'success': False}
 
 
 social_auth_service = SocialAuthService()

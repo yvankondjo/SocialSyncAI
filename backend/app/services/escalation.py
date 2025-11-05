@@ -11,9 +11,17 @@ logger = logging.getLogger(__name__)
 
 class Escalation:
     def __init__(self, user_id: str, conversation_id: str):
+        # ✅ SECURITY FIX (2025-11-02): Validate user_id to prevent injection
+        if not user_id or not isinstance(user_id, str):
+            raise ValueError("user_id must be a non-empty string")
+        if not conversation_id or not isinstance(conversation_id, str):
+            raise ValueError("conversation_id must be a non-empty string")
+
         self.user_id = user_id
-        self.db = get_db()
         self.conversation_id = conversation_id
+        # Note: Using get_db() (service role) - all queries MUST filter by user_id
+        # TODO (Phase 2): Migrate to get_authenticated_db() for RLS enforcement
+        self.db = get_db()
         self.email_service = EmailService()
         self.link_service = LinkService()
 
@@ -44,13 +52,26 @@ class Escalation:
             if not escalation_id:
                 logger.error("Échec de création de l'escalade en base")
                 return None
-            # Disable AI mode for the conversation
+
+            # ✅ SECURITY: Verify escalation belongs to user (defensive validation)
+            created_escalation = self.db.table("support_escalations") \
+                .select("user_id") \
+                .eq("id", escalation_id) \
+                .single() \
+                .execute()
+            if created_escalation.data.get("user_id") != self.user_id:
+                logger.error(f"🚨 SECURITY ALERT: Escalation {escalation_id} user_id mismatch!")
+                raise RuntimeError("Escalation user_id validation failed")
+
+            # ✅ SECURITY: Filter conversation by user_id (service role bypass mitigation)
             self.db.table("conversations").update({
                 "ai_mode": "OFF",
                 "updated_at": "now()"
-            }).eq("id", self.conversation_id).execute()
+            }).eq("id", self.conversation_id) \
+              .eq("user_id", self.user_id) \
+              .execute()
 
-            # Get user email
+            # Get user email (already filtered by user_id)
             user_result = self.db.table("users").select("email").eq("id", self.user_id).single().execute()
             user_email = user_result.data.get("email") if user_result.data else None
 
@@ -106,10 +127,22 @@ class Escalation:
             escalation_id: ID of the escalation
 
         Returns:
-            dict: Data of the escalation or None
+            dict: Data of the escalation or None (only if belongs to user)
         """
         try:
-            result = self.db.table("support_escalations").select("*").eq("id", escalation_id).single().execute()
+            # ✅ SECURITY: Filter by BOTH escalation_id AND user_id
+            # Prevents user A from accessing user B's escalation data
+            result = self.db.table("support_escalations") \
+                .select("*") \
+                .eq("id", escalation_id) \
+                .eq("user_id", self.user_id) \
+                .single() \
+                .execute()
+
+            if result.data and result.data.get("user_id") != self.user_id:
+                logger.error(f"🚨 SECURITY: Attempted access to escalation {escalation_id} by wrong user {self.user_id}")
+                return None
+
             return result.data if result.data else None
         except Exception as e:
             logger.error(f"Error getting escalation status {escalation_id}: {e}")

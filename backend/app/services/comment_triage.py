@@ -1,6 +1,6 @@
 import re
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -17,14 +17,13 @@ class CommentTriageService:
             owner_username: Instagram username of the account owner (e.g., "your_brand")
         """
         self.user_id = user_id
-        self.owner_username = owner_username.lower().strip('@')
-        # Note: RAGAgent removed - not needed for triage logic
+        self.owner_username = owner_username.lower().strip("@")
 
     def should_ai_respond(
         self,
         comment: Dict[str, Any],
-        post: Dict[str, Any],  # noqa: ARG002 - kept for API compatibility
-        all_comments: List[Dict[str, Any]]
+        post: Dict[str, Any],
+        all_comments: List[Dict[str, Any]],
     ) -> Tuple[bool, str]:
         """
         Determine if AI should respond to this comment
@@ -48,19 +47,17 @@ class CommentTriageService:
         comment_text = comment.get("text", "")
         author_name = comment.get("author_name", "")
 
-        # CRITICAL: NEVER respond to owner's own comments to prevent infinite loops
-        # Even if the owner is replying to others, we should NOT generate AI responses
-        # because that would mean the AI responding to the owner's manual replies
-        if author_name.lower().strip('@') == self.owner_username:
-            logger.info(
-                f"[TRIAGE] Comment from owner @{author_name}, ignoring to prevent loop"
-            )
-            return False, "ignore"
+        if author_name.lower().strip("@") == self.owner_username:
+            is_reply_to_others, _ = self._check_reply_to_others(comment, all_comments)
+            has_other_mentions, _ = self._check_mentions(comment_text)
 
-        # Comment is not from the owner themselves OR owner is engaging with others
-        logger.info(
-            f"[TRIAGE] Comment from @{author_name} will be processed by AI"
-        )
+            if not is_reply_to_others and not has_other_mentions:
+                logger.info(
+                    f"[TRIAGE] Self-comment from owner @{author_name}, ignoring"
+                )
+                return False, "ignore"
+
+        logger.info(f"[TRIAGE] Comment from @{author_name} will be processed by AI")
         return True, "respond"
 
     def _check_mentions(self, comment_text: str) -> Tuple[bool, str]:
@@ -80,7 +77,7 @@ class CommentTriageService:
             (should_respond, reason)
         """
 
-        mentions = re.findall(r'@(\w+)', comment_text, re.IGNORECASE)
+        mentions = re.findall(r"@(\w+)", comment_text, re.IGNORECASE)
 
         if not mentions:
             return True, ""
@@ -98,9 +95,7 @@ class CommentTriageService:
         return False, "user_conversation"
 
     def _check_reply_to_others(
-        self,
-        comment: Dict[str, Any],
-        all_comments: List[Dict[str, Any]]
+        self, comment: Dict[str, Any], all_comments: List[Dict[str, Any]]
     ) -> Tuple[bool, str]:
         """
         Rule 2: Check if comment is a reply to another user's comment
@@ -123,8 +118,7 @@ class CommentTriageService:
             return True, ""
 
         parent = next(
-            (c for c in all_comments if c.get("platform_comment_id") == parent_id),
-            None
+            (c for c in all_comments if c.get("platform_comment_id") == parent_id), None
         )
 
         if not parent:
@@ -134,20 +128,14 @@ class CommentTriageService:
             )
             return True, ""
 
-        parent_author = parent.get("author_name", "").lower().strip('@')
-
+        parent_author = parent.get("author_name", "").lower().strip("@")
 
         if parent_author == self.owner_username:
-            logger.debug(
-                f"[TRIAGE] Comment is reply to owner's comment"
-            )
+            logger.debug(f"[TRIAGE] Comment is reply to owner's comment")
             return True, ""
 
-        logger.debug(
-            f"[TRIAGE] Comment is reply to @{parent_author}'s comment"
-        )
+        logger.debug(f"[TRIAGE] Comment is reply to @{parent_author}'s comment")
         return False, "user_conversation"
-
 
 
 def get_owner_username(db, social_account_id: str) -> str:
@@ -162,11 +150,13 @@ def get_owner_username(db, social_account_id: str) -> str:
         Instagram username (str)
     """
     try:
-        result = db.table("social_accounts") \
-            .select("username") \
-            .eq("id", social_account_id) \
-            .single() \
+        result = (
+            db.table("social_accounts")
+            .select("username")
+            .eq("id", social_account_id)
+            .single()
             .execute()
+        )
 
         if result.data:
             return result.data.get("username", "")

@@ -1,51 +1,55 @@
-from supabase import create_client, Client
+from supabase import create_client, Client, acreate_client, AsyncClient
 from app.core.config import get_settings
 from fastapi import Request, HTTPException
 import jwt
 
-# A single client instance is created and shared across the application.
 settings = get_settings()
-supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
-# supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+
+supabase: Client = create_client(
+    settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY
+)
+
+_async_supabase: AsyncClient | None = None
+
+
 def get_db() -> Client:
     """
     Dependency function that provides a Supabase client instance with service role.
     USE WITH CAUTION - This bypasses RLS security!
+
+    DEPRECATED: Use get_async_db() for new code to benefit from async performance.
     """
     return supabase
 
-def get_user_id_from_token(request: Request) -> str:
+
+async def get_async_db() -> AsyncClient:
     """
-    Extract user_id from JWT token
-    This is more reliable than db.auth.get_user()
+    Returns the async Supabase client for high-performance async operations.
+
+    The client is created lazily on first call and reused for subsequent calls.
+    This client uses service role key and bypasses RLS - use with caution!
+
+    Returns:
+        AsyncClient: Async Supabase client instance
     """
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(
-            status_code=401,
-            detail="Token d'authentification requis"
+    global _async_supabase
+    if _async_supabase is None:
+        _async_supabase = await acreate_client(
+            settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY
         )
+    return _async_supabase
 
-    token = auth_header.split(" ")[1]
 
-    try:
-        # Decode JWT without verification (Supabase already verified it)
-        # We just need to extract the user_id
-        decoded = jwt.decode(token, options={"verify_signature": False})
-        user_id = decoded.get("sub")
+async def close_async_db():
+    """
+    Closes the async Supabase client connection.
+    Should be called during application shutdown.
+    """
+    global _async_supabase
+    if _async_supabase is not None:
+        await _async_supabase.close()
+        _async_supabase = None
 
-        if not user_id:
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid token: no user ID found"
-            )
-
-        return user_id
-    except jwt.DecodeError:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid token format"
-        )
 
 def get_authenticated_db(request: Request) -> Client:
     """
@@ -55,16 +59,11 @@ def get_authenticated_db(request: Request) -> Client:
     """
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(
-            status_code=401,
-            detail="Token d'authentification requis"
-        )
+        raise HTTPException(status_code=401, detail="Token d'authentification requis")
 
     token = auth_header.split(" ")[1]
 
-    # Create client with user token instead of service role key
-    # This enables RLS (Row Level Security) filtering
     user_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
     user_client.auth.set_session(access_token=token, refresh_token="")
 
-    return user_client 
+    return user_client

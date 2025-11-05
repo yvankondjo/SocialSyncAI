@@ -1,11 +1,9 @@
-import type React from "react"
+import { QueryProvider } from "@/components/providers/QueryProvider"
+import { ThemeProvider } from "@/components/providers/ThemeProvider"
+import { Toaster } from "@/components/ui/toaster"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
-import { Toaster } from "@/components/ui/toaster"
-import { QueryProvider } from "@/components/providers/QueryProvider"
-import { ThemeProvider } from "@/components/providers/ThemeProvider"
-import { demoEnabled, demoAnalytics } from "@/lib/demo-data"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -14,7 +12,7 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: "ConversAI – AI Studio",
+  title: "SocialSyncAI – AI Studio",
   description: "Plateforme IA conversationnelle pour WhatsApp et Instagram",
   generator: "v0.app",
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"),

@@ -15,7 +15,8 @@ from app.schemas.monitored_posts import (
     ToggleMonitoringResponse,
 )
 from app.services.monitoring_service import MonitoringService
-from app.db.session import get_authenticated_db, get_user_id_from_token
+from app.db.session import get_authenticated_db
+from app.core.security import get_current_user_id
 from supabase import Client
 import logging
 
@@ -28,7 +29,7 @@ router = APIRouter(prefix="/monitoring", tags=["Comment Monitoring"])
 async def sync_instagram_posts(
     request: SyncInstagramPostsRequest = SyncInstagramPostsRequest(),
     db: Client = Depends(get_authenticated_db),
-    user_id: str = Depends(get_user_id_from_token)
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Import Instagram posts and apply auto-monitoring rules
@@ -93,7 +94,7 @@ async def get_monitored_posts(
     limit: int = Query(50, le=100, description="Max results"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     db: Client = Depends(get_authenticated_db),
-    user_id: str = Depends(get_user_id_from_token)
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     List all monitored posts for current user
@@ -155,7 +156,7 @@ async def toggle_monitoring(
     post_id: str,
     request: ToggleMonitoringRequest = ToggleMonitoringRequest(),
     db: Client = Depends(get_authenticated_db),
-    user_id: str = Depends(get_user_id_from_token)
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Toggle monitoring on/off for a post
@@ -220,7 +221,7 @@ async def toggle_monitoring(
 async def get_monitoring_rules(
     social_account_id: Optional[str] = Query(None, description="Filter by social account"),
     db: Client = Depends(get_authenticated_db),
-    user_id: str = Depends(get_user_id_from_token)
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Get monitoring auto-rules for user
@@ -251,7 +252,7 @@ async def update_monitoring_rules(
     rules: MonitoringRulesBase,
     social_account_id: Optional[str] = Query(None, description="Filter by social account"),
     db: Client = Depends(get_authenticated_db),
-    user_id: str = Depends(get_user_id_from_token)
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Update monitoring auto-rules

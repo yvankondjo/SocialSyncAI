@@ -121,8 +121,6 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    volumes:
-      - ../backend:/app  # Hot reload enabled
     command: >
       sh -c "celery -A app.workers.celery_app worker
       -Q batching
@@ -163,8 +161,6 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    volumes:
-      - ../backend:/app  # Hot reload enabled
     command: >
       sh -c "celery -A app.workers.celery_app worker
       -Q ingest
@@ -205,8 +201,6 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    volumes:
-      - ../backend:/app
     command: >
       sh -c "celery -A app.workers.celery_app worker
       -Q scheduler
@@ -289,8 +283,6 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    volumes:
-      - ../backend:/app  # Hot reload enabled
     command: >
       sh -c "celery -A app.workers.celery_app worker
       -Q topics
@@ -334,8 +326,6 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    volumes:
-      - ../backend:/app  # Hot reload enabled
     command: >
       sh -c "celery -A app.workers.celery_app beat -l info"
     env_file:
@@ -367,8 +357,6 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    volumes:
-      - ../backend:/app  # Hot reload enabled
     command: >
       sh -c "celery -A app.workers.celery_app flower
       --port=5555

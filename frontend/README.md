@@ -1,37 +1,37 @@
 # SocialSync Frontend
 
-Interface moderne pour la gestion des réseaux sociaux avec authentification Supabase et connexion à l'API backend.
+Modern interface for social media management with Supabase authentication and backend API connection.
 
-## 🚀 Fonctionnalités
+## 🚀 Features
 
-- **Authentification Supabase** : Connexion Google OAuth
-- **Gestion des comptes sociaux** : Connexion aux vraies plateformes
-- **Inbox unifié** : Conversations WhatsApp et Instagram
-- **Dashboard** : Métriques et vue d'ensemble
-- **Interface moderne** : Design avec Tailwind CSS et shadcn/ui
+- **Supabase Authentication**: Google OAuth login
+- **Social Account Management**: Connect to real platforms
+- **Unified Inbox**: WhatsApp and Instagram conversations
+- **Dashboard**: Metrics and overview
+- **Modern Interface**: Design with Tailwind CSS and shadcn/ui
 
-## 📋 Prérequis
+## 📋 Prerequisites
 
 - Node.js 18+
-- Backend SocialSync en cours d'exécution
-- Projet Supabase configuré
+- SocialSync backend running
+- Supabase project configured
 
 ## 🛠️ Installation
 
-1. **Installer les dépendances**
+1. **Install dependencies**
 ```bash
 cd frontend
 npm install
 ```
 
-2. **Configuration de l'environnement**
+2. **Environment configuration**
 
-Copiez le fichier d'exemple et configurez vos variables :
+Copy the example file and configure your variables:
 ```bash
 cp env.example .env.local
 ```
 
-Remplissez les variables dans `.env.local` :
+Fill in the variables in `.env.local`:
 ```env
 # Supabase Configuration
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
@@ -44,148 +44,72 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_FRONTEND_URL=http://localhost:3000
 ```
 
-3. **Démarrer le serveur de développement**
+3. **Start development server**
 ```bash
 npm run dev
 ```
 
-## 🔧 Configuration Supabase
+## 🔧 Supabase Configuration
 
-### 1. Créer un projet Supabase
-1. Allez sur [supabase.com](https://supabase.com)
-2. Créez un nouveau projet
-3. Notez l'URL et la clé anonyme
+See [/docs/INSTALLATION.md](/docs/INSTALLATION.md) for complete database setup.
 
-### 2. Configurer l'authentification Google
-1. Dans votre projet Supabase, allez dans Authentication > Providers
-2. Activez Google
-3. Configurez les credentials OAuth Google
-4. Ajoutez l'URL de redirection : `http://localhost:3000/auth/callback`
+## 📱 Pages and Features
 
-### 3. Créer les tables de base de données
-```sql
--- Tables pour les comptes sociaux
-CREATE TABLE social_accounts (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  platform TEXT NOT NULL,
-  account_id TEXT NOT NULL,
-  username TEXT NOT NULL,
-  display_name TEXT,
-  profile_url TEXT,
-  access_token TEXT NOT NULL,
-  refresh_token TEXT,
-  token_expires_at TIMESTAMPTZ,
-  is_active BOOLEAN DEFAULT true,
-  user_id UUID NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Tables pour les conversations
-CREATE TABLE conversations (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  channel TEXT NOT NULL,
-  customer_name TEXT,
-  customer_identifier TEXT NOT NULL,
-  last_message_at TIMESTAMPTZ,
-  last_message_snippet TEXT DEFAULT '',
-  unread_count INTEGER DEFAULT 0,
-  social_account_id UUID REFERENCES social_accounts(id),
-  user_id UUID NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Tables pour les messages
-CREATE TABLE messages (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
-  direction TEXT NOT NULL,
-  content TEXT NOT NULL,
-  sender_id TEXT,
-  is_from_agent BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- Activer RLS
-ALTER TABLE social_accounts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
-
--- Politiques RLS
-CREATE POLICY "Users can view own social accounts" ON social_accounts
-  FOR ALL USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view own conversations" ON conversations
-  FOR ALL USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view own messages" ON messages
-  FOR ALL USING (
-    EXISTS (
-      SELECT 1 FROM conversations
-      WHERE conversations.id = messages.conversation_id
-      AND conversations.user_id = auth.uid()
-    )
-  );
-```
-
-## 📱 Pages et Fonctionnalités
-
-### Authentification
-- **`/auth`** : Page de connexion avec Supabase Auth UI
-- **`/auth/callback`** : Gestion des callbacks OAuth
+### Authentication
+- **`/auth`**: Login page with Supabase Auth UI
+- **`/auth/callback`**: OAuth callback handling
 
 ### Dashboard
-- **`/dashboard`** : Vue d'ensemble avec métriques
-- **`/dashboard/accounts`** : Gestion des comptes sociaux
-- **`/dashboard/inbox`** : Inbox unifié pour conversations
+- **`/dashboard`**: Overview with metrics
+- **`/dashboard/accounts`**: Social account management
+- **`/dashboard/inbox`**: Unified inbox for conversations
 
-## 🔗 Connexion au Backend
+## 🔗 Backend Connection
 
-Le frontend se connecte automatiquement au backend via les services API :
+The frontend automatically connects to the backend via API services:
 
-### Services Disponibles
+### Available Services
 
 #### SocialAccountsService
-- `getSocialAccounts()` : Liste des comptes connectés
-- `getConnectUrl(platform)` : URL d'autorisation OAuth
-- `deleteSocialAccount(accountId)` : Suppression d'un compte
+- `getSocialAccounts()`: List connected accounts
+- `getConnectUrl(platform)`: OAuth authorization URL
+- `deleteSocialAccount(accountId)`: Delete an account
 
 #### ConversationsService
-- `getConversations(channel?, limit?)` : Liste des conversations
-- `getMessages(conversationId, limit?)` : Messages d'une conversation
-- `sendMessage(conversationId, content)` : Envoi d'un message
-- `markAsRead(conversationId)` : Marquer comme lu
+- `getConversations(channel?, limit?)`: List conversations
+- `getMessages(conversationId, limit?)`: Messages from a conversation
+- `sendMessage(conversationId, content)`: Send a message
+- `markAsRead(conversationId)`: Mark as read
 
-### Gestion des Erreurs
+### Error Handling
 
-Toutes les erreurs sont automatiquement gérées avec :
-- Affichage d'erreurs utilisateur
-- Retry automatique pour les échecs temporaires
-- Logging des erreurs pour le debugging
+All errors are automatically handled with:
+- User error display
+- Automatic retry for temporary failures
+- Error logging for debugging
 
-## 🎨 Personnalisation
+## 🎨 Customization
 
-### Thème
-Le frontend utilise Tailwind CSS avec un thème moderne :
-- Couleurs indigo/violet pour le branding
-- Design glassmorphism pour les cartes
-- Animations fluides avec Framer Motion
+### Theme
+The frontend uses Tailwind CSS with a modern theme:
+- Indigo/purple colors for branding
+- Glassmorphism design for cards
+- Smooth animations with Framer Motion
 
-### Composants UI
-Utilisation de shadcn/ui pour des composants cohérents :
+### UI Components
+Using shadcn/ui for consistent components:
 - Cards, Buttons, Inputs
 - Dialogs, Dropdowns, Tooltips
 - Avatars, Badges, Toasts
 
-## 🚀 Déploiement
+## 🚀 Deployment
 
 ### Vercel
-1. Connectez votre dépôt GitHub à Vercel
-2. Configurez les variables d'environnement
-3. Déployez automatiquement
+1. Connect your GitHub repository to Vercel
+2. Configure environment variables
+3. Deploy automatically
 
-### Variables d'environnement pour la production
+### Production environment variables
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-prod-anon-key
@@ -195,34 +119,32 @@ NEXT_PUBLIC_FRONTEND_URL=https://your-frontend-domain.com
 
 ## 🔍 Debugging
 
-### Outils de développement
-- **React DevTools** : Inspection des composants
-- **Redux DevTools** : État de l'application
-- **Network Tab** : Requêtes API
-- **Console** : Logs d'erreurs
+### Development tools
+- **React DevTools**: Component inspection
+- **Redux DevTools**: Application state
+- **Network Tab**: API requests
+- **Console**: Error logs
 
-### Logs importants
-- Erreurs d'authentification Supabase
-- Échecs de connexion API
-- Erreurs OAuth
-- Problèmes de permissions
+### Important logs
+- Supabase authentication errors
+- API connection failures
+- OAuth errors
+- Permission issues
 
 ## 📞 Support
 
-Pour des problèmes ou questions :
-1. Vérifiez les logs de la console
-2. Validez la configuration Supabase
-3. Vérifiez que le backend est accessible
-4. Consultez la documentation API backend
+For issues or questions:
+1. Check console logs
+2. Validate Supabase configuration
+3. Verify backend is accessible
+4. Consult backend API documentation
 
 ## 🎯 Roadmap
 
-- [ ] Analytics et métriques avancées
-- [ ] Planification de posts
-- [ ] Automatisations IA
-- [ ] Templates de messages
-- [ ] Intégrations CRM
-- [ ] Notifications push
-- [ ] Mode hors ligne
-
-
+- [ ] Advanced analytics and metrics
+- [ ] Post scheduling
+- [ ] AI automations
+- [ ] Message templates
+- [ ] CRM integrations
+- [ ] Push notifications
+- [ ] Offline mode

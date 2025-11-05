@@ -1,30 +1,29 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useAISettings } from "@/lib/api"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import Image from "next/image"
+import { Textarea } from "@/components/ui/textarea"
+import { useAISettings } from "@/lib/api"
 import { logos } from "@/lib/logos"
 import {
-  Settings as Cog,
-  Send,
+  BarChart3,
   Bot,
-  User,
+  Settings as Cog,
+  ChevronUp as CompareIcon,
   RefreshCw,
   Save,
-  ChevronUp as CompareIcon,
-  BarChart3,
+  Send,
+  User,
 } from "lucide-react"
+import Image from "next/image"
 import Link from "next/link"
-import { ApiClient } from "@/lib/api"
+import { useEffect, useState } from "react"
 
 interface Message {
   id: string
@@ -35,80 +34,80 @@ interface Message {
 }
 
 const availableModels = [
-  { 
-    id: "x-ai/grok-4", 
-    name: "Grok 4", 
-    provider: "xAI", 
+  {
+    id: "x-ai/grok-4",
+    name: "Grok 4",
+    provider: "xAI",
     logoKey: "xai-logo.svg",
     description: "Advanced xAI model with exceptional reasoning and creativity capabilities"
   },
-  { 
-    id: "x-ai/grok-4-fast", 
-    name: "Grok 4 Fast", 
-    provider: "xAI", 
+  {
+    id: "x-ai/grok-4-fast",
+    name: "Grok 4 Fast",
+    provider: "xAI",
     logoKey: "xai-logo.svg",
     description: "Fast version of Grok 4, optimized for speed while maintaining high quality"
   },
-  { 
-    id: "openai/gpt-4o", 
-    name: "GPT-4o", 
-    provider: "OpenAI", 
+  {
+    id: "openai/gpt-4o",
+    name: "GPT-4o",
+    provider: "OpenAI",
     logoKey: "openai-logo.svg",
     description: "Advanced multimodal OpenAI model with exceptional visual and text capabilities"
   },
-  { 
-    id: "openai/gpt-4o-mini", 
-    name: "GPT-4o mini", 
-    provider: "OpenAI", 
+  {
+    id: "openai/gpt-4o-mini",
+    name: "GPT-4o mini",
+    provider: "OpenAI",
     logoKey: "openai-logo.svg",
     description: "Compact and economical GPT-4o, perfect for common tasks"
   },
-  { 
-    id: "openai/gpt-5", 
-    name: "GPT-5", 
-    provider: "OpenAI", 
+  {
+    id: "openai/gpt-5",
+    name: "GPT-5",
+    provider: "OpenAI",
     logoKey: "openai-logo.svg",
     description: "Latest generation of OpenAI with revolutionary reasoning and creativity capabilities"
   },
-  { 
-    id: "openai/gpt-5-mini", 
-    name: "GPT-5 mini", 
-    provider: "OpenAI", 
+  {
+    id: "openai/gpt-5-mini",
+    name: "GPT-5 mini",
+    provider: "OpenAI",
     logoKey: "openai-logo.svg",
     description: "Lightweight version of GPT-5, optimized for efficiency and speed"
   },
-  { 
-    id: "anthropic/claude-3.5-sonnet", 
-    name: "Claude 3.5 Sonnet", 
-    provider: "Anthropic", 
+  {
+    id: "anthropic/claude-3.5-sonnet",
+    name: "Claude 3.5 Sonnet",
+    provider: "Anthropic",
     logoKey: "claude-logo.svg",
     description: "Balanced Anthropic model, excellent for analysis and content generation"
   },
-  { 
-    id: "anthropic/claude-sonnet-4", 
-    name: "Claude 4 Sonnet", 
-    provider: "Anthropic", 
+  {
+    id: "anthropic/claude-sonnet-4",
+    name: "Claude 4 Sonnet",
+    provider: "Anthropic",
     logoKey: "claude-logo.svg",
     description: "Advanced Anthropic model with superior reasoning and creativity capabilities"
   },
-  { 
-    id: "anthropic/claude-sonnet-4.5", 
-    name: "Claude 4.5 Sonnet", 
-    provider: "Anthropic", 
+  {
+    id: "anthropic/claude-sonnet-4.5",
+    name: "Claude 4.5 Sonnet",
+    provider: "Anthropic",
     logoKey: "claude-logo.svg",
     description: "Latest version of Claude with significant improvements in precision and creativity"
   },
-  { 
-    id: "google/gemini-2.5-flash", 
-    name: "Gemini 2.5 Flash", 
-    provider: "Google", 
+  {
+    id: "google/gemini-2.5-flash",
+    name: "Gemini 2.5 Flash",
+    provider: "Google",
     logoKey: "google-logo.svg",
     description: "Ultra-fast Google model, optimized for speed and efficiency"
   },
-  { 
-    id: "google/gemini-2.5-pro", 
-    name: "Gemini 2.5 Pro", 
-    provider: "Google", 
+  {
+    id: "google/gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
+    provider: "Google",
     logoKey: "google-logo.svg",
     description: "Professional Google model with advanced capabilities and exceptional precision"
   },
@@ -321,8 +320,8 @@ export default function PlaygroundPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {availableModels.map((m) => (
-                          <SelectItem 
-                            key={m.id} 
+                          <SelectItem
+                            key={m.id}
                             value={m.id}
                             title={m.description}
                             className="cursor-pointer hover:bg-accent"
@@ -441,9 +440,8 @@ export default function PlaygroundPage() {
                 {messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`flex gap-3 ${
-                      message.role === "user" ? "justify-end" : "justify-start"
-                    }`}
+                    className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"
+                      }`}
                   >
                     {message.role === "assistant" && (
                       <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -453,17 +451,15 @@ export default function PlaygroundPage() {
 
                     <div className={`max-w-[70%] space-y-1`}>
                       <div
-                        className={`px-4 py-3 rounded-lg ${
-                          message.role === "user"
+                        className={`px-4 py-3 rounded-lg ${message.role === "user"
                             ? "bg-primary text-primary-foreground ml-auto"
                             : "bg-muted text-muted-foreground"
-                        }`}
+                          }`}
                       >
                         <p className="text-sm leading-relaxed">{message.content}</p>
                       </div>
-                      <div className={`text-xs text-muted-foreground ${
-                        message.role === "user" ? "text-right" : "text-left"
-                      }`}>
+                      <div className={`text-xs text-muted-foreground ${message.role === "user" ? "text-right" : "text-left"
+                        }`}>
                         <div className="flex items-center gap-2">
                           <span>{formatTime(message.timestamp)}</span>
                           {message.role === "assistant" && message.confidence !== undefined && (
@@ -531,7 +527,7 @@ export default function PlaygroundPage() {
               {/* Branding */}
               <div className="text-center mt-4">
                 <p className="text-xs text-muted-foreground">
-                  Powered by <span className="font-medium">ConversAI</span>
+                  Powered by <span className="font-medium">SocialSyncAI</span>
                 </p>
               </div>
             </CardContent>

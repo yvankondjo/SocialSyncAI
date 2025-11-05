@@ -93,14 +93,85 @@ def create_search_files_tool(user_id: str):
     return search_files
 
 
+def create_unified_search_tool(user_id: str, model_name: str = "x-ai/grok-4-fast"):
+    """
+    Factory function to create unified_search tool with user_id.
+
+    This tool replaces the separate find_answers and search_files tools,
+    executing both searches in parallel for optimal performance.
+    """
+    from app.services.unified_search import (
+        UnifiedSearchService,
+        QueryItem as UnifiedQueryItem,
+    )
+
+    service = UnifiedSearchService(user_id, model_name)
+
+    @tool
+    def unified_search(question: str, queries: List[dict]) -> dict:
+        """
+        Unified search across FAQ and knowledge documents.
+
+        This tool automatically searches both FAQ database and document chunks in parallel
+        for optimal performance. It intelligently merges results based on FAQ answer quality.
+
+        The LLM should generate search queries in the appropriate languages based on the
+        doc_lang configuration provided in the system prompt.
+
+        Args:
+            question: The user's original question (exactly as written)
+            queries: List of search queries with languages, e.g.:
+                [
+                    {"query": "billing information", "lang": "english"},
+                    {"query": "plan pricing details", "lang": "english"}
+                ]
+
+        Returns:
+            dict with:
+            - answer_content: The synthesized answer (or None if no answer found)
+            - answer_grade: "full" (complete answer), "partial" (incomplete), or "no-answer"
+            - faq_references: List of FAQ entries that were referenced
+            - doc_chunks: List of relevant document chunks
+            - metadata: Performance metrics (latencies, strategy used, etc.)
+        """
+        try:
+            # Convert dicts to QueryItem objects
+            query_items = [UnifiedQueryItem(**q) for q in queries]
+
+            # Execute parallel search
+            result = service.search(question, query_items)
+
+            return result.model_dump()
+
+        except Exception as e:
+            logger.error(f"❌ Unified search failed: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
+            return {
+                "answer_content": None,
+                "answer_grade": "no-answer",
+                "faq_references": [],
+                "doc_chunks": [],
+                "metadata": {
+                    "faq_latency": 0,
+                    "docs_latency": 0,
+                    "total_latency": 0,
+                    "strategy_used": "error",
+                    "faq_count": 0,
+                    "docs_count": 0,
+                },
+            }
+
+    return unified_search
+
+
 def create_escalation_tool(user_id: str, conversation_id: str):
     """Factory function to create escalation tool with user_id"""
     escalation_service = Escalation(user_id, conversation_id)
 
     @tool
-    def escalation(
-        message: str, confidence: float, reason: str
-    ) -> EscalationResult:
+    def escalation(message: str, confidence: float, reason: str) -> EscalationResult:
         """Escalate the conversation to human support
 
         This tool creates an escalation record, disables AI mode for the conversation,
@@ -118,6 +189,7 @@ def create_escalation_tool(user_id: str, conversation_id: str):
         try:
             # Run async method in sync context
             import asyncio
+
             try:
                 loop = asyncio.get_event_loop()
             except RuntimeError:
@@ -144,6 +216,7 @@ def create_escalation_tool(user_id: str, conversation_id: str):
         except Exception as e:
             logger.error(f"Erreur lors de l'escalation: {e}")
             import traceback
+
             traceback.print_exc()
             return EscalationResult(
                 escalated=False,
@@ -233,22 +306,14 @@ class RAGAgent:
             model=summarization_model_name,
         )
 
-        self.search_files_tool = create_search_files_tool(user_id)
-        self.find_answers_tool = create_find_answers_tool(user_id)
-        self.tools = [self.search_files_tool, self.find_answers_tool]
+        self.unified_search_tool = create_unified_search_tool(user_id, model_name)
+        self.tools = [self.unified_search_tool]
+
         if not test_mode:
             self.escalation_tool = create_escalation_tool(user_id, conversation_id)
             self.tools.append(self.escalation_tool)
+
         self.llm_with_tools = self.llm.bind_tools(self.tools)
-
-        # NOTE: We no longer use structured_llm because it forces JSON output
-        # and prevents tool calls (escalation, search_files, find_answers).
-        # We now use llm_with_tools for all responses to allow tool calling.
-        # Confidence is handled with a default value (0.85) in ai_settings.py
-        # self.structured_llm = self.llm.with_structured_output(RAGAgentResponse)
-
-        # Store system_prompt as instance attribute
-        # Ensure system_prompt is never None or empty - import default if needed
         if not system_prompt or system_prompt.strip() == "":
             from app.deps.system_prompt import SYSTEM_PROMPT
 
@@ -673,9 +738,13 @@ class RAGAgent:
             tool_call = tool_calls[0]
             tool_name = tool_call.get("name")
 
-            if tool_name == "search_files":
+            if tool_name == "unified_search":
+                return self._unified_search(state)
+            elif tool_name == "search_files":
+                # Legacy support (will be removed after migration)
                 return self._search_files(state)
             elif tool_name == "find_answers":
+                # Legacy support (will be removed after migration)
                 return self._find_answers(state)
             elif tool_name == "escalation":
                 return self._escalation(state)
@@ -696,9 +765,11 @@ class RAGAgent:
                 "error_message": str(e),
             }
 
-    def _find_answers(self, state: RAGAgentState) -> Dict[str, Any]:
-        """Execute the find answers"""
-
+    def _unified_search(self, state: RAGAgentState) -> Dict[str, Any]:
+        """
+        Execute unified search (parallel FAQ + documents search).
+        This is an async tool, so we need to run it in an event loop.
+        """
         last_message = state.messages[-1]
         tool_calls = getattr(last_message, "tool_calls", [])
 
@@ -711,11 +782,7 @@ class RAGAgent:
                         name=None,
                     )
                 ],
-                "n_find_answers": state.n_find_answers,
             }
-
-        tool_messages = []
-        find_answers_results: List[dict] = []
 
         tool_call = tool_calls[0]
         try:
@@ -723,113 +790,179 @@ class RAGAgent:
             tool_call_id = tool_call.get("id")
             tool_args = tool_call.get("args", {})
 
-            if state.n_find_answers >= state.max_find_answers:
-                return {
-                    "messages": [
-                        ToolMessage(
-                            content=json.dumps({"error": "Max find answers reached"}),
-                            tool_call_id=tool_call_id,
-                            name=tool_name,
-                        )
-                    ],
-                    "n_find_answers": state.n_find_answers,
-                }
-            question = tool_args.get("question", "")
-            results = self.find_answers_tool.invoke({"question": question})
+            logger.info(f"🔍 Executing unified_search with args: {tool_args}")
 
-            content = json.dumps(
-                {"results": results, "question": question}, ensure_ascii=False
+            results = self.unified_search_tool.invoke(tool_args)
+
+            logger.info(
+                f"✅ Unified search completed: grade={results.get('answer_grade')}, "
+                f"strategy={results.get('metadata', {}).get('strategy_used')}"
             )
-            find_answers_results.append(results)
+
+            content = json.dumps(results, ensure_ascii=False)
 
             tool_message = ToolMessage(
                 content=content, tool_call_id=tool_call_id, name=tool_name
             )
-            tool_messages.append(tool_message)
+
+            return {
+                "messages": [tool_message],
+                "n_search": state.n_search + 1,
+                "search_results": results.get("doc_chunks", []),
+                "find_answers_results": (
+                    [results] if results.get("faq_references") else []
+                ),
+            }
 
         except Exception as e:
+            logger.error(f"❌ Error in _unified_search: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
+
             error_content = json.dumps({"error": str(e)})
             tool_message = ToolMessage(
                 content=error_content, tool_call_id=tool_call_id, name=tool_name
             )
-            tool_messages.append(tool_message)
-
-        return {
-            "messages": tool_messages,
-            "n_find_answers": state.n_find_answers + 1,
-            "find_answers_results": find_answers_results,
-        }
-
-    def _search_files(self, state: RAGAgentState) -> Dict[str, Any]:
-        """Execute the search"""
-
-        last_message = state.messages[-1]
-        tool_calls = getattr(last_message, "tool_calls", [])
-
-        if not tool_calls:
             return {
-                "messages": [
-                    ToolMessage(
-                        content=json.dumps({"error": "No tool calls found"}),
-                        tool_call_id=None,
-                        name=None,
-                    )
-                ],
-                "n_search": state.n_search,
+                "messages": [tool_message],
+                "error_message": str(e),
             }
 
-        tool_messages = []
-        search_results: List[str] = []
+    # def _find_answers(self, state: RAGAgentState) -> Dict[str, Any]:
+    #     """Execute the find answers (LEGACY - use unified_search instead)"""
 
-        tool_call = tool_calls[0]
-        try:
-            tool_name = tool_call.get("name")
-            tool_args = tool_call.get("args", {})
+    #     last_message = state.messages[-1]
+    #     tool_calls = getattr(last_message, "tool_calls", [])
 
-            if tool_name == "search_files":
-                if state.n_search >= state.max_searches:
-                    return {
-                        "messages": [
-                            ToolMessage(
-                                content=json.dumps({"error": "Max searches reached"}),
-                                tool_call_id=tool_call.get("id"),
-                                name=tool_call.get("name"),
-                            )
-                        ],
-                        "n_search": state.n_search,
-                    }
-                queries = tool_args.get("queries", [])
-                results = self.search_files_tool.invoke({"queries": queries})
+    #     if not tool_calls:
+    #         return {
+    #             "messages": [
+    #                 ToolMessage(
+    #                     content=json.dumps({"error": "No tool calls found"}),
+    #                     tool_call_id=None,
+    #                     name=None,
+    #                 )
+    #             ],
+    #             "n_find_answers": state.n_find_answers,
+    #         }
 
-                content = json.dumps(
-                    {"results": results, "query_count": len(queries)},
-                    ensure_ascii=False,
-                )
-                search_results.extend(results)
-            else:
-                content = json.dumps({"error": f"Unknown tool: {tool_name}"})
+    #     tool_messages = []
+    #     find_answers_results: List[dict] = []
 
-            tool_message = ToolMessage(
-                content=content,
-                tool_call_id=tool_call.get("id"),
-                name=tool_call.get("name"),
-            )
-            tool_messages.append(tool_message)
+    #     tool_call = tool_calls[0]
+    #     try:
+    #         tool_name = tool_call.get("name")
+    #         tool_call_id = tool_call.get("id")
+    #         tool_args = tool_call.get("args", {})
 
-        except Exception as e:
-            error_content = json.dumps({"error": str(e)})
-            tool_message = ToolMessage(
-                content=error_content,
-                tool_call_id=tool_call.get("id"),
-                name=tool_call.get("name"),
-            )
-            tool_messages.append(tool_message)
+    #         if state.n_find_answers >= state.max_find_answers:
+    #             return {
+    #                 "messages": [
+    #                     ToolMessage(
+    #                         content=json.dumps({"error": "Max find answers reached"}),
+    #                         tool_call_id=tool_call_id,
+    #                         name=tool_name,
+    #                     )
+    #                 ],
+    #                 "n_find_answers": state.n_find_answers,
+    #             }
+    #         question = tool_args.get("question", "")
+    #         results = self.find_answers_tool.invoke({"question": question})
 
-        return {
-            "messages": tool_messages,
-            "n_search": state.n_search + 1,
-            "search_results": search_results,
-        }
+    #         content = json.dumps(
+    #             {"results": results, "question": question}, ensure_ascii=False
+    #         )
+    #         find_answers_results.append(results)
+
+    #         tool_message = ToolMessage(
+    #             content=content, tool_call_id=tool_call_id, name=tool_name
+    #         )
+    #         tool_messages.append(tool_message)
+
+    #     except Exception as e:
+    #         error_content = json.dumps({"error": str(e)})
+    #         tool_message = ToolMessage(
+    #             content=error_content, tool_call_id=tool_call_id, name=tool_name
+    #         )
+    #         tool_messages.append(tool_message)
+
+    #     return {
+    #         "messages": tool_messages,
+    #         "n_find_answers": state.n_find_answers + 1,
+    #         "find_answers_results": find_answers_results,
+    #     }
+
+    # def _search_files(self, state: RAGAgentState) -> Dict[str, Any]:
+    #     """Execute the search"""
+
+    #     last_message = state.messages[-1]
+    #     tool_calls = getattr(last_message, "tool_calls", [])
+
+    #     if not tool_calls:
+    #         return {
+    #             "messages": [
+    #                 ToolMessage(
+    #                     content=json.dumps({"error": "No tool calls found"}),
+    #                     tool_call_id=None,
+    #                     name=None,
+    #                 )
+    #             ],
+    #             "n_search": state.n_search,
+    #         }
+
+    #     tool_messages = []
+    #     search_results: List[str] = []
+
+    #     tool_call = tool_calls[0]
+    #     try:
+    #         tool_name = tool_call.get("name")
+    #         tool_args = tool_call.get("args", {})
+
+    #         if tool_name == "search_files":
+    #             if state.n_search >= state.max_searches:
+    #                 return {
+    #                     "messages": [
+    #                         ToolMessage(
+    #                             content=json.dumps({"error": "Max searches reached"}),
+    #                             tool_call_id=tool_call.get("id"),
+    #                             name=tool_call.get("name"),
+    #                         )
+    #                     ],
+    #                     "n_search": state.n_search,
+    #                 }
+    #             queries = tool_args.get("queries", [])
+    #             results = self.search_files_tool.invoke({"queries": queries})
+
+    #             content = json.dumps(
+    #                 {"results": results, "query_count": len(queries)},
+    #                 ensure_ascii=False,
+    #             )
+    #             search_results.extend(results)
+    #         else:
+    #             content = json.dumps({"error": f"Unknown tool: {tool_name}"})
+
+    #         tool_message = ToolMessage(
+    #             content=content,
+    #             tool_call_id=tool_call.get("id"),
+    #             name=tool_call.get("name"),
+    #         )
+    #         tool_messages.append(tool_message)
+
+    #     except Exception as e:
+    #         error_content = json.dumps({"error": str(e)})
+    #         tool_message = ToolMessage(
+    #             content=error_content,
+    #             tool_call_id=tool_call.get("id"),
+    #             name=tool_call.get("name"),
+    #         )
+    #         tool_messages.append(tool_message)
+
+    #     return {
+    #         "messages": tool_messages,
+    #         "n_search": state.n_search + 1,
+    #         "search_results": search_results,
+    #     }
 
     def _escalation(self, state: RAGAgentState) -> Dict[str, Any]:
         """Execute the escalation"""
@@ -858,18 +991,16 @@ class RAGAgent:
             confidence = tool_args.get("confidence", 0)
             reason = tool_args.get("reason", "")
 
-            # Now tool is synchronous, use .invoke() like other tools
             escalation_result = self.escalation_tool.invoke(
                 {"message": message, "confidence": confidence, "reason": reason}
             )
 
             logger.info(f"[ESCALATION] Tool called successfully: {escalation_result}")
 
-            # Convert EscalationResult to dict for JSON serialization
             escalation_dict = {
                 "escalated": escalation_result.escalated,
                 "escalation_id": escalation_result.escalation_id,
-                "reason": escalation_result.reason
+                "reason": escalation_result.reason,
             }
 
             return {
@@ -886,6 +1017,7 @@ class RAGAgent:
         except Exception as e:
             logger.error(f"[ESCALATION ERROR] {str(e)}")
             import traceback
+
             traceback.print_exc()
             return {
                 "messages": [

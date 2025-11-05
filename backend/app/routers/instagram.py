@@ -128,25 +128,53 @@ async def instagram_health_check():
 def verify_instagram_webhook_signature(
     payload: bytes, signature: str, secret: str
 ) -> bool:
-    """Check the signature of the Instagram webhook according to the Meta documentation"""
-    if not secret:
-        logger.warning("META_APP_SECRET non configuré - signature non vérifiée")
-        return True
+    """
+    Verify Instagram webhook signature using HMAC-SHA256.
 
-    # Generate the HMAC-SHA256 signature as specified in the Meta doc
+    Meta signs all webhook payloads with SHA256 and includes the signature
+    in X-Hub-Signature-256 header, preceded with 'sha256='.
+
+    Args:
+        payload: Raw request body bytes
+        signature: X-Hub-Signature-256 header value (e.g., 'sha256=abc123...')
+        secret: META_APP_SECRET from Meta for Developers dashboard
+
+    Returns:
+        True if signature is valid, False otherwise
+
+    Raises:
+        RuntimeError: If META_APP_SECRET is not configured (security requirement)
+    """
+    if not secret:
+        logger.error("🚨 CRITICAL: META_APP_SECRET not configured - webhook validation impossible")
+        raise RuntimeError(
+            "META_APP_SECRET must be configured for webhook security. "
+            "Get it from Meta for Developers > App Settings > Basic > App Secret"
+        )
+
+    # Generate expected HMAC-SHA256 signature
     expected_signature = hmac.new(
         secret.encode("utf-8"), payload, hashlib.sha256
     ).hexdigest()
 
-    # Extract the received signature (after sha256=)
+    # Extract received signature (remove 'sha256=' prefix if present)
     received_signature = (
         signature.replace("sha256=", "")
         if signature.startswith("sha256=")
         else signature
     )
 
-    # Compare securely
-    return hmac.compare_digest(expected_signature, received_signature)
+    # Secure constant-time comparison (prevents timing attacks)
+    is_valid = hmac.compare_digest(expected_signature, received_signature)
+
+    if not is_valid:
+        logger.warning(
+            f"❌ Invalid Instagram webhook signature. "
+            f"Expected: {expected_signature[:16]}..., "
+            f"Received: {received_signature[:16]}..."
+        )
+
+    return is_valid
 
 
 @router.get("/webhook")
@@ -194,18 +222,15 @@ async def instagram_webhook_handler(request: Request):
             "X-Hub-Signature-256", ""
         ) or request.headers.get("X-Hub-Signature", "")
         webhook_secret = os.getenv("META_APP_SECRET")
-        if not webhook_secret:
-            logger.warning(
-                "META_APP_SECRET not configured - webhook ignored for security"
-            )
-            raise HTTPException(
-                status_code=403, detail="Configuration webhook manquante"
-            )
 
-        # # HMAC validation for security (re-enabled 2025-10-20)
-        # if not verify_instagram_webhook_signature(payload, signature, webhook_secret):
-        #     logger.warning("Invalid Instagram webhook signature - check META_APP_SECRET in Meta for Developers")
-        #     raise HTTPException(status_code=403, detail="Invalid signature")
+        # ✅ SECURITY FIX (2025-11-02): HMAC-SHA256 signature validation ENABLED
+        # Prevents webhook forgery attacks - CRITICAL for production
+        if not verify_instagram_webhook_signature(payload, signature, webhook_secret):
+            logger.error("❌ Instagram webhook signature validation FAILED - request rejected")
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid webhook signature - verify META_APP_SECRET configuration"
+            )
 
         webhook_data = await request.json()
         logger.info(f"Webhook Instagram received: {webhook_data}")

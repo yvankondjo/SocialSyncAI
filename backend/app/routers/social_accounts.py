@@ -30,6 +30,12 @@ PLATFORMS = {
         "exchange_code": social_auth_service.exchange_whatsapp_code,
         "get_business_accounts": social_auth_service.get_whatsapp_business_accounts,
     },
+    "messenger": {
+        "get_auth_url": social_auth_service.get_messenger_auth_url,
+        "handle_callback": social_auth_service.handle_messenger_callback,
+        "get_pages": social_auth_service.get_facebook_pages,
+        "subscribe_webhooks": social_auth_service.subscribe_page_to_webhooks,
+    },
 }
 
 
@@ -196,7 +202,75 @@ async def handle_oauth_callback(
             logger.info(f"✅ Compte WhatsApp enregistré avec succès pour user {user_id}")
             return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard/accounts?success=true&platform={platform}")
 
-        # Default OAuth flow for other platforms
+        if platform == "messenger":
+            logger.info("📥 Messenger callback - Échange du code...")
+            user_access_token = token_data["access_token"]
+
+            # Get all Pages managed by user
+            logger.info("🔍 Récupération des Pages Facebook...")
+            get_pages_func = platform_config.get("get_pages")
+            if not get_pages_func:
+                raise HTTPException(status_code=500, detail="Page retrieval not configured for Messenger.")
+
+            pages = await get_pages_func(user_access_token)
+
+            if not pages:
+                logger.error("❌ Aucune Page Facebook accessible pour cet utilisateur")
+                raise HTTPException(status_code=400, detail="No Facebook Pages accessible for this user. Make sure you manage at least one Page.")
+
+            logger.info(f"✅ {len(pages)} Page(s) trouvée(s)")
+
+            # Auto-connect all Pages
+            connected_pages = []
+            subscribe_webhooks_func = platform_config.get("subscribe_webhooks")
+
+            for page in pages:
+                page_id = page.get("id")
+                page_name = page.get("name")
+                page_access_token = page.get("access_token")
+                page_category = page.get("category", "")
+
+                logger.info(f"📋 Connexion de la Page: {page_name} (ID: {page_id})")
+
+                # Store each Page as separate social_account
+                token_expires_at = None  # Page tokens typically don't expire unless revoked
+
+                page_account_data = {
+                    "platform": "messenger",
+                    "account_id": page_id,
+                    "account_name": page_name,
+                    "username": page_name,
+                    "display_name": page_name,
+                    "access_token": page_access_token,
+                    "token_expires_at": token_expires_at,
+                    "user_id": user_id,
+                    "is_active": True,
+                    "metadata": {
+                        "category": page_category,
+                        "tasks": page.get("tasks", [])
+                    }
+                }
+
+                # Upsert page account
+                db.table("social_accounts").upsert(
+                    page_account_data,
+                    on_conflict="user_id,platform,account_id"
+                ).execute()
+
+                # Subscribe Page to webhooks
+                if subscribe_webhooks_func:
+                    webhook_result = await subscribe_webhooks_func(page_id, page_access_token)
+                    if webhook_result.get("success") is False:
+                        logger.warning(f"⚠️ Webhook subscription failed for Page {page_name}: {webhook_result.get('error')}")
+                    else:
+                        logger.info(f"✅ Page {page_name} subscribed to webhooks")
+
+                connected_pages.append(page_name)
+
+            logger.info(f"✅ {len(connected_pages)} Pages Messenger connectées avec succès pour user {user_id}")
+            return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard/accounts?success=true&platform={platform}&count={len(connected_pages)}")
+
+        # Default OAuth flow for other platforms (Instagram, etc.)
         get_profile_func = platform_config.get("get_profile")
         if not get_profile_func:
             raise HTTPException(status_code=500, detail="Profile retrieval not configured for this platform.")

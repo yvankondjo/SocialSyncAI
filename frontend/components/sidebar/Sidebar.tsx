@@ -1,11 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useAuth } from '@/hooks/useAuth'
-import { useSidebarStore } from '@/hooks/useSidebarStore'
-import { NavItem } from './NavItem'
-import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,30 +23,31 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useAuth } from '@/hooks/useAuth'
+import { useSidebarStore } from '@/hooks/useSidebarStore'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard,
-  MessageSquare,
-  Database,
-  Play,
+  Activity,
   BarChart3,
-  Link,
-  Settings,
+  Bot,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  LogOut,
-  User,
-  Menu,
-  ChevronDown,
-  Activity,
-  FileText,
-  HelpCircle,
-  GitCompare,
-  Bot,
-  MessageCircle,
-  Globe,
   CreditCard,
+  Database,
+  GitCompare,
+  HelpCircle,
+  LayoutDashboard,
+  Link,
+  LogOut,
+  Menu,
+  MessageSquare,
+  Play,
+  Settings,
+  User
 } from 'lucide-react'
+import { useState } from 'react'
+import { NavItem } from './NavItem'
 
 const mainNavItems = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
@@ -109,7 +106,7 @@ export function Sidebar() {
               </div>
             </div>
           ) : (
-            <h1 className="text-xl font-bold text-sidebar-foreground">ConversAI</h1>
+            <h1 className="text-xl font-bold text-sidebar-foreground">SocialSyncAI</h1>
           )}
         </div>
 
@@ -138,7 +135,7 @@ export function Sidebar() {
                 'w-5 h-5 flex-shrink-0 transition-all duration-200',
                 isCollapsed ? 'w-6 h-6' : 'w-5 h-5'
               )} />
-              
+
               {!isCollapsed && (
                 <>
                   <span className="flex-1 text-sidebar-foreground">Activity</span>
@@ -192,7 +189,7 @@ export function Sidebar() {
                 'w-5 h-5 flex-shrink-0 transition-all duration-200',
                 isCollapsed ? 'w-6 h-6' : 'w-5 h-5'
               )} />
-              
+
               {!isCollapsed && (
                 <>
                   <span className="flex-1 text-sidebar-foreground">Sources</span>
@@ -246,7 +243,7 @@ export function Sidebar() {
                 'w-5 h-5 flex-shrink-0 transition-all duration-200',
                 isCollapsed ? 'w-6 h-6' : 'w-5 h-5'
               )} />
-              
+
               {!isCollapsed && (
                 <>
                   <span className="flex-1 text-sidebar-foreground">Playground</span>
@@ -318,7 +315,7 @@ export function Sidebar() {
                 'w-5 h-5 flex-shrink-0 transition-all duration-200',
                 isCollapsed ? 'w-6 h-6' : 'w-5 h-5'
               )} />
-              
+
               {!isCollapsed && (
                 <>
                   <span className="flex-1 text-sidebar-foreground">Settings</span>
@@ -376,7 +373,7 @@ export function Sidebar() {
                           <AvatarImage src={user?.user_metadata?.avatar_url} />
                           <AvatarFallback>
                             {user?.user_metadata?.full_name?.charAt(0)?.toUpperCase() ||
-                             user?.email?.charAt(0)?.toUpperCase() || 'U'}
+                              user?.email?.charAt(0)?.toUpperCase() || 'U'}
                           </AvatarFallback>
                         </Avatar>
                       </Button>
@@ -423,7 +420,7 @@ export function Sidebar() {
                       <AvatarImage src={user?.user_metadata?.avatar_url} />
                       <AvatarFallback>
                         {user?.user_metadata?.full_name?.charAt(0)?.toUpperCase() ||
-                         user?.email?.charAt(0)?.toUpperCase() || 'U'}
+                          user?.email?.charAt(0)?.toUpperCase() || 'U'}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 text-left">
@@ -504,9 +501,9 @@ export function Sidebar() {
           </SheetTrigger>
           <SheetContent side="left" className="w-[280px] p-0">
             <SheetHeader className="p-6 border-b border-sidebar-border">
-              <SheetTitle className="text-left">ConversAI</SheetTitle>
+              <SheetTitle className="text-left">SocialSyncAI</SheetTitle>
             </SheetHeader>
-            
+
             <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
               {mainNavItems.map((item) => (
                 <NavItem
@@ -654,7 +651,7 @@ export function Sidebar() {
                   <AvatarImage src={user?.user_metadata?.avatar_url} />
                   <AvatarFallback>
                     {user?.user_metadata?.full_name?.charAt(0)?.toUpperCase() ||
-                     user?.email?.charAt(0)?.toUpperCase() || 'U'}
+                      user?.email?.charAt(0)?.toUpperCase() || 'U'}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1">

@@ -148,25 +148,7 @@ export default function FAQPage() {
     const validQuestions = faqData.questions?.filter(q => q.trim()) || []
     if (validQuestions.length === 0 || !faqData.answer?.trim()) return
 
-    // Vérifier le quota de stockage
-    if (storageUsage) {
-      // Calculer la taille de la FAQ (questions + answer)
-      let textSizeBytes = 0
-      for (const question of validQuestions) {
-        textSizeBytes += new Blob([question]).size
-      }
-      textSizeBytes += new Blob([faqData.answer || ""]).size
-      const textSizeMb = textSizeBytes / (1024 * 1024)
-
-      if (textSizeMb > storageUsage.availableMb) {
-        toast({
-          title: "Quota de stockage insuffisant",
-          description: `Espace disponible: ${storageUsage.availableMb.toFixed(2)} MB, Requis: ${textSizeMb.toFixed(2)} MB`,
-          variant: "destructive",
-        })
-        return
-      }
-    }
+    // Open-Source V3.0: Pas de limite de stockage
 
     try {
       setIsCreating(true)

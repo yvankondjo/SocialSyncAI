@@ -5,6 +5,7 @@ from app.routers import (
     social_accounts,
     whatsapp,
     instagram,
+    messenger,
     conversations,
     automation,
     process,
@@ -31,13 +32,27 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
+    # Startup
+    logging.info("🚀 FastAPI startup...")
+
     # Batch scanning is now handled by Celery Beat worker
     logging.info("✅ DM/Chat batch scanning handled by Celery Beat (every 0.5s)")
     logging.info(
         "📝 Make sure Celery Beat is running: celery -A app.workers.celery_app beat"
     )
 
+    # Async Supabase client will be initialized lazily on first use
+    logging.info("✅ Async Supabase client configured (lazy initialization)")
+
     yield
+
+    # Shutdown
+    logging.info("🛑 FastAPI shutdown initiated...")
+
+    # Close async Supabase client
+    from app.db.session import close_async_db
+    await close_async_db()
+    logging.info("✅ Async Supabase client closed")
 
     logging.info("🛑 FastAPI shutdown complete")
 
@@ -69,6 +84,7 @@ app.add_middleware(
 app.include_router(social_accounts.router, prefix="/api")
 app.include_router(whatsapp.router, prefix="/api")
 app.include_router(instagram.router, prefix="/api")
+app.include_router(messenger.router, prefix="/api")
 app.include_router(conversations.router, prefix="/api")
 app.include_router(automation.router, prefix="/api")
 app.include_router(process.router, prefix="/api")

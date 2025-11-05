@@ -53,7 +53,7 @@
 
 ### 📝 Instagram Comments
 
-![Comments Activity](docs/images/Comments_Activity.png)
+![Comments Activity](docs/images/Comments Activity.png)
 
 - **Automatic monitoring** of comments on your posts
 - **Contextual AI responses** based on your knowledge base
@@ -62,7 +62,7 @@
 
 ### 📚 Knowledge Base
 
-![Knowledge Base](docs/images/Data_Sources.png)
+![Knowledge Base](docs/images/Data Sources.png)
 
 - **FAQ documents** to train the AI
 - **RAG (Retrieval Augmented Generation)** for accurate responses

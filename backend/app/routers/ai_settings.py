@@ -1,8 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from supabase import Client
 from app.db.session import get_authenticated_db
-from app.schemas.ai_settings import AISettings, AISettingsCreate, AISettingsUpdate, AITestRequest, AITestResponse, AIResponse
-from app.schemas.ai_decisions import CheckMessageRequest, CheckMessageResponse, AIDecisionResponse, AIDecision
+from app.schemas.ai_settings import (
+    AISettings,
+    AISettingsCreate,
+    AISettingsUpdate,
+    AITestRequest,
+    AITestResponse,
+    AIResponse,
+)
+from app.schemas.ai_decisions import (
+    CheckMessageRequest,
+    CheckMessageResponse,
+    AIDecisionResponse,
+    AIDecision,
+)
 from app.services.ai_decision_service import AIDecisionService
 from app.core.security import get_current_user_id
 import time
@@ -15,14 +27,12 @@ from app.deps.runtime_test import CHECKPOINTER_REDIS
 from langchain_core.messages import HumanMessage
 from typing import List, Optional
 from datetime import datetime
+
 load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL","https://openrouter.ai/api/v1")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
-client = OpenAI(
-    api_key=OPENROUTER_API_KEY,
-    base_url=OPENROUTER_BASE_URL
-)
+client = OpenAI(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
 
 router = APIRouter(prefix="/ai-settings", tags=["ai-settings"])
 
@@ -37,7 +47,6 @@ Your responsibilities:
 - Propose growth and engagement strategies
 - Respond in {{lang}} with a {{tone}} tone
 - Provide creative and authentic advice""",
-    
     "ecommerce": """You are an AI expert in e-commerce for {{brand_name}}.
 
 Your responsibilities:
@@ -48,7 +57,6 @@ Your responsibilities:
 - Improve customer experience and purchase journey
 - Respond in {{lang}} with a {{tone}} tone
 - Provide data-driven sales insights""",
-    
     "support": """You are an AI assistant dedicated to customer support for {{brand_name}}.
 
 Your responsibilities:
@@ -58,18 +66,21 @@ Your responsibilities:
 - Maintain high customer satisfaction levels
 - Follow company procedures and policies
 - Respond in {{lang}} with a {{tone}} tone
-- Document interactions to improve service"""
+- Document interactions to improve service""",
 }
+
 
 @router.get("/", response_model=AISettings)
 async def get_ai_settings(
     request: Request,
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     try:
-        result = db.table("ai_settings").select("*").eq("user_id", current_user_id).execute()
-        
+        result = (
+            db.table("ai_settings").select("*").eq("user_id", current_user_id).execute()
+        )
+
         if result.data:
             return AISettings(**result.data[0])
         else:
@@ -91,56 +102,70 @@ async def get_ai_settings(
                 "flagged_keywords": [],
                 "flagged_phrases": [],
                 "instructions": None,
-                "ignore_examples": []
+                "ignore_examples": [],
             }
-            
+
             create_result = db.table("ai_settings").insert(default_settings).execute()
             if create_result.data:
                 return AISettings(**create_result.data[0])
             else:
-                raise HTTPException(status_code=400, detail="Failed to create default AI settings")
+                raise HTTPException(
+                    status_code=400, detail="Failed to create default AI settings"
+                )
 
     except HTTPException:
         raise
     except Exception as e:
         import traceback
+
         error_detail = traceback.format_exc()
         print(f"ERROR in get_ai_settings: {error_detail}")
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+
 
 @router.put("/", response_model=AISettings)
 async def update_ai_settings(
     settings_update: AISettingsUpdate,
     request: Request,
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     try:
-        update_data = {k: v for k, v in settings_update.model_dump(exclude_unset=True).items() if v is not None}
-        
+        update_data = {
+            k: v
+            for k, v in settings_update.model_dump(exclude_unset=True).items()
+            if v is not None
+        }
+
         if not update_data:
             raise HTTPException(status_code=400, detail="No update data provided")
-        
+
         update_data["updated_at"] = "NOW()"
-        
-        result = db.table("ai_settings").update(update_data).eq("user_id", current_user_id).execute()
-        
+
+        result = (
+            db.table("ai_settings")
+            .update(update_data)
+            .eq("user_id", current_user_id)
+            .execute()
+        )
+
         if result.data:
             return AISettings(**result.data[0])
         else:
             raise HTTPException(status_code=404, detail="AI settings not found")
-            
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.post("/test", response_model=AITestResponse)
 async def test_ai_response(
     test_request: AITestRequest,
     request: Request,
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     try:
         print("=== AI TEST REQUEST DEBUG ===")
@@ -158,7 +183,7 @@ async def test_ai_response(
             model_name=test_request.settings.ai_model,
             system_prompt=test_request.settings.system_prompt,
             checkpointer=CHECKPOINTER_REDIS,
-            test_mode=True
+            test_mode=True,
         )
         print("RAGAgent created successfully")
 
@@ -166,14 +191,13 @@ async def test_ai_response(
             "configurable": {
                 "thread_id": test_request.thread_id,
                 "user_id": current_user_id,
-                "checkpoint_ns": f"user:{current_user_id}:test"
+                "checkpoint_ns": f"user:{current_user_id}:test",
             }
         }
         print(f"Invoking graph with config: {config}")
 
         messages = agent.graph.invoke(
-            {"messages": [HumanMessage(content=test_request.message)]},
-            config=config
+            {"messages": [HumanMessage(content=test_request.message)]}, config=config
         )
 
         print(f"Graph invocation completed. Messages keys: {list(messages.keys())}")
@@ -187,12 +211,13 @@ async def test_ai_response(
 
         if not messages_list:
             print("ERROR: No messages in response")
-            raise HTTPException(status_code=400, detail="No messages returned from AI agent")
+            raise HTTPException(
+                status_code=400, detail="No messages returned from AI agent"
+            )
 
         reponse = messages_list[-1]
         print(f"Last message type: {type(reponse)}")
         print(f"Last message content preview: {reponse.content[:100]}")
-
 
         try:
             ai_response = AIResponse.model_validate_json(reponse.content)
@@ -208,11 +233,11 @@ async def test_ai_response(
             print(f"Using default confidence: {confidence}")
 
         result = AITestResponse(
-            response=response_text,
-            response_time=response_time,
-            confidence=confidence
+            response=response_text, response_time=response_time, confidence=confidence
         )
-        print(f"Returning result: response_length={len(result.response)}, confidence={result.confidence}")
+        print(
+            f"Returning result: response_length={len(result.response)}, confidence={result.confidence}"
+        )
         return result
 
     except HTTPException:
@@ -221,19 +246,22 @@ async def test_ai_response(
     except Exception as e:
         print(f"Unexpected error in test_ai_response: {type(e).__name__}: {str(e)}")
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.get("/templates")
 async def get_prompt_templates():
     return {"templates": PROMPT_TEMPLATES}
+
 
 @router.post("/reset")
 async def reset_to_template(
     template_type: str,
     request: Request,
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     try:
         if template_type not in PROMPT_TEMPLATES:
@@ -241,10 +269,15 @@ async def reset_to_template(
 
         update_data = {
             "system_prompt": PROMPT_TEMPLATES[template_type],
-            "updated_at": "NOW()"
+            "updated_at": "NOW()",
         }
 
-        result = db.table("ai_settings").update(update_data).eq("user_id", current_user_id).execute()
+        result = (
+            db.table("ai_settings")
+            .update(update_data)
+            .eq("user_id", current_user_id)
+            .execute()
+        )
 
         if result.data:
             return {"message": f"Settings reset to {template_type} template"}
@@ -260,7 +293,7 @@ async def reset_to_template(
 @router.patch("/toggle", response_model=AISettings)
 async def toggle_ai_control(
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Toggle AI control ON/OFF (master switch)
@@ -268,7 +301,12 @@ async def toggle_ai_control(
     """
     try:
         # Get current value
-        existing = db.table("ai_settings").select("ai_control_enabled").eq("user_id", current_user_id).execute()
+        existing = (
+            db.table("ai_settings")
+            .select("ai_control_enabled")
+            .eq("user_id", current_user_id)
+            .execute()
+        )
 
         if not existing.data:
             # Create default settings with AI disabled
@@ -284,16 +322,23 @@ async def toggle_ai_control(
                 "ai_control_enabled": False,
                 "ai_enabled_for_chats": True,
                 "ai_enabled_for_comments": True,
-                "doc_lang": []
+                "doc_lang": [],
             }
             result = db.table("ai_settings").insert(default_settings).execute()
         else:
             # Toggle existing value
             current_value = existing.data[0].get("ai_control_enabled", True)
-            result = db.table("ai_settings").update({
-                "ai_control_enabled": not current_value,
-                "updated_at": datetime.utcnow().isoformat()
-            }).eq("user_id", current_user_id).execute()
+            result = (
+                db.table("ai_settings")
+                .update(
+                    {
+                        "ai_control_enabled": not current_value,
+                        "updated_at": datetime.utcnow().isoformat(),
+                    }
+                )
+                .eq("user_id", current_user_id)
+                .execute()
+            )
 
         if not result.data:
             raise HTTPException(status_code=500, detail="Failed to toggle AI control")
@@ -310,7 +355,7 @@ async def check_message(
     request: CheckMessageRequest,
     context_type: str = "chat",
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Test if AI should respond to a message (dry-run)
@@ -322,8 +367,7 @@ async def check_message(
     try:
         service = AIDecisionService(current_user_id)
         decision, confidence, reason, matched_rule = service.check_message(
-            request.message_text,
-            context_type=context_type
+            request.message_text, context_type=context_type
         )
 
         return CheckMessageResponse(
@@ -331,7 +375,7 @@ async def check_message(
             confidence=confidence,
             reason=reason,
             should_respond=(decision == AIDecision.RESPOND),
-            matched_rule=matched_rule if matched_rule else None
+            matched_rule=matched_rule if matched_rule else None,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -343,7 +387,7 @@ async def get_decisions_history(
     offset: int = 0,
     decision_filter: Optional[str] = None,
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Get history of AI decisions for current user
@@ -364,11 +408,18 @@ async def get_decisions_history(
         # Apply decision filter if provided
         if decision_filter:
             if decision_filter not in ["respond", "ignore", "escalate"]:
-                raise HTTPException(status_code=400, detail="Invalid decision_filter. Must be: respond, ignore, or escalate")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid decision_filter. Must be: respond, ignore, or escalate",
+                )
             query = query.eq("decision", decision_filter)
 
         # Apply pagination and ordering
-        result = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        result = (
+            query.order("created_at", desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
 
         return [AIDecisionResponse(**item) for item in result.data]
     except HTTPException:
@@ -380,7 +431,7 @@ async def get_decisions_history(
 @router.get("/decisions/stats")
 async def get_decisions_stats(
     db: Client = Depends(get_authenticated_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Get statistics on AI decisions
@@ -388,13 +439,18 @@ async def get_decisions_stats(
     """
     try:
         # Count by decision type
-        all_decisions = db.table("ai_decisions").select("decision").eq("user_id", current_user_id).execute()
+        all_decisions = (
+            db.table("ai_decisions")
+            .select("decision")
+            .eq("user_id", current_user_id)
+            .execute()
+        )
 
         stats = {
             "respond": 0,
             "ignore": 0,
             "escalate": 0,
-            "total": len(all_decisions.data)
+            "total": len(all_decisions.data),
         }
 
         for item in all_decisions.data:

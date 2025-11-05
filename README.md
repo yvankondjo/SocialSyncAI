@@ -12,7 +12,7 @@
 <table>
   <tr>
     <td><img src="docs/images/Analytics_01.png" alt="Analytics Dashboard" width="400"/></td>
-    <td><img src="docs/images/chat activity.png" alt="Unified Inbox" width="400"/></td>
+    <td><img src="docs/images/chat_activity.png" alt="Unified Inbox" width="400"/></td>
   </tr>
   <tr>
     <td align="center"><b>📊 Real-time Analytics</b></td>
@@ -44,7 +44,7 @@
 
 ### 💬 Conversation Management
 
-![Conversation Management](docs/images/chat activity.png)
+![Conversation Management](docs/images/chat_activity.png)
 
 - **Unified inbox** for Instagram DMs and WhatsApp Business
 - **Manual or AI-assisted** responses
@@ -53,7 +53,7 @@
 
 ### 📝 Instagram Comments
 
-![Comments Activity](docs/images/Comments Activity.png)
+![Comments Activity](docs/images/Comments_Activity.png)
 
 - **Automatic monitoring** of comments on your posts
 - **Contextual AI responses** based on your knowledge base
@@ -62,7 +62,7 @@
 
 ### 📚 Knowledge Base
 
-![Knowledge Base](docs/images/Data Sources.png)
+![Knowledge Base](docs/images/Data_Sources.png)
 
 - **FAQ documents** to train the AI
 - **RAG (Retrieval Augmented Generation)** for accurate responses
@@ -171,8 +171,6 @@ python scripts/seed_social_accounts.py
 📖 **Complete Installation Guide**: [docs/INSTALLATION.md](docs/INSTALLATION.md)
 
 ## 📁 Project Structure
-
-![System Architecture](docs/images/system_architecture.png)
 
 ```
 socialsync-ai/

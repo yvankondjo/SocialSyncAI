@@ -115,10 +115,10 @@ class FindAnswers:
                 details={"model_name": model_name, "original_error": str(e)},
             )
 
-    async def get_question_answers(self) -> list[QuestionAnswer]:
+    def get_question_answers(self) -> list[QuestionAnswer]:
         """
         Retrieve all active FAQ question-answers for the user.
-        Now using async Supabase client for better performance.
+        Uses synchronous Supabase client.
         """
         try:
             if not self.user_id:
@@ -128,15 +128,15 @@ class FindAnswers:
                     details={"user_id": self.user_id},
                 )
 
-            # Use async Supabase client
-            from app.db.session import get_async_db
-            db = await get_async_db()
+            db = get_db()
 
-            question_answers = await db.table("faq_qa") \
-                .select("id, questions, answer") \
-                .eq("user_id", self.user_id) \
-                .eq("is_active", True) \
+            question_answers = (
+                db.table("faq_qa")
+                .select("id, questions, answer")
+                .eq("user_id", self.user_id)
+                .eq("is_active", True)
                 .execute()
+            )
 
             if not question_answers.data:
                 logger.warning(f"No question answers found for user {self.user_id}")
@@ -179,10 +179,10 @@ class FindAnswers:
                 details={"user_id": self.user_id, "original_error": str(e)},
             )
 
-    async def find_answers(self, question: str) -> Answer:
+    def find_answers(self, question: str) -> Answer:
         """
         Find answers to a question using FAQ database and LLM reasoning.
-        Now fully async for better performance in parallel execution.
+        Uses synchronous Supabase client and LLM calls.
         """
         try:
             if not question or not question.strip():
@@ -195,7 +195,7 @@ class FindAnswers:
             logger.info(f"Looking for answers for '{question}' for user {self.user_id}")
 
             try:
-                question_answers = await self.get_question_answers()
+                question_answers = self.get_question_answers()
             except FindAnswersError:
                 raise
             except Exception as e:
@@ -315,8 +315,7 @@ User Question: ###
 """
 
             try:
-                # Use async ainvoke instead of sync invoke
-                result = await self.llm.with_structured_output(_AnswerSchema).ainvoke(prompt)
+                result = self.llm.with_structured_output(_AnswerSchema).invoke(prompt)
                 logger.debug(result.model_dump_json(indent=2))
             except OpenAIError as e:
                 raise FindAnswersError(

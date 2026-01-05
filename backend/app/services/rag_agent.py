@@ -3,6 +3,7 @@ import operator
 import json
 import os
 import time
+import asyncio
 from typing import List, Dict, Any, Optional, Literal, Annotated, Tuple
 
 from langchain_core.messages import (
@@ -12,7 +13,7 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langchain_core.messages.utils import trim_messages, count_tokens_approximately
+from langchain_core.messages.utils import trim_messages
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
@@ -25,6 +26,12 @@ from psycopg.rows import dict_row
 from app.deps.system_prompt import SYSTEM_PROMPT
 from app.services.escalation import Escalation
 from app.services.retriever import Retriever
+from app.services.token_utils import (
+    count_tokens,
+    count_messages_tokens,
+    get_model_context_window,
+    get_max_input_tokens,
+)
 from app.db.session import get_db
 from httpx import HTTPError
 
@@ -350,7 +357,12 @@ class RAGAgent:
         self.max_searches = max_searches
         self.trim_strategy = trim_strategy
         self.max_tokens = max_tokens
-        self.max_tokens_before_summary = int(max_tokens * 0.8)
+        
+        # Stratégie OpenAI : utiliser 90% du context window du modèle (via token_utils)
+        self.max_tokens_before_summary = get_max_input_tokens(self.model_name)
+        model_context = get_model_context_window(self.model_name)
+        logger.info(f"📊 [RAG_AGENT] Model: {self.model_name} | Context: {model_context:,} | Threshold (90%): {self.max_tokens_before_summary:,}")
+        
         self.summarization_model_name = summarization_model_name
         self.summarization_max_tokens = summarization_max_tokens
         self.conversation_id = conversation_id
@@ -710,89 +722,164 @@ class RAGAgent:
         # Return empty dict - no messages generated (silent failure)
         return {}
 
-    def _manage_history(
+    async def _manage_history(
         self,
         messages: List[AnyMessage],
         trim_strategy: Literal["none", "hard", "summary"],
         max_tokens: int,
     ) -> List[AnyMessage]:
-        """Manage the history according to the configured strategy"""
-        import time
+        """
+        Gestion avancée de l'historique - Stratégie digne des ingénieurs d'OpenAI :
+        
+        1. Utilise tiktoken pour un comptage précis des tokens
+        2. Seuil élevé de 100K tokens avant intervention
+        3. Stratégie de sliding window + summary progressif :
+           - Conserve les N derniers messages (fenêtre récente)
+           - Résume les messages plus anciens de manière progressive
+           - Préserve la structure conversationnelle (human/ai pairs)
+        4. Async natif pour éviter les problèmes d'event loop
+        """
         history_start = time.time()
         try:
+            # Séparer les messages système des autres
             system_messages = [m for m in messages if isinstance(m, SystemMessage)]
-            messages = [m for m in messages if not isinstance(m, SystemMessage)]
-
+            conversation_messages = [m for m in messages if not isinstance(m, SystemMessage)]
+            
+            # Compter les tokens avec tiktoken (précis) via token_utils
+            current_tokens = count_messages_tokens(conversation_messages)
+            
             if trim_strategy == "none":
-                logger.info(f"⏱️ [MANAGE_HISTORY] Total time: {time.time() - history_start:.2f}s (none strategy)")
+                logger.info(f"⏱️ [MANAGE_HISTORY] Strategy: none | Tokens: {current_tokens:,} | Time: {time.time() - history_start:.2f}s")
                 return []
-
-            elif (
-                trim_strategy == "hard"
-                and count_tokens_approximately(messages) > max_tokens
-            ):
-                trimmed = trim_messages(
-                    messages,
-                    strategy="last",
-                    token_counter=count_tokens_approximately,
-                    max_tokens=max_tokens,
-                    start_on="human",
-                    end_on=("human", "tool"),
-                    include_system=False,
-                )
+            
+            # Stratégie HARD : trim simple pour respecter max_tokens immédiat
+            elif trim_strategy == "hard" and current_tokens > max_tokens:
+                logger.info(f"📉 [MANAGE_HISTORY] Hard trim activated | Current: {current_tokens:,} > Max: {max_tokens:,}")
+                
+                # Garder les derniers messages jusqu'à max_tokens
+                trimmed = []
+                tokens_count = 0
+                
+                # Partir de la fin et remonter
+                for msg in reversed(conversation_messages):
+                    msg_tokens = count_messages_tokens([msg])
+                    if tokens_count + msg_tokens <= max_tokens:
+                        trimmed.insert(0, msg)
+                        tokens_count += msg_tokens
+                    else:
+                        break
+                
                 new_messages = system_messages + trimmed
-                logger.info(f"⏱️ [MANAGE_HISTORY] Total time: {time.time() - history_start:.2f}s (hard trim strategy)")
+                logger.info(f"✂️ [MANAGE_HISTORY] Hard trim done | Kept: {len(trimmed)}/{len(conversation_messages)} messages | Tokens: {tokens_count:,} | Time: {time.time() - history_start:.2f}s")
                 return [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + new_messages
-
-            elif (
-                trim_strategy == "summary"
-                and count_tokens_approximately(messages)
-                > self.max_tokens_before_summary
-            ):
-                logger.info(f"📝 [MANAGE_HISTORY] Using summary strategy (tokens: {count_tokens_approximately(messages)} > {self.max_tokens_before_summary})")
-                TAIL_LENGTH = 1
-                TAIL_MESSAGES = messages[-TAIL_LENGTH:]
-                messages_to_summarize = trim_messages(
-                    messages,
-                    strategy="last",
-                    token_counter=count_tokens_approximately,
-                    max_tokens=self.max_tokens_before_summary,
-                    start_on="human",
-                    end_on=("human", "tool"),
-                    include_system=False,
-                )
-
+            
+            # Stratégie SUMMARY : résumé progressif avec sliding window (100K tokens seuil)
+            elif trim_strategy == "summary" and current_tokens > self.max_tokens_before_summary:
+                logger.info(f"📝 [MANAGE_HISTORY] Summary strategy activated | Current: {current_tokens:,} > Threshold: {self.max_tokens_before_summary:,}")
+                
+                # Configuration de la fenêtre glissante
+                # Conserver les 20 derniers messages (≈ 10 échanges) pour le contexte immédiat
+                SLIDING_WINDOW_SIZE = 20
+                
+                # Messages récents à conserver (fenêtre glissante)
+                recent_messages = conversation_messages[-SLIDING_WINDOW_SIZE:] if len(conversation_messages) > SLIDING_WINDOW_SIZE else conversation_messages
+                
+                # Messages plus anciens à résumer
+                old_messages = conversation_messages[:-SLIDING_WINDOW_SIZE] if len(conversation_messages) > SLIDING_WINDOW_SIZE else []
+                
+                if not old_messages:
+                    # Pas assez de messages pour résumer
+                    logger.info(f"⚠️ [MANAGE_HISTORY] Not enough messages to summarize, keeping all")
+                    return []
+                
+                # Préparer le prompt de résumé optimisé
                 summary_prompt = (
-                    "Summarize this conversation in the language of the conversation, "
-                    "concisely but without losing key facts, decisions, TODOs.\n\n"
-                    + "\n".join(
-                        f"{m.__class__.__name__}: {getattr(m, 'content', '')}"
-                        for m in messages_to_summarize[0:-TAIL_LENGTH]
-                    )
+                    "Tu es un expert en résumé de conversations. "
+                    "Résume cette conversation de manière concise mais complète :\n\n"
+                    "INSTRUCTIONS :\n"
+                    "- Conserve TOUS les faits importants, décisions, TODOs, et informations clés\n"
+                    "- Utilise la même langue que la conversation\n"
+                    "- Structure le résumé par thèmes ou chronologiquement\n"
+                    "- Sois concis mais ne perds AUCUNE information importante\n\n"
+                    "CONVERSATION À RÉSUMER :\n\n"
                 )
-
+                
+                # Formater les messages à résumer
+                for msg in old_messages:
+                    role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+                    content = getattr(msg, 'content', '')
+                    if isinstance(content, str):
+                        summary_prompt += f"{role}: {content}\n\n"
+                
                 summary_start = time.time()
-                logger.info(f"📝 [MANAGE_HISTORY] Starting summary generation (prompt length: {len(summary_prompt)} chars)")
-                import asyncio
-                summary_response = asyncio.run(asyncio.to_thread(
+                logger.info(f"🤖 [MANAGE_HISTORY] Generating summary | Messages to summarize: {len(old_messages)} | Prompt length: {len(summary_prompt):,} chars")
+                
+                # ⚠️ IMPORTANT: Track credit cost for summarization LLM call
+                if self.credit_tracker:
+                    from app.deps.credit_tracker import get_model_credit_cost
+                    summary_credit_cost = await get_model_credit_cost(self.summarization_model_name)
+                    can_summarize = await self.credit_tracker.track_ai_call(
+                        model_name=self.summarization_model_name,
+                        credit_cost=summary_credit_cost,
+                        has_tool_calls=False,
+                        conversation_id=self.conversation_id,
+                        metadata={"type": "history_summarization", "messages_count": len(old_messages)}
+                    )
+                    if not can_summarize:
+                        logger.warning(f"⚠️ [MANAGE_HISTORY] Cannot summarize - credit limit reached, keeping recent messages only")
+                        # Fallback: just keep recent messages without summary
+                        return [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + system_messages + recent_messages
+                
+                # Appel ASYNC natif (pas asyncio.run qui cause l'erreur)
+                summary_response = await asyncio.to_thread(
                     self.sum_llm.invoke,
                     [HumanMessage(content=summary_prompt)],
-                    max_tokens=self.summarization_max_tokens,
-                ))
-                logger.info(f"⏱️ [MANAGE_HISTORY] Summary generation took {time.time() - summary_start:.2f}s")
-
-                summary_system = SystemMessage(
-                    content=f"[PREVIOUS CONVERSATION SUMMARY]\n{summary_response.content}\n[END SUMMARY]"
+                    {"max_tokens": self.summarization_max_tokens}
                 )
-
-                new_messages = system_messages + [summary_system] + TAIL_MESSAGES
-                logger.info(f"⏱️ [MANAGE_HISTORY] Total time: {time.time() - history_start:.2f}s (summary strategy)")
+                
+                summary_time = time.time() - summary_start
+                summary_content = summary_response.content if hasattr(summary_response, 'content') else str(summary_response)
+                logger.info(f"✅ [MANAGE_HISTORY] Summary generated | Length: {len(summary_content):,} chars | Time: {summary_time:.2f}s")
+                
+                # Créer un message système avec le résumé
+                summary_system = SystemMessage(
+                    content=(
+                        f"═══════════════════════════════════════════════════════════\n"
+                        f"📚 RÉSUMÉ DE LA CONVERSATION PRÉCÉDENTE\n"
+                        f"═══════════════════════════════════════════════════════════\n\n"
+                        f"{summary_content}\n\n"
+                        f"═══════════════════════════════════════════════════════════\n"
+                        f"La conversation récente continue ci-dessous...\n"
+                        f"═══════════════════════════════════════════════════════════\n"
+                    )
+                )
+                
+                # Nouvelle structure : système + résumé + messages récents
+                new_messages = system_messages + [summary_system] + recent_messages
+                new_tokens = count_messages_tokens(new_messages)
+                
+                reduction_percent = ((current_tokens - new_tokens) / current_tokens * 100) if current_tokens > 0 else 0
+                
+                logger.info(
+                    f"🎯 [MANAGE_HISTORY] Summary strategy completed | "
+                    f"Old messages: {len(old_messages)} → Summary | "
+                    f"Recent messages kept: {len(recent_messages)} | "
+                    f"Tokens: {current_tokens:,} → {new_tokens:,} ({reduction_percent:.1f}% reduction) | "
+                    f"Total time: {time.time() - history_start:.2f}s"
+                )
+                
                 return [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + new_messages
-
+            
+            else:
+                # Pas de gestion nécessaire
+                logger.info(f"✅ [MANAGE_HISTORY] No action needed | Tokens: {current_tokens:,}/{self.max_tokens_before_summary:,} | Time: {time.time() - history_start:.2f}s")
+                return []
+        
         except Exception as e:
-            logger.error(f"Error in history management: {e}")
+            logger.error(f"❌ [MANAGE_HISTORY] Error: {e}", exc_info=True)
             logger.info(f"⏱️ [MANAGE_HISTORY] Total time (error): {time.time() - history_start:.2f}s")
-            return [AIMessage(content=f"Error in history management: {str(e)}")]
+            # En cas d'erreur, ne pas bloquer - retourner vide
+            return []
 
     async def _call_llm(self, state: RAGAgentState) -> Dict[str, Any]:
         """Call the LLM with trimming soft, credit tracking, and silent retry on errors"""
@@ -835,7 +922,7 @@ class RAGAgent:
                     messages = self.system_prompt + messages
                     logger.info(f"📋 [CALL_LLM] Injected system prompt with FAQ ({len(self.faq_content)} chars)")
 
-            trimmed_messages = self._manage_history(
+            trimmed_messages = await self._manage_history(
                 messages, self.trim_strategy, self.max_tokens
             )
             llm_input = trimmed_messages if trimmed_messages else messages

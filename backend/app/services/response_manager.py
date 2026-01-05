@@ -19,6 +19,12 @@ from app.schemas.messages import (
 )
 from langchain_core.messages import HumanMessage
 from app.deps.system_prompt import SYSTEM_PROMPT
+from app.services.token_utils import (
+    count_tokens,
+    is_message_too_long,
+    get_max_input_tokens,
+    get_model_context_window,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -376,8 +382,17 @@ async def process_incoming_message_for_user(message: Dict[str, Any], user_info: 
             logger.error('Impossible to send notification for unsupported message: contact_id=%s, user_credentials=%s', contact_id, bool(user_credentials))
         return None
     
-    if extracted_message.token_count > 7000:
-        logger.error(f"Message too long: {extracted_message.token_count}")
+    # Obtenir le modèle depuis ai_settings ou utiliser un défaut
+    ai_model = user_info.get('ai_settings', {}).get('ai_model', 'gpt-4o-mini') if user_info else 'gpt-4o-mini'
+    
+    # Compter les tokens du message avec tiktoken (via token_utils)
+    message_text = extracted_message.text_content or ""
+    message_tokens = count_tokens(message_text)
+    
+    # Vérifier si le message dépasse 90% du contexte du modèle
+    if is_message_too_long(message_tokens, ai_model):
+        max_tokens = get_max_input_tokens(ai_model)
+        logger.error(f"Message too long: {message_tokens:,} tokens > {max_tokens:,} (90% of {ai_model} context)")
         try:
             save_request = MessageSaveRequest(
                 platform=platform_enum,

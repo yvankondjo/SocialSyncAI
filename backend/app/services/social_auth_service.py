@@ -1,0 +1,357 @@
+import os
+from typing import Any, Dict, List, Optional
+
+from fastapi import HTTPException
+from dotenv import load_dotenv
+from urllib.parse import urlencode
+import httpx
+import logging
+load_dotenv()
+logger = logging.getLogger(__name__)
+class SocialAuthService:
+    def __init__(self):
+        self.INSTAGRAM_CLIENT_ID = os.getenv('INSTAGRAM_CLIENT_ID')
+        self.INSTAGRAM_CLIENT_SECRET = os.getenv('INSTAGRAM_CLIENT_SECRET')
+        self.INSTAGRAM_REDIRECT_URI = os.getenv('INSTAGRAM_REDIRECT_URI')
+        self.META_APP_ID = os.getenv('META_APP_ID')
+        self.META_APP_SECRET = os.getenv('META_APP_SECRET')
+        self.META_CONFIG_ID = os.getenv('META_CONFIG_ID')
+        self.META_GRAPH_VERSION = os.getenv('META_GRAPH_VERSION', 'v24.0')
+        self.WHATSAPP_REDIRECT_URI = os.getenv('WHATSAPP_REDIRECT_URI') or os.getenv('WHATSAPP_EMBEDDED_REDIRECT_URI')
+        self.WHATSAPP_VERIFY_TOKEN = os.getenv('WHATSAPP_VERIFY_TOKEN', 'whatsapp_verify_token')
+        self.REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID')
+        self.REDDIT_CLIENT_SECRET = os.getenv('REDDIT_CLIENT_SECRET')
+        self.REDDIT_REDIRECT_URI = os.getenv('REDDIT_REDIRECT_URI')
+        self.TWITTER_CLIENT_ID = os.getenv('TWITTER_CLIENT_ID')
+        self.TWITTER_CLIENT_SECRET = os.getenv('TWITTER_CLIENT_SECRET')
+        self.TWITTER_REDIRECT_URI = os.getenv('TWITTER_REDIRECT_URI')
+
+    def get_instagram_auth_url(self, state: str) -> str:
+        """Build the authorization URL for the Instagram Business flow."""
+        if not self.INSTAGRAM_CLIENT_ID or not self.INSTAGRAM_REDIRECT_URI:
+            raise HTTPException(status_code=500, detail='Instagram auth is not configured on the server.')
+        scopes = ['instagram_business_basic', 'instagram_business_content_publish', 'instagram_business_manage_messages', 'instagram_business_manage_comments']
+        params = {'client_id': self.INSTAGRAM_CLIENT_ID, 'redirect_uri': self.INSTAGRAM_REDIRECT_URI, 'scope': ','.join(scopes), 'response_type': 'code', 'state': state}
+        auth_url = f'https://api.instagram.com/oauth/authorize?{urlencode(params)}'
+        return auth_url
+
+    def get_whatsapp_embedded_signup_url(self, state: str, prefill: Optional[Dict[str, Dict[str, Optional[str]]]] = None) -> str:
+        """Generate the Meta-hosted URL for WhatsApp Embedded Signup."""
+        if not self.META_APP_ID or not self.META_CONFIG_ID:
+            raise HTTPException(status_code=500, detail='WhatsApp embedded signup is not configured on the server.')
+
+        setup_data = prefill if prefill else {
+            "business": {"id": None, "name": None, "email": None, "phone": {"code": None, "number": None}, "website": None, "address": {"streetAddress1": None, "streetAddress2": None, "city": None, "state": None, "zipPostal": None, "country": None}, "timezone": None},
+            "phone": {"displayName": None, "category": None, "description": None},
+            "preVerifiedPhone": {"ids": None},
+            "solutionID": None,
+            "whatsAppBusinessAccount": {"ids": None}
+        }
+
+        extras = {
+            "setup": setup_data,
+            "featureType": "whatsapp_business_app_onboarding",
+            "sessionInfoVersion": "3",
+            "version": "v3"
+        }
+
+        import json
+        extras_encoded = urlencode({"extras": json.dumps(extras)})
+        
+        base_url = "https://business.facebook.com/messaging/whatsapp/onboard/"
+        params = f"app_id={self.META_APP_ID}&config_id={self.META_CONFIG_ID}&state={state}&{extras_encoded}"
+        
+        return f"{base_url}?{params}"
+
+    async def handle_instagram_callback(self, code: str) -> dict:
+        """Exchange the authorization code for a long-lived access token."""
+        if not self.INSTAGRAM_CLIENT_ID or not self.INSTAGRAM_CLIENT_SECRET or not self.INSTAGRAM_REDIRECT_URI:
+            raise HTTPException(status_code=500, detail='Instagram auth is not configured on the server.')
+        async with httpx.AsyncClient() as client:
+            try:
+                short_lived_token_url = 'https://api.instagram.com/oauth/access_token'
+                short_lived_payload = {'client_id': self.INSTAGRAM_CLIENT_ID, 'client_secret': self.INSTAGRAM_CLIENT_SECRET, 'grant_type': 'authorization_code', 'redirect_uri': self.INSTAGRAM_REDIRECT_URI, 'code': code}
+                response = await client.post(short_lived_token_url, data=short_lived_payload)
+                response.raise_for_status()
+                short_lived_token_data = response.json()
+                long_lived_token_url = 'https://graph.instagram.com/access_token'
+                params = {
+                    'grant_type': 'ig_exchange_token',
+                    'client_secret': self.INSTAGRAM_CLIENT_SECRET,
+                    'access_token': short_lived_token_data['access_token']
+                }
+                response = await client.get(long_lived_token_url, params=params)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error(f'Error exchanging Instagram code: {e.response.text}')
+                raise HTTPException(status_code=400, detail=f'Failed to exchange code for token: {e.response.text}')
+            except Exception as e:
+                logger.error(f'An unexpected error occurred during Instagram authentication: {e}', exc_info=True)
+                raise HTTPException(status_code=500, detail='An unexpected error occurred during Instagram authentication.')
+
+    async def exchange_whatsapp_code(self, code: str, redirect_uri: Optional[str] = None) -> dict:
+        """Exchange an Embedded Signup code for a WhatsApp business token."""
+        if not self.META_APP_ID or not self.META_APP_SECRET:
+            raise HTTPException(status_code=500, detail='WhatsApp auth is not configured on the server.')
+
+        token_endpoint = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/oauth/access_token'
+
+        params = {
+            'client_id': self.META_APP_ID,
+            'client_secret': self.META_APP_SECRET,
+            'code': code,
+        }
+
+        if redirect_uri:
+            params['redirect_uri'] = redirect_uri
+        elif self.WHATSAPP_REDIRECT_URI:
+            params['redirect_uri'] = self.WHATSAPP_REDIRECT_URI
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(token_endpoint, params=params)
+                response.raise_for_status()
+                token_data = response.json()
+                if 'access_token' not in token_data:
+                    raise HTTPException(status_code=400, detail='Failed to obtain WhatsApp business token.')
+                return token_data
+            except httpx.HTTPStatusError as e:
+                raise HTTPException(status_code=400, detail=f'Failed to exchange code for WhatsApp token: {e.response.text}')
+            except Exception as e:
+                raise HTTPException(status_code=500, detail='Unexpected error during WhatsApp authentication.')
+
+    async def get_instagram_user_profile(self, access_token: str) -> dict:
+        """Retrieve the Instagram user profile using the access token."""
+        profile_url = f'https://graph.instagram.com/v23.0/me?fields=id,username&access_token={access_token}'
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(profile_url)
+                response.raise_for_status()
+                print(f"🔍 DEBUG get_instagram_user_profile - response: {response.json()}")
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                print(f'Error fetching Instagram profile: {e.response.text}')
+                raise HTTPException(status_code=400, detail=f'Failed to fetch Instagram profile: {e.response.text}')
+            except Exception as e:
+                print(f'An unexpected error occurred while fetching profile: {e}')
+                raise HTTPException(status_code=500, detail='An unexpected error occurred while fetching Instagram profile.')
+
+    async def get_instagram_business_account(self, access_token: str) -> dict:
+        """Retrieve the ID and username of the Instagram Business account via the Instagram Graph API."""
+        url = 'https://graph.instagram.com/v23.0/me?fields=id,user_id,username,account_type,profile_picture_url'
+        headers = {'Authorization': f'Bearer {access_token}'}
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                print(f"🔍 DEBUG get_instagram_business_account - response: {response.json()}")
+                data = response.json()
+                if data.get('account_type') not in ['BUSINESS', 'CREATOR']:
+                    raise HTTPException(status_code=400, detail='The authenticated account is not an Instagram Business or Creator account.')
+                # Use user_id (IG ID) instead of id (app-scoped ID) to match webhooks
+                ig_id = data.get('user_id', data.get('id'))  # Fallback to id if user_id not available
+                return {'id': ig_id, 'username': data['username'], 'profile_picture_url': data.get('profile_picture_url')}
+            except httpx.HTTPStatusError as e:
+                raise HTTPException(status_code=400, detail=f'Failed to fetch Instagram Business Account: {e.response.text}')
+            except Exception as e:
+                raise HTTPException(status_code=500, detail='An unexpected error occurred while fetching Instagram Business Account.')
+
+    async def get_linkedin_business_profile(self, access_token: str) -> dict:
+        return {'id': 'linkedin_id', 'username': 'linkedin_user'}
+
+    async def get_twitter_profile(self, access_token: str) -> dict:
+        """Retrieve the Twitter/X user profile via API v2."""
+        async with httpx.AsyncClient() as client:
+            try:
+                headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
+                params = {'user.fields': 'id,username,name,profile_image_url,public_metrics'}
+                response = await client.get('https://api.twitter.com/2/users/me', headers=headers, params=params)
+                response.raise_for_status()
+                profile_data = response.json()
+                user_data = profile_data.get('data', {})
+                return {'id': user_data.get('id'), 'username': user_data.get('username'), 'name': user_data.get('name'), 'profile_picture_url': user_data.get('profile_image_url')}
+            except httpx.HTTPStatusError as e:
+                raise HTTPException(status_code=400, detail=f'Failed to fetch Twitter profile: {e.response.text}')
+            except Exception as e:
+                raise HTTPException(status_code=500, detail='An unexpected error occurred while fetching Twitter profile.')
+
+    async def get_tiktok_profile(self, access_token: str) -> dict:
+        return {'id': 'tiktok_id', 'username': 'tiktok_user'}
+
+    async def get_whatsapp_phone_profile(self, access_token: str, phone_number_id: str) -> dict:
+        """Retrieve information for a WhatsApp Business number."""
+        async with httpx.AsyncClient() as client:
+            try:
+                url = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/{phone_number_id}'
+                response = await client.get(url, params={'fields': 'display_phone_number,verified_name'}, headers={'Authorization': f'Bearer {access_token}'})
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.error('Error fetching WhatsApp phone profile: %s', e.response.text)
+                raise HTTPException(status_code=400, detail=f'Failed to fetch WhatsApp phone profile: {e.response.text}')
+            except Exception as e:
+                logger.error('Unexpected error fetching WhatsApp phone profile: %s', e)
+                raise HTTPException(status_code=500, detail='Unexpected error while fetching WhatsApp phone profile.')
+
+    async def subscribe_whatsapp_webhooks(self, access_token: str, waba_id: str, subscribed_fields: Optional[List[str]] = None) -> Optional[dict]:
+        """Souscrit l'application aux webhooks du WABA."""
+        if not waba_id:
+            return None
+
+        fields = subscribed_fields or ['messages']
+        async with httpx.AsyncClient() as client:
+            try:
+                url = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/{waba_id}/subscribed_apps'
+                response = await client.post(url, json={'subscribed_fields': fields}, headers={'Authorization': f'Bearer {access_token}'})
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.warning('WhatsApp webhook subscription failed: %s', e.response.text)
+                return {'error': e.response.text}
+            except Exception as e:
+                logger.warning('Unexpected error subscribing WhatsApp webhooks: %s', e)
+                return {'error': str(e)}
+
+    async def get_whatsapp_business_accounts(self, access_token: str) -> List[Dict[str, any]]:
+        """Retrieve WhatsApp accounts via /me/businesses."""
+        async with httpx.AsyncClient() as client:
+            try:
+                url = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/me/businesses'
+                params = {
+                    'fields': 'owned_whatsapp_business_accounts{id,name,phone_numbers{phone_number_id,display_phone_number,verified_name}}'
+                }
+                response = await client.get(url, params=params, headers={'Authorization': f'Bearer {access_token}'})
+                response.raise_for_status()
+                data = response.json()
+                businesses = data.get('data', [])
+                results: List[Dict[str, any]] = []
+                for business in businesses:
+                    waba_list = business.get('owned_whatsapp_business_accounts', {}).get('data', []) if isinstance(business.get('owned_whatsapp_business_accounts'), dict) else business.get('owned_whatsapp_business_accounts', [])
+                    for account in waba_list:
+                        account['business_id'] = business.get('id')
+                        results.append(account)
+                return results
+            except httpx.HTTPStatusError as e:
+                logger.error('Error fetching WhatsApp businesses: %s', e.response.text)
+                raise HTTPException(status_code=400, detail=f'Failed to fetch WhatsApp businesses: {e.response.text}')
+            except Exception as e:
+                logger.error('Unexpected error fetching WhatsApp businesses: %s', e)
+                raise HTTPException(status_code=500, detail='Unexpected error while fetching WhatsApp businesses.')
+
+    def get_reddit_auth_url(self, state: str) -> str:
+        """Build the authorization URL for Reddit."""
+        if not self.REDDIT_CLIENT_ID or not self.REDDIT_REDIRECT_URI:
+            raise HTTPException(status_code=500, detail='Reddit auth is not configured on the server.')
+        scopes = ['identity', 'read', 'submit', 'edit', 'privatemessages', 'modposts']
+        params = {'client_id': self.REDDIT_CLIENT_ID, 'response_type': 'code', 'state': state, 'redirect_uri': self.REDDIT_REDIRECT_URI, 'duration': 'permanent', 'scope': ' '.join(scopes)}
+        auth_url = f'https://www.reddit.com/api/v1/authorize?{urlencode(params)}'
+        return auth_url
+
+    async def handle_whatsapp_callback(self, code: str) -> dict:
+        """Compatibility: exchange the code via the standard OAuth flow."""
+        return await self.exchange_whatsapp_code(code)
+
+    def get_messenger_auth_url(self, state: str) -> str:
+        """Build the authorization URL for Facebook Messenger (Pages)."""
+        if not self.META_APP_ID:
+            raise HTTPException(status_code=500, detail='Messenger auth is not configured on the server.')
+        
+        backend_url = os.getenv("BACKEND_URL")
+        if not backend_url:
+            from app.core.config import get_settings
+            settings = get_settings()
+            if "localhost" in settings.FRONTEND_URL or "127.0.0.1" in settings.FRONTEND_URL:
+                backend_url = settings.FRONTEND_URL.replace(":3000", ":8000")
+            else:
+                backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+        
+        redirect_uri = f"{backend_url}/api/social-accounts/connect/messenger/callback"
+        
+        scopes = [
+            'pages_messaging',
+            'pages_read_engagement', 
+            'pages_manage_metadata',
+            'pages_show_list',
+            'public_profile'
+        ]
+        params = {
+            'client_id': self.META_APP_ID,
+            'redirect_uri': redirect_uri,
+            'scope': ','.join(scopes),
+            'response_type': 'code',
+            'state': state
+        }
+        auth_url = f'https://www.facebook.com/{self.META_GRAPH_VERSION}/dialog/oauth?{urlencode(params)}'
+        return auth_url
+
+    async def handle_messenger_callback(self, code: str) -> dict:
+        """Exchange the authorization code for a Messenger access token."""
+        if not self.META_APP_ID or not self.META_APP_SECRET:
+            raise HTTPException(status_code=500, detail='Messenger auth is not configured on the server.')
+        
+        backend_url = os.getenv("BACKEND_URL")
+        if not backend_url:
+            from app.core.config import get_settings
+            settings = get_settings()
+            if "localhost" in settings.FRONTEND_URL or "127.0.0.1" in settings.FRONTEND_URL:
+                backend_url = settings.FRONTEND_URL.replace(":3000", ":8000")
+            else:
+                backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+        
+        redirect_uri = f"{backend_url}/api/social-accounts/connect/messenger/callback"
+        
+        token_endpoint = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/oauth/access_token'
+        params = {
+            'client_id': self.META_APP_ID,
+            'client_secret': self.META_APP_SECRET,
+            'code': code,
+            'redirect_uri': redirect_uri
+        }
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(token_endpoint, params=params)
+                response.raise_for_status()
+                token_data = response.json()
+                if 'access_token' not in token_data:
+                    raise HTTPException(status_code=400, detail='Failed to obtain Messenger access token.')
+                return token_data
+            except httpx.HTTPStatusError as e:
+                raise HTTPException(status_code=400, detail=f'Failed to exchange code for Messenger token: {e.response.text}')
+            except Exception as e:
+                raise HTTPException(status_code=500, detail='Unexpected error during Messenger authentication.')
+
+    async def get_messenger_pages(self, access_token: str) -> List[Dict[str, Any]]:
+        """Retrieve the user's Facebook Pages with Messenger permissions."""
+        async with httpx.AsyncClient() as client:
+            try:
+                url = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/me/accounts'
+                params = {
+                    'fields': 'id,name,access_token,tasks',
+                    'access_token': access_token
+                }
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
+                pages = data.get('data', [])
+                
+                # Filter pages that have an access_token (indicating they were properly authorized)
+                messenger_pages = []
+                for page in pages:
+                    # Check that the page has a valid access_token
+                    if page.get('access_token') and page.get('id') and page.get('name'):
+                        messenger_pages.append(page)
+                    else:
+                        logger.warning(f"Page ignored due to missing data: ID={page.get('id')}, Name={page.get('name')}, Token={'present' if page.get('access_token') else 'missing'}")
+                
+                return messenger_pages
+            except httpx.HTTPStatusError as e:
+                logger.error('Error fetching Messenger pages: %s', e.response.text)
+                raise HTTPException(status_code=400, detail=f'Failed to fetch Messenger pages: {e.response.text}')
+            except Exception as e:
+                logger.error('Unexpected error fetching Messenger pages: %s', e)
+                raise HTTPException(status_code=500, detail='Unexpected error while fetching Messenger pages.')
+
+
+social_auth_service = SocialAuthService()

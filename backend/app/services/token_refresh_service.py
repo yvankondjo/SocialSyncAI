@@ -1,0 +1,73 @@
+import asyncio
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Any
+from app.db.session import get_authenticated_db
+from app.services.social_auth_service import social_auth_service
+import logging
+
+logger = logging.getLogger(__name__)
+
+class TokenRefreshService:
+    def __init__(self):
+        self.db = None
+
+    def check_expired_tokens(self, user_id: str):
+        """Check whether a user has expired tokens and return the list."""
+        try:
+            db = next(get_authenticated_db())
+            now = datetime.now(timezone.utc)
+            response = db.table('social_accounts').select('*').filter('user_id', 'eq', user_id).filter('token_expires_at', 'lt', now.isoformat()).filter('is_active', 'eq', True).execute()
+            return response.data
+        except Exception as e:
+            logger.error(f'Error checking expired tokens: {e}')
+            return []
+
+    async def _refresh_account_token(self, account: Dict[str, Any]):
+        """Refresh the token for a specific account."""
+        try:
+            platform = account['platform']
+            refresh_token = account['refresh_token']
+            if not refresh_token:
+                logger.warning(f"No refresh token for account {account['id']} ({platform})")
+                return
+            if platform == 'reddit':
+                new_token_data = await social_auth_service.refresh_reddit_token(refresh_token)
+            elif platform == 'twitter':
+                logger.info(f"Twitter refresh not implemented yet for account {account['id']}")
+                return
+            else:
+                logger.info(f'Refresh not supported for platform {platform}')
+                return
+                
+            expires_in = new_token_data.get('expires_in', 3600)
+            new_expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            update_data = {
+                'access_token': new_token_data['access_token'],
+                'token_expires_at': new_expiry.isoformat(),
+                'updated_at': datetime.now(timezone.utc).isoformat()
+            }
+            self.db.table('social_accounts').update(update_data).eq('id', account['id']).execute()
+            logger.info(f"Successfully refreshed token for {platform} account {account['id']}")
+        except Exception as e:
+            logger.error(f"Failed to refresh token for account {account['id']}: {e}")
+            self.db.table('social_accounts').update({
+                'is_active': False,
+                'updated_at': datetime.now(timezone.utc).isoformat()
+            }).eq('id', account['id']).execute()
+            return
+
+    async def refresh_specific_token(self, account_id: str) -> bool:
+        """Refresh a specific account token on demand."""
+        try:
+            db = next(get_authenticated_db())
+            response = db.table('social_accounts').select('*').eq('id', account_id).execute()
+            if not response.data:
+                logger.error(f'Account {account_id} not found')
+                return False
+            account = response.data[0]
+            await self._refresh_account_token(account)
+            return True
+        except Exception as e:
+            logger.error(f'Error refreshing specific token {account_id}: {e}')
+            return False
+token_refresh_service = TokenRefreshService()

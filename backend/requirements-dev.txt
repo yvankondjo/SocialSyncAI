@@ -1,0 +1,28 @@
+# =============================================================================
+# DEVELOPMENT DEPENDENCIES
+# =============================================================================
+# Install with: pip install -r requirements-dev.txt
+# These are NOT needed in production
+# =============================================================================
+
+# Celery monitoring dashboard
+flower==2.0.1
+
+# Jupyter/IPython for debugging
+ipykernel==6.30.1
+ipython==9.5.0
+ipython_pygments_lexers==1.1.1
+jupyter_client==8.6.3
+jupyter_core==5.8.1
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# Code quality (optional)
+# black>=23.0.0
+# flake8>=6.0.0
+# mypy>=1.0.0
+
+# Debugging
+debugpy==1.8.17

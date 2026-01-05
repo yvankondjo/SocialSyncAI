@@ -386,6 +386,7 @@ class RAGAgent:
             timeout=llm_timeout,
             max_retries=2,
             streaming=False,  # Disable streaming to speed up init
+            model_kwargs={"parallel_tool_calls": False},
             **langsmith_config
         )
         logger.info(f"⏱️ LLM client init took {time.perf_counter() - llm_start:.2f}s")

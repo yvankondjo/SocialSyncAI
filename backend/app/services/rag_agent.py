@@ -982,12 +982,13 @@ class RAGAgent:
             return {"should_respond": False, "error_message": f"LLM_ERROR: {str(e)}"}
 
     async def _handle_tool_call(self, state: RAGAgentState) -> Dict[str, Any]:
-        """Handle the tool call with credit tracking"""
+        """Execute the tool call(s) (supports parallel tool calls)"""
         import time
         start_time = time.time()
-        try:
-            logger.info(f"🔧 [HANDLE_TOOL] Starting tool call handling")
-            if self.credit_tracker:
+        
+        # Credit check (only check once per turn of tool execution)
+        if self.credit_tracker:
+            try:
                 from app.deps.credit_tracker import get_model_credit_cost
 
                 credit_cost = await get_model_credit_cost(self.model_name)
@@ -1008,55 +1009,14 @@ class RAGAgent:
                         ],
                         "error_message": "Credit limit exceeded for tool call",
                     }
+            except Exception as e:
+                logger.error(f"Credit tracking error: {e}")
 
-            last_message = state.messages[-1] if state.messages else None
-            tool_calls = getattr(last_message, "tool_calls", [])
-            tool_call = tool_calls[0]
-            tool_name = tool_call.get("name")
-
-            tool_start = time.time()
-            if tool_name == "search":
-                logger.info(f"🔍 [HANDLE_TOOL] Calling search tool")
-                result = self._search(state)
-                logger.info(f"⏱️ [HANDLE_TOOL] Search tool completed in {time.time() - tool_start:.2f}s")
-                logger.info(f"⏱️ [HANDLE_TOOL] Total time: {time.time() - start_time:.2f}s")
-                return result
-            elif tool_name == "escalation":
-                logger.info(f"🚨 [HANDLE_TOOL] Calling escalation tool")
-                result = self._escalation(state)
-                logger.info(f"⏱️ [HANDLE_TOOL] Escalation tool completed in {time.time() - tool_start:.2f}s")
-                logger.info(f"⏱️ [HANDLE_TOOL] Total time: {time.time() - start_time:.2f}s")
-                return result
-            else:
-                return {
-                    "messages": [
-                        ToolMessage(
-                            content=json.dumps({"error": "Unknown tool"}),
-                            tool_call_id=tool_call.get("id"),
-                            name=tool_call.get("name"),
-                        )
-                    ],
-                }
-        except Exception as e:
-            logger.error(f"Error in _handle_tool_call: {e}")
-            logger.info(f"⏱️ [HANDLE_TOOL] Total time (error): {time.time() - start_time:.2f}s")
-            return {
-                "messages": [AIMessage(content="Error processing tool")],
-                "error_message": str(e),
-            }
-
-    def _search(self, state: RAGAgentState) -> Dict[str, Any]:
-        """
-        Execute search in knowledge documents only.
-        FAQ is now in system prompt, so this is only for document search.
-        """
-        import time
-        search_start = time.time()
-        logger.info(f"🔍 [SEARCH] Starting document search")
-        last_message = state.messages[-1]
+        last_message = state.messages[-1] if state.messages else None
         tool_calls = getattr(last_message, "tool_calls", [])
-
+        
         if not tool_calls:
+            logger.warning("[HANDLE_TOOL] No tool_calls found in last message")
             return {
                 "messages": [
                     ToolMessage(
@@ -1064,27 +1024,91 @@ class RAGAgent:
                         tool_call_id=None,
                         name=None,
                     )
-                ],
-                "n_search": state.n_search,
+                ]
             }
 
-        tool_call = tool_calls[0]
+        tool_messages = []
+        new_search_results = []
+        final_escalation_result = state.escalation_result
+        total_searches_run = 0
+
+        logger.info(f"🛠️ [HANDLE_TOOL] Processing {len(tool_calls)} tool calls")
+
+        for tool_call in tool_calls:
+            tool_name = tool_call.get("name")
+            tool_start = time.time()
+            
+            try:
+                if tool_name == "search":
+                    logger.info(f"🔍 [HANDLE_TOOL] Calling search tool id={tool_call.get('id')}")
+                    # Check search limit relative to state + current run
+                    current_n_search = state.n_search + total_searches_run
+                    msg, docs = self._search(state, tool_call, current_n_search)
+                    tool_messages.append(msg)
+                    if docs:
+                        new_search_results.extend(docs)
+                    # Only increment if not an error/limit reached? 
+                    # _search returns max searches error if reached.
+                    # We assume _search counts as a run unless it failed immediately.
+                    total_searches_run += 1
+                    
+                    logger.info(f"⏱️ [HANDLE_TOOL] Search tool completed in {time.time() - tool_start:.2f}s")
+
+                elif tool_name == "escalation":
+                    logger.info(f"🚨 [HANDLE_TOOL] Calling escalation tool id={tool_call.get('id')}")
+                    msg, esc_result = self._escalation(state, tool_call)
+                    tool_messages.append(msg)
+                    if esc_result.escalated:
+                        final_escalation_result = esc_result
+                    logger.info(f"⏱️ [HANDLE_TOOL] Escalation tool completed in {time.time() - tool_start:.2f}s")
+                
+                else:
+                    logger.warning(f"⚠️ [HANDLE_TOOL] Unknown tool: {tool_name}")
+                    tool_messages.append(
+                        ToolMessage(
+                            content=json.dumps({"error": f"Unknown tool: {tool_name}"}),
+                            tool_call_id=tool_call.get("id"),
+                            name=tool_name,
+                        )
+                    )
+
+            except Exception as e:
+                logger.error(f"❌ [HANDLE_TOOL] Error processing tool {tool_name}: {e}")
+                tool_messages.append(
+                    ToolMessage(
+                        content=json.dumps({"error": f"Error executing tool: {str(e)}"}),
+                        tool_call_id=tool_call.get("id"),
+                        name=tool_name,
+                    )
+                )
+
+        logger.info(f"⏱️ [HANDLE_TOOL] All tools processed in {time.time() - start_time:.2f}s")
+        
+        return {
+            "messages": tool_messages,
+            "n_search": state.n_search + total_searches_run,
+            "search_results": new_search_results if new_search_results else state.search_results,
+            "escalation_result": final_escalation_result,
+        }
+
+    def _search(self, state: RAGAgentState, tool_call: Dict, current_n_search: int) -> Tuple[ToolMessage, List[str]]:
+        """
+        Execute search in knowledge documents for a specific tool call.
+        """
         try:
             tool_name = tool_call.get("name")
             tool_call_id = tool_call.get("id")
             tool_args = tool_call.get("args", {})
 
-            if state.n_search >= state.max_searches:
-                return {
-                    "messages": [
-                        ToolMessage(
-                            content=json.dumps({"error": "Max searches reached"}),
-                            tool_call_id=tool_call_id,
-                            name=tool_name,
-                        )
-                    ],
-                    "n_search": state.n_search,
-                }
+            if current_n_search >= state.max_searches:
+                return (
+                    ToolMessage(
+                        content=json.dumps({"error": "Max searches reached"}),
+                        tool_call_id=tool_call_id,
+                        name=tool_name,
+                    ),
+                    []
+                )
 
             logger.info(f"🔍 [SEARCH] Executing search with args: {tool_args}")
             search_invoke_start = time.time()
@@ -1094,25 +1118,18 @@ class RAGAgent:
             logger.info(
                 f"✅ [SEARCH] Search completed in {time.time() - search_invoke_start:.2f}s: {results.get('count', 0)} document chunks found"
             )
-            logger.info(f"⏱️ [SEARCH] Total time: {time.time() - search_start:.2f}s")
 
             doc_chunks = results.get("doc_chunks", [])
-
             content = json.dumps(results, ensure_ascii=False)
+            
             tool_message = ToolMessage(
                 content=content, tool_call_id=tool_call_id, name=tool_name
             )
-
-            return {
-                "messages": [tool_message],
-                "n_search": state.n_search + 1,
-                "search_results": doc_chunks,
-            }
+            return tool_message, doc_chunks
 
         except Exception as e:
             logger.error(f"❌ Error in _search: {str(e)}")
             import traceback
-
             traceback.print_exc()
 
             error_content = json.dumps({"error": str(e)})
@@ -1121,32 +1138,11 @@ class RAGAgent:
                 tool_call_id=tool_call.get("id"),
                 name=tool_call.get("name"),
             )
+            return tool_message, []
 
-            return {
-                "messages": [tool_message],
-                "n_search": state.n_search,
-                "error_message": str(e),
-            }
-
-    def _escalation(self, state: RAGAgentState) -> Dict[str, Any]:
-        """Execute the escalation"""
-
-        last_message = state.messages[-1]
-        tool_calls = getattr(last_message, "tool_calls", [])
-
-        if not tool_calls:
-            return {
-                "messages": [
-                    ToolMessage(
-                        content=json.dumps({"error": "No tool calls found"}),
-                        tool_call_id=None,
-                        name=None,
-                    )
-                ],
-                "escalation_result": state.escalation_result,
-            }
+    def _escalation(self, state: RAGAgentState, tool_call: Dict) -> Tuple[ToolMessage, EscalationResult]:
+        """Execute the escalation for a specific tool call"""
         try:
-            tool_call = tool_calls[0]
             tool_name = tool_call.get("name")
             tool_call_id = tool_call.get("id")
             tool_args = tool_call.get("args", {})
@@ -1154,21 +1150,29 @@ class RAGAgent:
             message = tool_args.get("message", "")
             confidence = tool_args.get("confidence", 0)
             reason = tool_args.get("reason", "")
+            
             escalation_result = self.escalation_tool.invoke(
                 {"message": message, "confidence": confidence, "reason": reason}
             )
-            return {
-                "messages": [
-                    ToolMessage(
-                        content=json.dumps({"escalation_result": escalation_result}),
-                        tool_call_id=tool_call_id,
-                        name=tool_name,
-                    )
-                ],
-                "escalation_result": escalation_result,
-            }
+            
+            tool_message = ToolMessage(
+                content=json.dumps({"escalation_result": escalation_result}),
+                tool_call_id=tool_call_id,
+                name=tool_name,
+            )
+            return tool_message, escalation_result
 
         except Exception as e:
+            logger.error(f"❌ Error in _escalation: {str(e)}")
+            # Return current escalation result as fallback
+            return (
+                ToolMessage(
+                    content=json.dumps({"error": str(e)}),
+                    tool_call_id=tool_call.get("id"),
+                    name=tool_call.get("name"),
+                ),
+                state.escalation_result
+            )
             return {
                 "messages": [
                     ToolMessage(

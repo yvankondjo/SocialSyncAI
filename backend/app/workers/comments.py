@@ -31,6 +31,15 @@ logger = logging.getLogger(__name__)
 # HELPER FUNCTIONS
 # ============================================================================
 
+async def _convert_image_to_base64(media_url: str, access_token: str) -> Optional[str]:
+    \"\"\"
+    Wrapper pour convertir une image Instagram en base64.
+    Utilise la fonction centralisée de response_manager.
+    \"\"\"
+    from app.services.response_manager import convert_image_url_to_base64
+    return await convert_image_url_to_base64(media_url, access_token)
+
+
 def _calculate_poll_interval(post: Dict[str, Any]) -> timedelta:
     """
     Calculate adaptive polling interval based on post age
@@ -576,14 +585,26 @@ def process_comment(self, comment_id: str):
             # Build enriched context for Vision AI
             context_parts = []
 
-            # 1. Add post image if available (Vision AI)
+            # 1. Add post image if available (Vision AI) - CONVERT TO BASE64
             media_url = post.get("media_url")
             if media_url:
-                context_parts.append({
-                    "type": "image_url",
-                    "image_url": {"url": media_url}
-                })
-                logger.info(f"[PROCESS] Added post image to context: {media_url[:50]}...")
+                # Récupérer le token d'accès pour télécharger l'image
+                social_accounts = post.get("social_accounts", {})
+                access_token = social_accounts.get("access_token")
+                
+                if access_token:
+                    # Convertir l'image en base64 (les URLs Instagram expirent rapidement)
+                    base64_image = asyncio.run(_convert_image_to_base64(media_url, access_token))
+                    if base64_image:
+                        context_parts.append({
+                            "type": "image_url",
+                            "image_url": {"url": base64_image}
+                        })
+                        logger.info(f"[PROCESS] Added post image as base64 to context")
+                    else:
+                        logger.warning(f"[PROCESS] Failed to convert image to base64, skipping image context")
+                else:
+                    logger.warning(f"[PROCESS] No access token available to download image, skipping image context")
 
             # 2. Add post caption
             caption = post.get("caption")

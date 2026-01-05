@@ -556,6 +556,83 @@ def encode_image_to_base64(image_content: bytes) -> str:
     import base64
     return base64.b64encode(image_content).decode('utf-8')
 
+
+async def convert_image_url_to_base64(
+    image_url: str,
+    access_token: Optional[str] = None,
+    timeout: float = 30.0
+) -> Optional[str]:
+    """
+    Télécharge une image depuis une URL et la convertit en data URL base64.
+    
+    Les URLs d'images Instagram/Facebook/Messenger sont temporaires et signées,
+    elles expirent rapidement. OpenAI ne peut pas y accéder directement.
+    
+    Cette fonction:
+    1. Télécharge l'image côté serveur
+    2. Détecte le type MIME
+    3. Encode en base64
+    4. Retourne une data URL utilisable par OpenAI Vision
+    
+    Args:
+        image_url: URL de l'image à télécharger
+        access_token: Token d'accès optionnel (pour Instagram/Facebook)
+        timeout: Timeout de téléchargement en secondes
+    
+    Returns:
+        Data URL base64 (ex: "data:image/jpeg;base64,/9j/4AAQ...") ou None si erreur
+    """
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            headers = {
+                "User-Agent": "SocialSyncAI/1.0",
+                "Accept": "image/*",
+            }
+            
+            # Ajouter le token d'autorisation si fourni
+            if access_token:
+                headers["Authorization"] = f"Bearer {access_token}"
+            
+            response = await client.get(image_url, headers=headers)
+            
+            # Retry avec token dans l'URL si 403
+            if response.status_code == 403 and access_token:
+                logger.warning(f"[IMAGE] 403 error, retrying with token in URL")
+                signed_url = _append_access_token_to_url(image_url, access_token)
+                headers_no_auth = {k: v for k, v in headers.items() if k != "Authorization"}
+                response = await client.get(signed_url, headers=headers_no_auth)
+            
+            response.raise_for_status()
+            image_bytes = response.content
+        
+        if not image_bytes:
+            logger.warning(f"[IMAGE] Empty response from {image_url[:80]}...")
+            return None
+        
+        # Détecter le type MIME
+        mime_type = "image/jpeg"  # Par défaut
+        if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+            mime_type = "image/png"
+        elif image_bytes[:3] == b'GIF':
+            mime_type = "image/gif"
+        elif image_bytes[:4] == b'RIFF' and len(image_bytes) > 12 and image_bytes[8:12] == b'WEBP':
+            mime_type = "image/webp"
+        
+        # Encoder en base64
+        base64_data = encode_image_to_base64(image_bytes)
+        data_url = f"data:{mime_type};base64,{base64_data}"
+        
+        logger.info(f"[IMAGE] Converted to base64: {len(image_bytes)} bytes, {mime_type}")
+        return data_url
+        
+    except httpx.HTTPStatusError as e:
+        logger.error(f"[IMAGE] HTTP error downloading image: {e.response.status_code} - {image_url[:80]}...")
+        return None
+    except Exception as e:
+        logger.error(f"[IMAGE] Error converting image to base64: {e}")
+        return None
+
+
 def resize_image(image_content: bytes, width: int, height: int) -> bytes:
     from PIL import Image
     import io
@@ -1269,8 +1346,19 @@ async def extract_messenger_message_content(message: Dict[str, Any], user_creden
         media_url = payload.get('url')
 
         if attachment_type == 'image' and media_url:
-            content = [{'type': 'image_url', 'image_url': {'url': media_url}}]
-            tokens = len(enc.encode('[Image]')) + len(enc.encode(media_url))
+            # Convertir l'image en base64 car les URLs Facebook/Messenger expirent
+            access_token = user_credentials.get('access_token')
+            base64_image = await convert_image_url_to_base64(media_url, access_token)
+            
+            if base64_image:
+                content = [{'type': 'image_url', 'image_url': {'url': base64_image}}]
+                tokens = len(enc.encode('[Image]')) + 100  # Estimation tokens pour base64
+            else:
+                # Fallback: utiliser l'URL directement (peut échouer si expirée)
+                logger.warning(f"[MESSENGER] Failed to convert image to base64, using URL directly")
+                content = [{'type': 'image_url', 'image_url': {'url': media_url}}]
+                tokens = len(enc.encode('[Image]')) + len(enc.encode(media_url))
+            
             return UnifiedMessageContent(
                 content=content,
                 token_count=int(tokens),

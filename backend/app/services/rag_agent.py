@@ -412,7 +412,7 @@ class RAGAgent:
         if not test_mode:
             self.escalation_tool = create_escalation_tool(user_id, conversation_id)
             self.tools.append(self.escalation_tool)
-        self.llm_with_tools = self.llm.bind_tools(self.tools)
+        self.llm_with_tools = self.llm.bind_tools(self.tools, parallel_tool_calls=False)
         
         # ===== BUILD SYSTEM PROMPTS =====
         # 1. Base system prompt with doc_lang

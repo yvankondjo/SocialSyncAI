@@ -71,9 +71,9 @@ class Escalation:
                 "reason": reason
             }
 
-            support_email = os.getenv("SUPPORT_EMAIL", "support@yourdomain.com")
+            # Send email to the user (account owner), not to a fixed support email
             email_sent = await self.email_service.send_escalation_email(
-                to_email=support_email,
+                to_email=user_email,
                 escalation_data=email_data,
                 conversation_link=conversation_link
             )
@@ -83,9 +83,9 @@ class Escalation:
                     "notified": True
                 }).eq("id", escalation_id).execute()
 
-                logger.info(f"Escalation created and email sent to support team: {escalation_id}")
+                logger.info(f"Escalation created and email sent to user: {escalation_id}")
             else:
-                logger.warning(f"Escalation created but email not sent to support team: {escalation_id}")
+                logger.warning(f"Escalation created but email not sent to user: {escalation_id}")
 
             return escalation_id
 

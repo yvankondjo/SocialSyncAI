@@ -166,6 +166,12 @@ def load_user_faq(user_id: str) -> str:
         return ""
 
 
+class SearchQuery(BaseModel):
+    """A single search query with language specification"""
+    query: str = Field(..., description="The search term to look for in documents")
+    lang: str = Field(default="french", description="Language of the query: 'english', 'french', or 'spanish'")
+
+
 def create_search_tool(user_id: str):
     """
     Factory function to create search tool for knowledge documents only.
@@ -174,7 +180,7 @@ def create_search_tool(user_id: str):
     retriever: Optional[Retriever] = None
 
     @tool
-    def search(queries: List[dict]) -> dict:
+    def search(queries: List[SearchQuery]) -> dict:
         """
         Search knowledge documents when FAQ in system prompt is insufficient.
 
@@ -184,14 +190,17 @@ def create_search_tool(user_id: str):
         - The question is complex and requires document context
 
         Args:
-            queries: List of query dicts with 'query' and 'lang' keys
-                - query: Search term (in the document language)
-                - lang: One of "english", "french", or "spanish"
+            queries: List of SearchQuery objects, each with:
+                - query: str - The search term (in the document language)
+                - lang: str - One of "english", "french", or "spanish"
 
         Returns:
             dict with keys:
                 - doc_chunks: List[str] - Retrieved document chunks
                 - count: int - Number of chunks found
+        
+        Example:
+            search(queries=[SearchQuery(query="refund policy", lang="english"), SearchQuery(query="return conditions", lang="english")])
         """
         try:
             nonlocal retriever
@@ -202,13 +211,20 @@ def create_search_tool(user_id: str):
 
             all_chunks = []
             
-            for query_dict in queries:
-                query_text = query_dict.get("query", "")
-                query_lang = query_dict.get("lang", "french")
+            for query_obj in queries:
+                # Handle both Pydantic model and dict (for backwards compatibility)
+                if isinstance(query_obj, dict):
+                    query_text = query_obj.get("query", "")
+                    query_lang = query_obj.get("lang", "french")
+                else:
+                    query_text = query_obj.query
+                    query_lang = query_obj.lang
                 
                 if not query_text:
+                    logger.warning(f"⚠️ [SEARCH] Empty query received, skipping")
                     continue
                 
+                logger.info(f"🔍 [SEARCH] Searching for: '{query_text}' in {query_lang}")
                 results = retriever.retrieve_from_knowledge_chunks(
                     query=query_text,
                     k=10,
@@ -1066,7 +1082,7 @@ class RAGAgent:
 
                 elif tool_name == "escalation":
                     logger.info(f"🚨 [HANDLE_TOOL] Calling escalation tool id={tool_call.get('id')}")
-                    msg, esc_result = self._escalation(state, tool_call)
+                    msg, esc_result = await self._escalation(state, tool_call)
                     tool_messages.append(msg)
                     if esc_result.escalated:
                         final_escalation_result = esc_result
@@ -1150,7 +1166,7 @@ class RAGAgent:
             )
             return tool_message, []
 
-    def _escalation(self, state: RAGAgentState, tool_call: Dict) -> Tuple[ToolMessage, EscalationResult]:
+    async def _escalation(self, state: RAGAgentState, tool_call: Dict) -> Tuple[ToolMessage, EscalationResult]:
         """Execute the escalation for a specific tool call"""
         try:
             tool_name = tool_call.get("name")
@@ -1161,7 +1177,7 @@ class RAGAgent:
             confidence = tool_args.get("confidence", 0)
             reason = tool_args.get("reason", "")
             
-            escalation_result = self.escalation_tool.invoke(
+            escalation_result = await self.escalation_tool.ainvoke(
                 {"message": message, "confidence": confidence, "reason": reason}
             )
             
@@ -1183,16 +1199,6 @@ class RAGAgent:
                 ),
                 state.escalation_result
             )
-            return {
-                "messages": [
-                    ToolMessage(
-                        content=json.dumps({"error": str(e)}),
-                        tool_call_id=tool_call_id,
-                        name=tool_name,
-                    )
-                ],
-                "escalation_result": state.escalation_result,
-            }
 
 
 def create_rag_agent(

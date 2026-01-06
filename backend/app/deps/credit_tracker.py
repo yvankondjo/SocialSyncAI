@@ -72,7 +72,7 @@ class CreditTracker:
             logger.info(f"[CREDIT_TRACKER] Model {model_name} allowed for user {self.user_id}")
 
             # Check if the credits are available (estimation for the whole batch)
-            estimated_total_cost = self.total_cost + (credit_cost * (len(self.calls) + 1))
+            estimated_total_cost = self.total_cost + credit_cost
             logger.info(
                 f"[CREDIT_TRACKER] Checking credits for {self.user_id}: need {estimated_total_cost}, unit_cost={credit_cost}, current_calls={len(self.calls)}"
             )

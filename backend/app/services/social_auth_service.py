@@ -213,6 +213,41 @@ class SocialAuthService:
                 logger.warning('Unexpected error subscribing WhatsApp webhooks: %s', e)
                 return {'error': str(e)}
 
+    async def subscribe_instagram_webhooks(self, access_token: str, ig_user_id: str, subscribed_fields: Optional[List[str]] = None) -> Optional[dict]:
+        """Subscribe the Instagram professional account to receive webhook notifications.
+        
+        This is required per Meta's documentation: After OAuth, you must call 
+        POST /{ig-user-id}/subscribed_apps to enable webhook notifications for that account.
+        
+        See: https://developers.facebook.com/docs/instagram-platform/webhooks/subscriptions
+        """
+        if not ig_user_id:
+            logger.warning('Cannot subscribe Instagram webhooks: ig_user_id is missing')
+            return None
+
+        # Default fields for Instagram Business/Creator accounts
+        fields = subscribed_fields or ['messages', 'comments']
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                url = f'https://graph.instagram.com/{self.META_GRAPH_VERSION}/{ig_user_id}/subscribed_apps'
+                params = {'subscribed_fields': ','.join(fields)}
+                response = await client.post(
+                    url, 
+                    params=params,
+                    headers={'Authorization': f'Bearer {access_token}'}
+                )
+                response.raise_for_status()
+                result = response.json()
+                logger.info(f'✅ Instagram webhook subscription successful for user {ig_user_id}: {result}')
+                return result
+            except httpx.HTTPStatusError as e:
+                logger.warning(f'Instagram webhook subscription failed for user {ig_user_id}: {e.response.text}')
+                return {'error': e.response.text}
+            except Exception as e:
+                logger.warning(f'Unexpected error subscribing Instagram webhooks for user {ig_user_id}: {e}')
+                return {'error': str(e)}
+
     async def get_whatsapp_business_accounts(self, access_token: str) -> List[Dict[str, any]]:
         """Retrieve WhatsApp accounts via /me/businesses."""
         async with httpx.AsyncClient() as client:

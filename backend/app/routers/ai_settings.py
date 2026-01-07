@@ -89,7 +89,10 @@ async def get_ai_settings(
                 "ignore_examples": []
             }
             
-            create_result = db.table("ai_settings").insert(default_settings).execute()
+            # Use service_role to bypass RLS when creating initial settings
+            from app.db.session import get_db as get_service_db
+            service_db = get_service_db()
+            create_result = service_db.table("ai_settings").insert(default_settings).execute()
             if create_result.data:
                 return AISettings(**create_result.data[0])
             else:
@@ -175,7 +178,10 @@ async def update_ai_settings(
             # Ensure user_id is set correctly
             new_settings["user_id"] = current_user_id
             
-            result = db.table("ai_settings").insert(new_settings).execute()
+            # Use service_role to bypass RLS when creating initial settings
+            from app.db.session import get_db as get_service_db
+            service_db = get_service_db()
+            result = service_db.table("ai_settings").insert(new_settings).execute()
             if result.data:
                 return AISettings(**result.data[0])
 

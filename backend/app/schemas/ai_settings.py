@@ -111,7 +111,7 @@ class AISettings(AISettingsBase):
 
 class AITestRequest(BaseModel):
     thread_id: str = Field(..., min_length=1, max_length=1000)
-    message: str = Field(..., min_length=1, max_length=1000)
+    messages: List[dict] = Field(..., min_items=1, description="Conversation history with role and content")
     settings: AISettingsBase
 
 class AITestResponse(BaseModel):

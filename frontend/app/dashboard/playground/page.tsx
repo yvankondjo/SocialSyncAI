@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useToast } from "@/hooks/use-toast"
 import Image from "next/image"
 import { logos } from "@/lib/logos"
 import {
@@ -136,7 +137,8 @@ const INSTRUCTION_TEMPLATES = {
 }
 
 export default function PlaygroundPage() {
-  const { testAIResponse, settings } = useAISettings()
+  const { testAIResponse, settings, updateSettings } = useAISettings()
+  const { toast } = useToast()
 
   // Utiliser un thread_id constant pour la session playground
   const [playgroundThreadId, setPlaygroundThreadId] = useState(() => `playground-session-${Date.now()}`)
@@ -151,6 +153,7 @@ export default function PlaygroundPage() {
   ])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   // Configuration state - use settings from API if available, otherwise defaults
   const [model, setModel] = useState(settings?.ai_model || "openai/gpt-4o")
@@ -246,14 +249,35 @@ export default function PlaygroundPage() {
     ])
   }
 
-  const handleSaveToAgent = () => {
-    // Simulate saving configuration to agent
-    console.log("Saving configuration to agent:", {
-      model,
-      temperature: temperature[0],
-      systemInstruction,
-    })
-    // Toast notification would be shown here
+  const handleSaveToAgent = async () => {
+    if (isSaving) return
+    
+    setIsSaving(true)
+    try {
+      await updateSettings({
+        ai_model: model,
+        temperature: temperature[0],
+        system_prompt: systemInstruction,
+      })
+      
+      toast({
+        title: "✅ Configuration saved",
+        description: "Your agent settings have been updated successfully.",
+        duration: 3000,
+      })
+      
+      setAgentStatus("trained")
+    } catch (error) {
+      console.error("Error saving configuration to agent:", error)
+      toast({
+        title: "❌ Error",
+        description: "Failed to save agent settings. Please try again.",
+        variant: "destructive",
+        duration: 5000,
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const loadInstructionTemplate = (templateKey: keyof typeof INSTRUCTION_TEMPLATES) => {
@@ -291,9 +315,9 @@ export default function PlaygroundPage() {
                   {agentStatus}
                 </Badge>
               </div>
-              <Button onClick={handleSaveToAgent} className="w-full">
+              <Button onClick={handleSaveToAgent} className="w-full" disabled={isSaving}>
                 <Plus className="w-4 h-4 mr-2" />
-                Save to Agent
+                {isSaving ? "Saving..." : "Save to Agent"}
               </Button>
             </CardContent>
           </Card>

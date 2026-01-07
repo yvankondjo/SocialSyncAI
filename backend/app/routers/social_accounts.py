@@ -283,6 +283,20 @@ async def handle_oauth_callback(
             on_conflict="user_id, platform"
         ).execute()
 
+        # Subscribe to Instagram webhooks after saving the account
+        if platform == "instagram":
+            ig_user_id = profile_data["id"]
+            access_token = token_data["access_token"]
+            logger.info(f"📡 Subscribing Instagram account {ig_user_id} to webhooks...")
+            subscription_result = await social_auth_service.subscribe_instagram_webhooks(
+                access_token=access_token,
+                ig_user_id=ig_user_id
+            )
+            if subscription_result and 'error' not in subscription_result:
+                logger.info(f"✅ Instagram webhook subscription successful for user {user_id}")
+            else:
+                logger.warning(f"⚠️ Instagram webhook subscription failed for user {user_id}: {subscription_result}")
+
         return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard/accounts?success=true&platform={platform}")
 
     except HTTPException as e:
@@ -326,3 +340,59 @@ async def delete_social_account(
     except Exception as e:
         logger.error(f"Error deleting social account {account_id} for user {current_user_id}: {e}")
         raise HTTPException(status_code=500, detail="Could not delete social account.")
+
+
+@router.post("/subscribe-webhooks/{platform}")
+async def subscribe_platform_webhooks(
+    platform: str,
+    db: Client = Depends(get_authenticated_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Manually subscribe an existing social account to webhooks.
+    This is useful for accounts that were connected before webhook subscription was implemented.
+    """
+    if platform not in ["instagram", "whatsapp"]:
+        raise HTTPException(status_code=400, detail="Webhook subscription only supported for instagram and whatsapp")
+
+    try:
+        # Get the user's social account for this platform
+        result = db.table("social_accounts").select("*").eq("platform", platform).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail=f"No {platform} account found for this user")
+
+        account = result.data[0]
+        access_token = account.get("access_token")
+        account_id = account.get("account_id")
+
+        if not access_token or not account_id:
+            raise HTTPException(status_code=400, detail="Account is missing required data (access_token or account_id)")
+
+        if platform == "instagram":
+            subscription_result = await social_auth_service.subscribe_instagram_webhooks(
+                access_token=access_token,
+                ig_user_id=account_id
+            )
+        elif platform == "whatsapp":
+            # For WhatsApp, account_id is phone_number_id, refresh_token stores waba_id
+            waba_id = account.get("refresh_token")
+            if not waba_id:
+                raise HTTPException(status_code=400, detail="WhatsApp account is missing WABA ID")
+            subscription_result = await social_auth_service.subscribe_whatsapp_webhooks(
+                access_token=access_token,
+                waba_id=waba_id
+            )
+
+        if subscription_result and 'error' in subscription_result:
+            logger.warning(f"Webhook subscription failed for {platform}: {subscription_result}")
+            raise HTTPException(status_code=400, detail=f"Webhook subscription failed: {subscription_result.get('error')}")
+
+        logger.info(f"✅ Webhook subscription successful for {platform} account {account_id}")
+        return {"message": f"Successfully subscribed {platform} account to webhooks", "result": subscription_result}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error subscribing {platform} webhooks for user {current_user_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Could not subscribe {platform} webhooks.")

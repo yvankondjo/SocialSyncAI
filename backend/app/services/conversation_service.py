@@ -6,6 +6,7 @@ import logging
 import json
 from app.services.whatsapp_service import WhatsAppService
 from app.services.instagram_service import InstagramService
+from app.services.messenger_service import MessengerService
 from app.services.response_manager import get_signed_url
 from app.services.media_cache_service import media_cache_service
 
@@ -214,6 +215,8 @@ class ConversationService:
                 success = await self._send_whatsapp_message(social_account['access_token'], social_account['account_id'], customer_identifier, content)
             elif platform == 'instagram':
                 success = await self._send_instagram_message(social_account['access_token'], social_account['account_id'], customer_identifier, content)
+            elif platform == 'messenger':
+                success = await self._send_messenger_message(social_account['access_token'], social_account['account_id'], customer_identifier, content)
             else:
                 raise ValueError(f"Unsupported platform: {platform}")
             
@@ -263,9 +266,14 @@ class ConversationService:
             async with WhatsAppService(access_token, phone_number_id) as service:
                 result = await service.send_text_message(to, text)
                 messages = result.get('messages', [])
-                return len(messages) > 0 and messages[0].get('id') is not None
+                success = len(messages) > 0 and messages[0].get('id') is not None
+                if success:
+                    logger.info(f'✅ WhatsApp message sent successfully: {messages[0].get("id")}')
+                else:
+                    logger.error(f'❌ WhatsApp send failed: {result}')
+                return success
         except Exception as e:
-            logger.error(f'Erreur WhatsApp: {e}')
+            logger.error(f'❌ Erreur WhatsApp: {e}', exc_info=True)
             return False
 
     async def _send_instagram_message(self, access_token: str, account_id: str, recipient_id: str, text: str) -> bool:
@@ -274,13 +282,40 @@ class ConversationService:
             async with InstagramService(access_token, account_id) as service:
                 result = await service.send_direct_message(recipient_id, text)
                 # send_direct_message retourne {'success': True, 'message_id': ..., 'result': {...}}
-                # Vérifier success ET (message_id OU result.id)
+                # Vérifier success ET message_id
                 success = result.get('success', False)
-                message_id = result.get('message_id') or result.get('result', {}).get('id')
-                logger.debug(f'Instagram send result: success={success}, message_id={message_id}')
-                return success and message_id is not None
+                message_id = result.get('message_id') or result.get('result', {}).get('message_id')
+                logger.info(f'📤 Instagram send result: success={success}, message_id={message_id}, full_result={result}')
+                if not success:
+                    logger.error(f'❌ Instagram send failed: {result}')
+                    return False
+                if not message_id:
+                    logger.error(f'❌ Instagram send succeeded but no message_id returned: {result}')
+                    return False
+                logger.info(f'✅ Instagram message sent successfully: message_id={message_id}')
+                return True
         except Exception as e:
-            logger.error(f'Erreur Instagram: {e}')
+            logger.error(f'❌ Erreur Instagram: {e}', exc_info=True)
+            return False
+
+    async def _send_messenger_message(self, access_token: str, page_id: str, recipient_psid: str, text: str) -> bool:
+        """Envoie un message Messenger"""
+        try:
+            async with MessengerService(access_token, page_id) as service:
+                result = await service.send_message(recipient_psid, text)
+                success = result.get('success', False)
+                message_id = result.get('message_id')
+                logger.info(f'📤 Messenger send result: success={success}, message_id={message_id}, full_result={result}')
+                if not success:
+                    logger.error(f'❌ Messenger send failed: {result}')
+                    return False
+                if not message_id:
+                    logger.error(f'❌ Messenger send succeeded but no message_id returned: {result}')
+                    return False
+                logger.info(f'✅ Messenger message sent successfully: message_id={message_id}')
+                return True
+        except Exception as e:
+            logger.error(f'❌ Erreur Messenger: {e}', exc_info=True)
             return False
 
     async def mark_conversation_as_read(self, conversation_id: str, user_id: str) -> bool:

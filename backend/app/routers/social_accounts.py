@@ -243,6 +243,17 @@ async def handle_oauth_callback(
                         on_conflict="user_id, platform, account_id"
                     ).execute()
 
+                    # Subscribe the page to Messenger webhooks
+                    logger.info(f"📡 Subscribing Messenger page {page_name} ({page_id}) to webhooks...")
+                    subscription_result = await social_auth_service.subscribe_messenger_webhooks(
+                        access_token=page_token,
+                        page_id=page_id
+                    )
+                    if subscription_result and 'error' not in subscription_result:
+                        logger.info(f"✅ Messenger webhook subscription successful for page {page_name}")
+                    else:
+                        logger.warning(f"⚠️ Messenger webhook subscription failed for page {page_name}: {subscription_result}")
+
                     saved_pages += 1
                     logger.info(f"✅ Page Messenger sauvegardée: {page_name}")
 
@@ -352,8 +363,8 @@ async def subscribe_platform_webhooks(
     Manually subscribe an existing social account to webhooks.
     This is useful for accounts that were connected before webhook subscription was implemented.
     """
-    if platform not in ["instagram", "whatsapp"]:
-        raise HTTPException(status_code=400, detail="Webhook subscription only supported for instagram and whatsapp")
+    if platform not in ["instagram", "whatsapp", "messenger"]:
+        raise HTTPException(status_code=400, detail="Webhook subscription only supported for instagram, whatsapp, and messenger")
 
     try:
         # Get the user's social account for this platform
@@ -382,6 +393,12 @@ async def subscribe_platform_webhooks(
             subscription_result = await social_auth_service.subscribe_whatsapp_webhooks(
                 access_token=access_token,
                 waba_id=waba_id
+            )
+        elif platform == "messenger":
+            # For Messenger, account_id is page_id
+            subscription_result = await social_auth_service.subscribe_messenger_webhooks(
+                access_token=access_token,
+                page_id=account_id
             )
 
         if subscription_result and 'error' in subscription_result:

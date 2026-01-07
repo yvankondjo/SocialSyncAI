@@ -44,7 +44,8 @@ class InstagramService:
         try:
             logger.info(f'📤 [INSTAGRAM] Calling _send_with_retry for {url}')
             result = await self._send_with_retry(url, payload)
-            message_id = result.get('id')
+            # Meta Instagram API returns 'message_id', not 'id'
+            message_id = result.get('message_id') or result.get('id')
             logger.info(f'✅ [INSTAGRAM] DM sent successfully: message_id={message_id}, result={result}')
             return {'success': True, 'message_id': message_id, 'result': result}
         except Exception as e:

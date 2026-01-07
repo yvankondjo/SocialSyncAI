@@ -248,6 +248,40 @@ class SocialAuthService:
                 logger.warning(f'Unexpected error subscribing Instagram webhooks for user {ig_user_id}: {e}')
                 return {'error': str(e)}
 
+    async def subscribe_messenger_webhooks(self, access_token: str, page_id: str, subscribed_fields: Optional[List[str]] = None) -> Optional[dict]:
+        """Subscribe a Facebook Page to Messenger webhook notifications.
+        
+        This is required per Meta's documentation: After connecting a Messenger page,
+        you must call POST /{page-id}/subscribed_apps to enable webhook notifications.
+        
+        See: https://developers.facebook.com/docs/messenger-platform/webhooks
+        """
+        if not page_id:
+            logger.warning('Cannot subscribe Messenger webhooks: page_id is missing')
+            return None
+
+        # Default fields for Messenger pages
+        fields = subscribed_fields or ['messages']
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                url = f'https://graph.facebook.com/{self.META_GRAPH_VERSION}/{page_id}/subscribed_apps'
+                params = {
+                    'subscribed_fields': ','.join(fields),
+                    'access_token': access_token
+                }
+                response = await client.post(url, params=params)
+                response.raise_for_status()
+                result = response.json()
+                logger.info(f'✅ Messenger webhook subscription successful for page {page_id}: {result}')
+                return result
+            except httpx.HTTPStatusError as e:
+                logger.warning(f'Messenger webhook subscription failed for page {page_id}: {e.response.text}')
+                return {'error': e.response.text}
+            except Exception as e:
+                logger.warning(f'Unexpected error subscribing Messenger webhooks for page {page_id}: {e}')
+                return {'error': str(e)}
+
     async def get_whatsapp_business_accounts(self, access_token: str) -> List[Dict[str, any]]:
         """Retrieve WhatsApp accounts via /me/businesses."""
         async with httpx.AsyncClient() as client:

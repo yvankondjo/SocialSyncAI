@@ -10,6 +10,52 @@ SocialSync AI helps businesses automate social media customer support across Ins
 
 ---
 
+## Screenshots
+
+### Dashboard & Activity
+<div align="center">
+  <img src="docs/images/Activity_Chat.png" alt="Chat Activity View" width="800"/>
+  <p><i>Real-time chat interface with AI-powered responses</i></p>
+  
+  <img src="docs/images/Activity_Comments.png" alt="Comments Activity View" width="800"/>
+  <p><i>Comment monitoring and moderation interface</i></p>
+  
+  <img src="docs/images/Analytics.png" alt="Analytics Dashboard" width="800"/>
+  <p><i>Analytics and performance metrics</i></p>
+</div>
+
+### Knowledge Base & Data Sources
+<div align="center">
+  <img src="docs/images/sources_data.png" alt="Data Sources Management" width="800"/>
+  <p><i>Manage your knowledge base documents</i></p>
+  
+  <img src="docs/images/souces_faq.png" alt="FAQ Management" width="800"/>
+  <p><i>Create and organize FAQs for your AI agent</i></p>
+</div>
+
+### AI Settings & Configuration
+<div align="center">
+  <img src="docs/images/settings_ai_active_or_block_ai.png" alt="AI Activation Settings" width="800"/>
+  <p><i>Enable or disable AI automation per channel</i></p>
+  
+  <img src="docs/images/settings_ai_flagged_contend.png" alt="Flagged Content Management" width="800"/>
+  <p><i>Review and manage flagged content</i></p>
+  
+  <img src="docs/images/settings_playground_test_your_agent.png" alt="AI Playground" width="800"/>
+  <p><i>Test your AI agent before deployment</i></p>
+  
+  <img src="docs/images/settings_playground_compare_several_model.png" alt="Model Comparison" width="800"/>
+  <p><i>Compare different AI models side-by-side</i></p>
+</div>
+
+### Platform Connections
+<div align="center">
+  <img src="docs/images/connect.png" alt="Connect Social Accounts" width="800"/>
+  <p><i>Connect Instagram, WhatsApp, and Messenger accounts</i></p>
+</div>
+
+---
+
 ## Table of Contents
 
 - [Why SocialSync AI?](#why-socialsync-ai)

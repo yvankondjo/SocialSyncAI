@@ -210,5 +210,3 @@ You are free to use, modify, and distribute this software for commercial or non-
 - 📖 Read the [full documentation](docs/)
 - 🐛 Report bugs via [GitHub Issues](https://github.com/YOUR_USERNAME/SocialSyncAI/issues)
 - 💬 Join discussions in [GitHub Discussions](https://github.com/YOUR_USERNAME/SocialSyncAI/discussions)
-
-**Built with ❤️ by the open source community.**

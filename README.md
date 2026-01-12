@@ -13,14 +13,8 @@ SocialSync AI helps businesses automate social media customer support across Ins
 ## 🎥 Demo Video
 
 <div align="center">
-  
-  [![Watch the demo](https://img.shields.io/badge/▶️_Watch_Demo_Video-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](docs/videos/Project_SocialsyncAI_video.mp4)
-  
 
 https://github.com/user-attachments/assets/ab161a0a-821e-4aa2-ade4-f8633ca9c85b
-
-
-  <p><i>Click to watch the full demo (or drag & drop the video from docs/videos/ into this README on GitHub to embed it)</i></p>
   
 </div>
 

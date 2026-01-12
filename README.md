@@ -12,11 +12,11 @@ SocialSync AI helps businesses automate social media customer support across Ins
 
 ## 🎥 Demo Video
 
-Watch SocialSync AI in action:
-
-https://github.com/user-attachments/assets/docs/videos/Project_SocialsyncAI_video.mp4
-
-> **Note:** The video is located in `docs/videos/Project_SocialsyncAI_video.mp4`. Once pushed to GitHub, update the URL above with the auto-generated GitHub assets link.
+<div align="center">
+  <video src="docs/videos/Project_SocialsyncAI_video.mp4" controls width="800">
+    Your browser does not support the video tag.
+  </video>
+</div>
 
 ---
 

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Progress } from "@/components/ui/progress"
 import {
+  BarChart,
   LineChart,
   Line,
   Bar,
@@ -21,7 +22,7 @@ import {
   ResponsiveContainer,
 } from "recharts"
 import {
-  ChevronUp,
+  Plus as TrendingUp,
   User,
   Clock,
   Plus,
@@ -210,7 +211,7 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Resolution Rate</CardTitle>
-            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{kpiData.resolutionRate.value}</div>
@@ -260,7 +261,7 @@ export default function AnalyticsPage() {
           <CardContent>
             <div className="h-[300px] bg-muted rounded-lg flex items-center justify-center">
               <div className="text-center text-muted-foreground">
-                <ChevronUp className="w-12 h-12 mx-auto mb-4" />
+                <TrendingUp className="w-12 h-12 mx-auto mb-4" />
                 <p>Graphique de conversations</p>
                 <p className="text-sm">Bientôt disponible</p>
               </div>
@@ -299,7 +300,9 @@ export default function AnalyticsPage() {
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  label={({ name, percent }: { name: string; percent?: number }) =>
+                    `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
+                  }
                   outerRadius={80}
                   fill="#8884d8"
                   dataKey="value"

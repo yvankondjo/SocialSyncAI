@@ -2,7 +2,7 @@
 
 **Get SocialSync AI running in 15 minutes.**
 
-This guide walks you through installing and running SocialSync AI on your local machine using Docker.
+This guide walks you through installing and running SocialSync AI locally from the current repository contents.
 
 ---
 
@@ -12,7 +12,7 @@ This guide walks you through installing and running SocialSync AI on your local 
 - [Prerequisites](#prerequisites)
 - [Step 1: Clone the repository](#step-1-clone-the-repository)
 - [Step 2: Configure environment variables](#step-2-configure-environment-variables)
-- [Step 3: Start services with Docker](#step-3-start-services-with-docker)
+- [Step 3: Install dependencies](#step-3-install-dependencies)
 - [Step 4: Access the application](#step-4-access-the-application)
 - [Next steps](#next-steps)
 - [Troubleshooting](#troubleshooting)
@@ -25,10 +25,10 @@ After completing this guide, you'll have:
 - ✅ SocialSync AI running locally on your machine
 - ✅ Frontend accessible at `http://localhost:3000`
 - ✅ Backend API running at `http://localhost:8000`
-- ✅ Celery workers processing background tasks
-- ✅ Redis handling message queuing
+- ✅ A reproducible backend and frontend setup
+- ✅ A clear path to start optional Redis and Celery services
 
-**Note:** This quick start uses minimal configuration. You'll need to configure external services (Supabase, Meta platforms) separately to enable full features.
+**Important:** the repository does not currently ship a root `docker-compose.yml`. This guide reflects the actual, repo-backed local workflow.
 
 ---
 
@@ -38,14 +38,16 @@ After completing this guide, you'll have:
 
 | Software | Minimum Version | Download |
 |----------|----------------|----------|
-| Docker | 20.10+ | [docker.com](https://www.docker.com/get-started) |
-| Docker Compose | 2.0+ | Included with Docker Desktop |
+| Python | 3.12+ | [python.org](https://www.python.org/downloads/) |
+| Node.js | 18+ | [nodejs.org](https://nodejs.org/) |
+| npm | 9+ | Included with Node.js |
 | Git | Any recent version | [git-scm.com](https://git-scm.com/) |
 
 **Check if installed:**
 ```bash
-docker --version
-docker-compose --version
+python --version
+node --version
+npm --version
 git --version
 ```
 
@@ -58,7 +60,7 @@ git --version
 Open your terminal and run:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/SocialSyncAI.git
+git clone https://github.com/yvankondjo/SocialSyncAI.git
 cd SocialSyncAI
 ```
 
@@ -78,64 +80,68 @@ cp backend/.env.example backend/.env
 **Frontend configuration:**
 
 ```bash
-# Copy the example environment file
-cp frontend/.env.example frontend/.env
+cp frontend/.env.example frontend/.env.local
 ```
 
 **What these files contain:**
 
 The `.env.example` files have placeholder values for all required configuration. The application will start with these defaults, but many features won't work until you add real credentials.
 
-**Required for basic functionality:**
+**Required for a successful backend startup:**
 - `SUPABASE_URL` - Database connection
 - `SUPABASE_SERVICE_ROLE_KEY` - Database admin access
-- `REDIS_URL` - Message queue connection
+- `SUPABASE_ANON_KEY` - User-scoped access
+- `SUPABASE_JWT_SECRET` - Token validation
 
 See [Environment Variables Guide](environment-variables.md) for complete configuration reference.
 
 ---
 
-## Step 3: Start services with Docker
+## Step 3: Install dependencies
 
-**Start all services:**
-
-```bash
-docker-compose up --build
-```
-
-**What this command does:**
-1. Builds Docker images for backend, frontend, and workers
-2. Starts PostgreSQL, Redis, and all application services
-3. Connects everything together on a shared network
-
-**First run takes 5-10 minutes** to download images and install dependencies.
-
-**You'll see logs from multiple services:**
-- `backend_1` - FastAPI server logs
-- `frontend_1` - Next.js build and server logs
-- `celery_1` - Celery worker logs
-- `redis_1` - Redis server logs
-
-**Run in background (detached mode):**
+Install backend dependencies:
 
 ```bash
-docker-compose up -d
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 ```
 
-**View logs:**
+Install frontend dependencies:
 
 ```bash
-docker-compose logs -f
+cd frontend
+npm ci
+cd ..
 ```
 
----
+Start the backend:
+
+```bash
+uvicorn app.main:app --reload --app-dir backend
+```
+
+Start the frontend in a second terminal:
+
+```bash
+cd frontend
+npm run dev
+```
+
+Optional local quality checks:
+
+```bash
+pytest
+cd frontend && npm run lint && npm run typecheck && npm run test
+```
+
+Optional worker stack after Redis is available:
+
+```bash
+celery -A app.workers.celery_app.celery worker --workdir backend --loglevel=info
+```
 
 ## Step 4: Access the application
-
-**Wait for startup:** Look for these messages in logs:
-- ✅ `frontend_1` - "Ready on http://localhost:3000"
-- ✅ `backend_1` - "Application startup complete"
-- ✅ `celery_1` - "celery@worker ready"
 
 **Open in your browser:**
 
@@ -152,7 +158,7 @@ docker-compose logs -f
 curl http://localhost:8000/health
 ```
 
-Expected response: `{"status":"healthy"}`
+Expected response: `{"status":"ok","service":"socialsyncai-api",...}`
 
 ---
 
@@ -224,93 +230,24 @@ See [Configure Supabase](../configuration/supabase.md) for detailed instructions
 
 ## Troubleshooting
 
-### Port conflicts
+### Missing environment variables
 
-**Error:** `Bind for 0.0.0.0:3000 failed: port is already allocated`
+**Error:** `Missing required environment variables`
 
-**Solution:** Another service is using port 3000, 8000, or 6379.
+**Solution:** complete `backend/.env` with real Supabase values before starting FastAPI.
 
-Stop the conflicting service or change ports in `docker-compose.yml`:
+### Frontend lint asks to initialize ESLint
 
-```yaml
-frontend:
-  ports:
-    - "3001:3000"  # Changed from 3000:3000
-```
-
-### Docker daemon not running
-
-**Error:** `Cannot connect to the Docker daemon`
-
-**Solution:** Start Docker Desktop or Docker service:
-
-**macOS/Windows:** Open Docker Desktop application
-
-**Linux:**
-```bash
-sudo systemctl start docker
-```
-
-### Build failures
-
-**Error:** `failed to solve with frontend dockerfile.v0`
-
-**Solution:** Ensure Docker has enough resources:
-
-1. Open Docker Desktop → Settings → Resources
-2. Increase Memory to at least 4GB
-3. Increase Disk to at least 20GB
-4. Click "Apply & Restart"
-
-### Missing dependencies
-
-**Error:** `Module not found: Can't resolve 'package-name'`
-
-**Solution:** Rebuild with no cache:
+**Solution:** use the committed ESLint CLI config and run:
 
 ```bash
-docker-compose down
-docker-compose build --no-cache
-docker-compose up
+cd frontend
+npm run lint
 ```
 
-### Check service status
+### Missing Redis
 
-**List running containers:**
-
-```bash
-docker-compose ps
-```
-
-**View logs for specific service:**
-
-```bash
-docker-compose logs backend
-docker-compose logs frontend
-docker-compose logs celery
-```
-
-**Restart a specific service:**
-
-```bash
-docker-compose restart backend
-```
-
----
-
-## Stopping the application
-
-**Stop all services:**
-
-```bash
-docker-compose down
-```
-
-**Stop and remove volumes (warning: deletes data):**
-
-```bash
-docker-compose down -v
-```
+Some features degrade without Redis. You can still boot the API, but readiness will report Redis as degraded until it is reachable.
 
 ---
 

@@ -1,16 +1,20 @@
 import logging
 import os
 from contextlib import AsyncExitStack
-from typing import Optional
+from typing import Any, Optional
 
 from dotenv import load_dotenv
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+try:
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+except ModuleNotFoundError:  # pragma: no cover - depends on optional local install
+    AsyncPostgresSaver = None  # type: ignore[assignment]
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-_checkpointer_instance: Optional[AsyncPostgresSaver] = None
+_checkpointer_instance: Optional[Any] = None
 _checkpointer_exit_stack: Optional[AsyncExitStack] = None
 
 
@@ -46,12 +50,16 @@ def _get_postgres_connection_string() -> str:
     return f"postgresql://{user}:{password}@{host}:{port}/{dbname}?sslmode=require"
 
 
-async def _init_postgres_checkpointer() -> AsyncPostgresSaver:
+async def _init_postgres_checkpointer() -> Any:
     """Initialize an AsyncPostgresSaver using the official factory."""
 
-    conn_string = _get_postgres_connection_string()
-    stack = AsyncExitStack()
+    if AsyncPostgresSaver is None:
+        raise RuntimeError(
+            "langgraph-checkpoint-postgres is not installed. "
+            "Install backend requirements before using the PostgreSQL checkpointer."
+        )
 
+    conn_string = _get_postgres_connection_string()
     stack = AsyncExitStack()
 
     try:
@@ -77,7 +85,7 @@ async def _init_postgres_checkpointer() -> AsyncPostgresSaver:
         raise
 
 
-async def get_checkpointer() -> AsyncPostgresSaver:
+async def get_checkpointer() -> Any:
     """Get the checkpointer instance, initializing it if necessary."""
 
     global _checkpointer_instance

@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![Next.js 14](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org/)
+[![Next.js 15](https://img.shields.io/badge/Next.js-15-black)](https://nextjs.org/)
 
 SocialSync AI helps businesses automate social media customer support across Instagram, WhatsApp, and Messenger using AI-powered agents with knowledge base integration.
 
@@ -64,7 +64,7 @@ Social media messages and comments require constant monitoring and quick respons
 - **Vector search**: Fast semantic search using PostgreSQL pgvector
 - **FAQ management**: Create and manage frequently asked questions
 
-### � Comment Monitoring
+### Comment Monitoring
 - **Auto-moderation**: Automatically monitor and respond to Instagram comments
 - **Smart triage**: AI determines which comments need responses
 - **Import posts**: Import existing Instagram posts for monitoring
@@ -78,40 +78,48 @@ Social media messages and comments require constant monitoring and quick respons
 
 ## Quick Start
 
-**Prerequisites:** Docker and Docker Compose installed on your machine.
+**Prerequisites:** Python 3.12+, Node.js 18+, npm, and real credentials for Supabase plus the external services you want to enable.
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/SocialSyncAI.git
+git clone https://github.com/yvankondjo/SocialSyncAI.git
 cd SocialSyncAI
 
-# Copy environment files
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
+# Backend setup
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 
-# Start all services (backend, frontend, Redis, Celery workers)
-docker-compose up --build
+# Frontend setup
+cd frontend
+npm ci
+cd ..
 ```
 
-**Set up the database:**
+**Configure environment files:**
 
 ```bash
-# Install Supabase CLI
-npm install -g supabase
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
+```
 
-# Link to your Supabase project (create one at supabase.com first)
-npx supabase link --project-ref <your-project-id>
+Then launch the backend and frontend in separate terminals:
 
-# Apply all database migrations
-npx supabase db push
+```bash
+uvicorn app.main:app --reload --app-dir backend
+```
+
+```bash
+cd frontend
+npm run dev
 ```
 
 **Open your browser:**
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API Documentation: http://localhost:8000/docs
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:8000`
+- API Documentation: `http://localhost:8000/docs`
 
-**Next steps:** See [Getting Started Guide](docs/getting-started/quick-start.md) for detailed setup including Supabase credentials, Meta platforms, and AI provider configuration.
+**Next steps:** See [Getting Started Guide](docs/getting-started/quick-start.md) for the exact local workflow, checks, and credential setup.
 
 ---
 
@@ -135,7 +143,7 @@ npx supabase db push
 ## Tech Stack
 
 **Frontend**
-- **Next.js 14** (App Router) - React framework with server components
+- **Next.js 15** (App Router) - React framework with server components
 - **TypeScript** - Type-safe JavaScript
 - **Tailwind CSS** + shadcn/ui - Styling and component library
 - **Supabase Auth** - JWT-based authentication
@@ -163,7 +171,7 @@ We welcome contributions from the community!
 
 **Before contributing:**
 1. Read the [Contributing Guide](CONTRIBUTING.md)
-2. Check [open issues](https://github.com/YOUR_USERNAME/SocialSyncAI/issues)
+2. Check [open issues](https://github.com/yvankondjo/SocialSyncAI/issues)
 3. Fork the repository and create a feature branch
 
 **Areas where we need help:**
@@ -208,5 +216,5 @@ You are free to use, modify, and distribute this software for commercial or non-
 
 **Need help?**
 - 📖 Read the [full documentation](docs/)
-- 🐛 Report bugs via [GitHub Issues](https://github.com/YOUR_USERNAME/SocialSyncAI/issues)
-- 💬 Join discussions in [GitHub Discussions](https://github.com/YOUR_USERNAME/SocialSyncAI/discussions)
+- 🐛 Report bugs via [GitHub Issues](https://github.com/yvankondjo/SocialSyncAI/issues)
+- 💬 Join discussions in [GitHub Discussions](https://github.com/yvankondjo/SocialSyncAI/discussions)
